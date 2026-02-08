@@ -1,0 +1,6 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, Arial, sans-serif; background: #0B0B0B; color: #F2F2F2; }
+input, select, textarea, button { font: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
+table td, table th { border-bottom: 1px solid #333; text-align: left; padding: 8px; }
