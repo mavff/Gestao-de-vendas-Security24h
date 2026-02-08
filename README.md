@@ -2,15 +2,6 @@
 
 Monorepo com backend NestJS + mobile React Native CLI + web admin Next.js, com identidade visual Security24h (preto/dourado/cinza).
 
-## Resumo do mapeamento do legado (`tabelas.md`)
-- **Auth**: tabela `Senhas` (`IDUsuário`, `Usuário`, `Senhasis`, `Identificação`, `UsuárioInativo`).
-- **Leads**: tabela `Prospects` (`CodProspect`, `Nome`, `Email`, `Fone1`, `Cidade`, `Estado`, `Origem`, `Status`, `DataCadastro`, `Usuário`).
-- **Timeline**: tabela `ProspectsAçãoVendas` (`CodAção`, `CodProspect`, `Data`, `Hora`, `Descrição`, `Ação`, `Vendedor`).
-- **Orçamentos**: tabela `Orçamentos` (`CodInterno`, `ClienteNome`, `Prospect`, `Status`, `Emissão`, `Usuário`, `Observações`, `TotalProdutos`, `TotalServiços`).
-- **Itens de orçamento**: tabela `OrçamentosProdutos` (`CodInterno`, `Planílha`, `CodProduto`, `Descrição`, `Quantidade`, `Unitário`, `Total`).
-
-> Não há migrations alterando schema legado (`synchronize: false`).
-
 ## Estrutura
 
 ```txt
@@ -18,24 +9,15 @@ apps/
   backend/
   mobile/
   web/
+    app/
+    src/
+      components/
+      mocks/
+      modules/
+      services/
 packages/
   shared/
 ```
-
-## Segurança
-- SQL Server legado **não é exposto na internet**; apenas API Nest acessa o banco.
-- Usar VPN/Zero Trust para acesso interno ao SQL Server.
-- JWT Access + Refresh implementado.
-- RBAC com perfis: `ADMIN`, `SDR`, `VENDEDOR`, `TECNICO`, `INFRA`, `MONITOR`.
-- Helmet, rate limit, validação DTO e logs estruturados JSON.
-
-## Variáveis de ambiente
-
-### Backend (`apps/backend/.env`)
-Copie de `apps/backend/.env.example` e configure credenciais reais on-prem.
-
-### Mobile (`apps/mobile/.env`)
-Copie de `apps/mobile/.env.example` e ajuste `API_BASE_URL`.
 
 ## Como rodar
 
@@ -49,35 +31,33 @@ npm install
 npm run dev:backend
 ```
 
-### 3) Mobile Android
+### 3) Mobile
 ```bash
 npm run dev:mobile
-npm --workspace @security24h/mobile run android
 ```
 
-### 4) Mobile iOS
-```bash
-npm --workspace @security24h/mobile run ios
-```
-
-### 5) Web admin
+### 4) Web Admin (Security24h Admin)
 ```bash
 npm run dev:web
 ```
+Acesse `http://localhost:3000`.
 
-### 6) Docker Compose (backend)
-```bash
-docker compose up backend
-```
+## Modo Mock do Frontend Admin
 
-## Endpoints MVP
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `GET /me`
-- `POST /leads`
-- `GET /leads`
-- `GET /leads/:id`
-- `POST /leads/:id/timeline`
-- `POST /quotes`
-- `POST /quotes/:id/items`
-- `GET /quotes/:id`
+O frontend web está em MVP funcional, **sem backend real**. Todos os módulos usam mocks + persistência no `localStorage`:
+
+- `src/mocks/dashboard.ts`: dados dos gráficos.
+- `src/mocks/data.ts`: entidades de leads, usuários, missões, instalações, equipamentos e kits.
+- `src/services/mockStorage.ts`: leitura/escrita de estado mock no navegador.
+
+### Módulos disponíveis no Admin
+- **Dashboard**: funil, linha semanal, barra por vendedor e donut por origem.
+- **Kanban**: drag and drop, filtros, cards completos e drawer de detalhe (timeline/notas/anexos/edição rápida).
+- **Usuários**: CRUD mock com roles e status.
+- **Missões**: lista + board por status.
+- **Instalações**: lista e detalhe com pontos de instalação, fluxo vendedor/técnico e upload mock de fotos com preview.
+- **Equipamentos**: catálogo por categorias.
+- **Kits**: montagem de kit e vínculo com lead/venda.
+
+### Resetar dados mock
+No browser, limpe o `localStorage` para voltar ao estado inicial dos mocks.

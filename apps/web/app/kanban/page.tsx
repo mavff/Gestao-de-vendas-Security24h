@@ -1,5 +1,5 @@
 import { KanbanPage } from '../../src/modules/kanban/KanbanPage';
 
-export default function LeadsPage() {
+export default function Page() {
   return <KanbanPage />;
 }
