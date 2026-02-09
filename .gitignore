@@ -8,3 +8,6 @@ coverage
 .DS_Store
 android/.gradle
 ios/Pods
+.next/
+out/
+NUL

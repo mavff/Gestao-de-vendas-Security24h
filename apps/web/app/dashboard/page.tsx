@@ -1,3 +1,6 @@
-export default function DashboardPage() {
-  return <div style={{ padding: 24 }}><h2 style={{ color: '#C8A951' }}>Dashboard</h2><p>KPIs em desenvolvimento.</p></div>;
+import { ProtectedRoute } from '../../src/components/layout/ProtectedRoute';
+import { DashboardPage } from '../../src/modules/dashboard/DashboardPage';
+
+export default function Page() {
+  return <ProtectedRoute><DashboardPage /></ProtectedRoute>;
 }
