@@ -15,7 +15,9 @@ export type Lead = {
   attachments: { id: string; name: string; url?: string }[];
 };
 
-export type User = { id: string; name: string; role: 'ADMIN' | 'SDR' | 'VENDEDOR' | 'TECNICO'; status: 'ativo' | 'inativo' };
+export type UserRole = 'ADMIN' | 'SDR' | 'VENDEDOR' | 'TECNICO' | 'INFRA' | 'MONITOR';
+
+export type User = { id: string; name: string; role: UserRole; status: 'ativo' | 'inativo' };
 
 export type Mission = { id: string; title: string; assignedTo: string; status: 'Pendente' | 'Em andamento' | 'Concluída'; dueDate: string };
 

@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useCallback, useContext, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, useState, ReactNode } from 'react';
 
 type DragEndEvent = { active: { id: string | number }; over: { id: string | number } | null };
 
@@ -69,19 +69,36 @@ export function useDroppable({ id }: { id: string | number }) {
 
 export function useDraggable({ id }: { id: string | number }) {
   const ctx = useContext(Ctx);
+  const nodeRef = useRef<HTMLElement | null>(null);
+
+  const setNodeRef = useCallback((node: HTMLElement | null) => {
+    nodeRef.current = node;
+    if (node) {
+      node.style.transition = 'transform 150ms ease, opacity 150ms ease';
+    }
+  }, []);
 
   return {
     attributes: { draggable: true },
     listeners: {
       onDragStart: () => {
         ctx.setActiveId(id);
+        if (nodeRef.current) {
+          nodeRef.current.style.opacity = '0.5';
+          nodeRef.current.style.transform = 'scale(1.03)';
+        }
       },
       onDragEnd: () => {
+        if (nodeRef.current) {
+          nodeRef.current.style.opacity = '1';
+          nodeRef.current.style.transform = '';
+        }
         ctx.setActiveId(null);
         ctx.setOverId(null);
       },
     },
-    setNodeRef: (_node: HTMLElement | null) => {},
+    setNodeRef,
     transform: null as { x: number; y: number } | null,
+    isDragging: ctx.activeId === id,
   };
 }

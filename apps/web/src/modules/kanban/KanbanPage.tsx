@@ -9,6 +9,7 @@ import { loadMock, saveMock } from '../../services/mockStorage';
 import { Lead, LeadStage } from '../../types';
 
 const stages: LeadStage[] = ['Novo', 'Contato', 'Proposta', 'Negociação', 'Fechado'];
+const origins: Lead['origin'][] = ['Site', 'Indicação', 'Campanha', 'WhatsApp'];
 
 export function KanbanPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -16,6 +17,7 @@ export function KanbanPage() {
   const [search, setSearch] = useState('');
   const [responsible, setResponsible] = useState('todos');
   const [origin, setOrigin] = useState('todos');
+  const [showInlineForm, setShowInlineForm] = useState(false);
 
   useEffect(() => {
     setLeads(loadMock('mock_leads', mockLeads));
@@ -48,6 +50,11 @@ export function KanbanPage() {
     setSelectedLead(updated);
   }
 
+  function createLead(newLead: Lead) {
+    setLeads((current) => [...current, newLead]);
+    setShowInlineForm(false);
+  }
+
   return (
     <AppShell title="Kanban de Leads">
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -63,12 +70,36 @@ export function KanbanPage() {
             return (
               <DropColumn key={stage} stage={stage}>
                 <h4 style={{ margin: 0, color: theme.gold }}>{stage}</h4>
-                <small style={{ color: theme.muted }}>{stageLeads.length} leads · R$ {total.toLocaleString('pt-BR')}</small>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <span style={{ background: theme.soft, borderRadius: 6, padding: '2px 8px', fontSize: 12, color: theme.muted }}>{stageLeads.length} leads</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: theme.text }}>R$ {total.toLocaleString('pt-BR')}</span>
+                </div>
                 <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
                   {stageLeads.map((lead) => (
                     <DraggableLead key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} />
                   ))}
                 </div>
+                {stage === 'Novo' && !showInlineForm && (
+                  <button
+                    onClick={() => setShowInlineForm(true)}
+                    style={{
+                      marginTop: 10,
+                      width: '100%',
+                      padding: '8px 0',
+                      background: 'transparent',
+                      border: `2px dashed ${theme.gold}`,
+                      borderRadius: 8,
+                      color: theme.gold,
+                      fontSize: 18,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    +
+                  </button>
+                )}
+                {stage === 'Novo' && showInlineForm && (
+                  <InlineLeadForm onCreate={createLead} onCancel={() => setShowInlineForm(false)} />
+                )}
               </DropColumn>
             );
           })}
@@ -83,14 +114,24 @@ export function KanbanPage() {
 function DropColumn({ stage, children }: { stage: LeadStage; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   return (
-    <div ref={setNodeRef} style={{ background: theme.panel, border: `1px solid ${isOver ? theme.gold : theme.border}`, borderRadius: 12, padding: 10 }}>
+    <div
+      ref={setNodeRef}
+      style={{
+        background: isOver ? '#1a1a10' : theme.panel,
+        border: `1px solid ${isOver ? theme.gold : theme.border}`,
+        borderRadius: 12,
+        padding: 10,
+        boxShadow: isOver ? 'inset 0 0 12px rgba(200,169,81,0.15)' : 'none',
+        transition: 'all 200ms ease',
+      }}
+    >
       {children}
     </div>
   );
 }
 
 function DraggableLead({ lead, onClick }: { lead: Lead; onClick: () => void }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: lead.id });
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id });
   return (
     <div
       ref={setNodeRef}
@@ -104,6 +145,9 @@ function DraggableLead({ lead, onClick }: { lead: Lead; onClick: () => void }) {
         padding: 10,
         cursor: 'grab',
         transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+        opacity: isDragging ? 0.6 : 1,
+        boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.4)' : 'none',
+        transition: 'box-shadow 150ms ease, opacity 150ms ease',
       }}
     >
       <strong>{lead.name}</strong>
@@ -112,6 +156,55 @@ function DraggableLead({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       <div style={{ fontSize: 12, color: theme.gold }}>{lead.responsible} · {lead.origin}</div>
     </div>
   );
+}
+
+function InlineLeadForm({ onCreate, onCancel }: { onCreate: (lead: Lead) => void; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
+  const [value, setValue] = useState(0);
+  const [leadOrigin, setLeadOrigin] = useState<Lead['origin']>('Site');
+
+  function handleSubmit() {
+    if (!name.trim()) return;
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const newLead: Lead = {
+      id: 'L' + Date.now(),
+      name: name.trim(),
+      company,
+      value,
+      stage: 'Novo',
+      responsible: 'Paula',
+      origin: leadOrigin,
+      week: 'Sem 1',
+      status: 'ativo',
+      notes: [],
+      timeline: [{ id: 't' + Date.now(), date: dateStr, text: 'Lead cadastrado' }],
+      attachments: [],
+    };
+    onCreate(newLead);
+  }
+
+  return (
+    <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+      <input placeholder="Nome *" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+      <input placeholder="Empresa" value={company} onChange={(e) => setCompany(e.target.value)} style={inputStyle} />
+      <input placeholder="Valor" type="number" value={value || ''} onChange={(e) => setValue(Number(e.target.value))} style={inputStyle} />
+      <select value={leadOrigin} onChange={(e) => setLeadOrigin(e.target.value as Lead['origin'])} style={inputStyle}>
+        {origins.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={handleSubmit} style={btnStyle}>Criar</button>
+        <button onClick={onCancel} style={{ ...btnStyle, background: theme.soft, color: theme.text }}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function formatDate(iso: string): string {
+  const parts = iso.split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return iso;
 }
 
 function LeadDetail({ lead, onClose, onSave }: { lead: Lead; onClose: () => void; onSave: (lead: Lead) => void }) {
@@ -126,7 +219,32 @@ function LeadDetail({ lead, onClose, onSave }: { lead: Lead; onClose: () => void
       <label>Valor</label><input style={inputStyle} type="number" value={draft.value} onChange={(e) => setDraft({ ...draft, value: Number(e.target.value) })} />
       <label>Etapa</label><select style={inputStyle} value={draft.stage} onChange={(e) => setDraft({ ...draft, stage: e.target.value as LeadStage })}>{stages.map((s) => <option key={s}>{s}</option>)}</select>
       <h4>Timeline</h4>
-      <ul>{draft.timeline.map((item) => <li key={item.id}>{item.date} · {item.text}</li>)}</ul>
+      <div style={{ position: 'relative', paddingLeft: 20 }}>
+        {draft.timeline.map((item, i) => (
+          <div key={item.id} style={{ position: 'relative', paddingBottom: i < draft.timeline.length - 1 ? 16 : 0 }}>
+            <div style={{
+              position: 'absolute',
+              left: -16,
+              top: 4,
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: theme.gold,
+            }} />
+            {i < draft.timeline.length - 1 && (
+              <div style={{
+                position: 'absolute',
+                left: -12,
+                top: 16,
+                bottom: 0,
+                borderLeft: `2px solid ${theme.border}`,
+              }} />
+            )}
+            <div style={{ fontSize: 12, color: theme.muted }}>{formatDate(item.date)}</div>
+            <div style={{ fontSize: 14 }}>{item.text}</div>
+          </div>
+        ))}
+      </div>
       <h4>Notas</h4>
       <ul>{draft.notes.map((note) => <li key={note}>{note}</li>)}</ul>
       <h4>Anexos</h4>

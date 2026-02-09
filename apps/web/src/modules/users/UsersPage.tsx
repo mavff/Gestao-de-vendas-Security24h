@@ -28,7 +28,7 @@ export function UsersPage() {
       {modalOpen && <div style={{ position: 'fixed', inset: 0, background: '#000a', display: 'grid', placeItems: 'center' }}><div style={{ background: theme.panel, padding: 16, borderRadius: 12, width: 360 }}>
         <h3>Usuário</h3>
         <input style={inputStyle} placeholder="Nome" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-        <select style={inputStyle} value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value as User['role'] })}><option>ADMIN</option><option>SDR</option><option>VENDEDOR</option><option>TECNICO</option></select>
+        <select style={inputStyle} value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value as User['role'] })}><option>ADMIN</option><option>SDR</option><option>VENDEDOR</option><option>TECNICO</option><option>INFRA</option><option>MONITOR</option></select>
         <select style={inputStyle} value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value as User['status'] })}><option>ativo</option><option>inativo</option></select>
         <button onClick={save}>Salvar</button> <button onClick={() => setModalOpen(false)}>Cancelar</button>
       </div></div>}

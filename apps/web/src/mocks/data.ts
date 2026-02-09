@@ -1,11 +1,56 @@
 import { Equipment, Installation, Kit, Lead, Mission, User } from '../types';
 
 export const mockLeads: Lead[] = [
-  { id: 'L1', name: 'Carlos Silva', company: 'Mercado Alfa', value: 12500, stage: 'Novo', responsible: 'Paula', origin: 'Site', week: 'Sem 1', status: 'ativo', notes: ['Cliente pediu contato à tarde.'], timeline: [{ id: 't1', date: '2026-01-02', text: 'Lead cadastrado' }], attachments: [] },
-  { id: 'L2', name: 'Fernanda Gomes', company: 'Condomínio Sol', value: 28300, stage: 'Contato', responsible: 'Marcos', origin: 'Indicação', week: 'Sem 2', status: 'ativo', notes: ['Interesse em monitoramento 24h.'], timeline: [{ id: 't2', date: '2026-01-04', text: 'Primeira ligação concluída' }], attachments: [] },
-  { id: 'L3', name: 'Ricardo Moraes', company: 'Loja Beta', value: 18400, stage: 'Proposta', responsible: 'João', origin: 'Campanha', week: 'Sem 3', status: 'ativo', notes: ['Aguardando aprovação financeira.'], timeline: [{ id: 't3', date: '2026-01-07', text: 'Proposta enviada' }], attachments: [] },
-  { id: 'L4', name: 'Ana Beatriz', company: 'Residencial Vita', value: 9800, stage: 'Negociação', responsible: 'Nina', origin: 'WhatsApp', week: 'Sem 4', status: 'ativo', notes: ['Solicitou desconto de 5%.'], timeline: [{ id: 't4', date: '2026-01-09', text: 'Reunião comercial realizada' }], attachments: [] },
-  { id: 'L5', name: 'Luan Costa', company: 'Auto Center X', value: 32200, stage: 'Fechado', responsible: 'Paula', origin: 'Site', week: 'Sem 5', status: 'ativo', notes: ['Contrato assinado.'], timeline: [{ id: 't5', date: '2026-01-11', text: 'Venda fechada' }], attachments: [] },
+  {
+    id: 'L1', name: 'Carlos Silva', company: 'Mercado Alfa', value: 12500, stage: 'Novo', responsible: 'Paula', origin: 'Site', week: 'Sem 1', status: 'ativo',
+    notes: ['Cliente pediu contato à tarde.'],
+    timeline: [
+      { id: 't1a', date: '2026-01-02', text: 'Lead cadastrado' },
+      { id: 't1b', date: '2026-01-03', text: 'E-mail de boas-vindas enviado' },
+      { id: 't1c', date: '2026-01-05', text: 'Ligação agendada' },
+    ],
+    attachments: [],
+  },
+  {
+    id: 'L2', name: 'Fernanda Gomes', company: 'Condomínio Sol', value: 28300, stage: 'Contato', responsible: 'Marcos', origin: 'Indicação', week: 'Sem 2', status: 'ativo',
+    notes: ['Interesse em monitoramento 24h.'],
+    timeline: [
+      { id: 't2a', date: '2026-01-04', text: 'Lead cadastrado' },
+      { id: 't2b', date: '2026-01-06', text: 'Primeira ligação concluída' },
+      { id: 't2c', date: '2026-01-08', text: 'Visita técnica agendada' },
+    ],
+    attachments: [],
+  },
+  {
+    id: 'L3', name: 'Ricardo Moraes', company: 'Loja Beta', value: 18400, stage: 'Proposta', responsible: 'João', origin: 'Campanha', week: 'Sem 3', status: 'ativo',
+    notes: ['Aguardando aprovação financeira.'],
+    timeline: [
+      { id: 't3a', date: '2026-01-05', text: 'Lead cadastrado via campanha' },
+      { id: 't3b', date: '2026-01-07', text: 'Reunião de apresentação' },
+      { id: 't3c', date: '2026-01-09', text: 'Proposta enviada' },
+    ],
+    attachments: [],
+  },
+  {
+    id: 'L4', name: 'Ana Beatriz', company: 'Residencial Vita', value: 9800, stage: 'Negociação', responsible: 'Nina', origin: 'WhatsApp', week: 'Sem 4', status: 'ativo',
+    notes: ['Solicitou desconto de 5%.'],
+    timeline: [
+      { id: 't4a', date: '2026-01-06', text: 'Lead cadastrado via WhatsApp' },
+      { id: 't4b', date: '2026-01-09', text: 'Reunião comercial realizada' },
+      { id: 't4c', date: '2026-01-12', text: 'Contraproposta recebida' },
+    ],
+    attachments: [],
+  },
+  {
+    id: 'L5', name: 'Luan Costa', company: 'Auto Center X', value: 32200, stage: 'Fechado', responsible: 'Paula', origin: 'Site', week: 'Sem 5', status: 'ativo',
+    notes: ['Contrato assinado.'],
+    timeline: [
+      { id: 't5a', date: '2026-01-08', text: 'Lead cadastrado' },
+      { id: 't5b', date: '2026-01-11', text: 'Proposta aprovada' },
+      { id: 't5c', date: '2026-01-14', text: 'Venda fechada — contrato assinado' },
+    ],
+    attachments: [],
+  },
 ];
 
 export const mockUsers: User[] = [
@@ -13,6 +58,8 @@ export const mockUsers: User[] = [
   { id: 'U2', name: 'Paula Vendas', role: 'VENDEDOR', status: 'ativo' },
   { id: 'U3', name: 'Marcos SDR', role: 'SDR', status: 'ativo' },
   { id: 'U4', name: 'Téc. Bruno', role: 'TECNICO', status: 'inativo' },
+  { id: 'U5', name: 'Rafael Infra', role: 'INFRA', status: 'ativo' },
+  { id: 'U6', name: 'Carla Monitor', role: 'MONITOR', status: 'ativo' },
 ];
 
 export const mockMissions: Mission[] = [
