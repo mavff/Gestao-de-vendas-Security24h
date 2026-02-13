@@ -144,6 +144,168 @@ model DadoEntidade {
 }
 
 // ============================================================
+// Orçamentos (Quotes)
+// ============================================================
+
+model Orcamento {
+  codInterno          Int       @id @map("CodInterno")
+  numOrcamento        Int?      @map("NumOrçamento")
+  clienteNome         String?   @map("ClienteNome") @db.NVarChar(200)
+  cgcCpf              String?   @map("CGCCPF") @db.NVarChar(20)
+  endereco            String?   @map("Endereço") @db.NVarChar(200)
+  bairro              String?   @map("Bairro") @db.NVarChar(100)
+  cidade              String?   @map("Cidade") @db.NVarChar(100)
+  uf                  String?   @map("UF") @db.NVarChar(2)
+  cep                 String?   @map("CEP") @db.NVarChar(10)
+  fone                String?   @map("Fone") @db.NVarChar(50)
+  email               String?   @map("Email") @db.NVarChar(200)
+  cliente             Int?      @map("Cliente")
+  prospect            Int?      @map("Prospect")
+  empresa             Int?      @map("Empresa")
+  vendedor            Int?      @map("Vendedor")
+  usuario             String?   @map("Usuário") @db.NVarChar(50)
+  emissao             DateTime? @map("Emissão") @db.DateTime
+  validade            DateTime? @map("Validade") @db.DateTime
+  fechamento          DateTime? @map("Fechamento") @db.DateTime
+  liberacao           DateTime? @map("Liberação") @db.DateTime
+  encerramento        DateTime? @map("Encerramento") @db.DateTime
+  dataCancelamento    DateTime? @map("DataCancelamento") @db.DateTime
+  formaPagto          Int?      @map("FormaPagto")
+  condicaoPagto       Int?      @map("CondiçãoPagto")
+  status              String    @default("A") @map("Status") @db.Char(1)
+  modalidade          String?   @map("Modalidade") @db.Char(1)
+  pontos              Int?      @map("Pontos")
+  pDesconto           Decimal?  @map("PDesconto") @db.Decimal(18, 2)
+  desconto            Decimal?  @map("Desconto") @db.Decimal(18, 2)
+  comissao            Decimal?  @map("Comissão") @db.Decimal(18, 2)
+  valorMonitoramento  Decimal?  @map("ValorMonitoramento") @db.Decimal(18, 2)
+  totalProdutos       Decimal?  @map("TotalProdutos") @db.Decimal(18, 2)
+  totalServicos       Decimal?  @map("TotalServiços") @db.Decimal(18, 2)
+  observacoes         String?   @map("Observações") @db.NVarChar(4000)
+  etapa               String?   @map("Etapa") @db.NVarChar(100)
+  probabilidade       Int?      @map("ProbabilidadeOrçamento")
+  hashTag             String?   @map("HashTag") @db.NVarChar(100)
+  motivoCancelamento  Int?      @map("MotivoCancelamento")
+  planilha            Int?      @unique @map("Planílha")
+  codContato          Int?      @map("CodContato")
+  codCampanha         Int?      @map("CodCampanha")
+  codTabela           Int?      @map("CodTabela")
+
+  // Relations
+  produtos            OrcamentoProduto[]
+  servicosAdicionais  OrcamentoServicoAdicional[]
+
+  @@map("Orçamentos")
+}
+
+// ============================================================
+// OrçamentosProdutos (Quote Line Items)
+// ============================================================
+
+model OrcamentoProduto {
+  codInterno       Int      @id @map("CodInterno")
+  planilha         Int      @map("Planílha")
+  codProduto       Int?     @map("CodProduto")
+  descricao        String?  @map("Descrição") @db.NVarChar(200)
+  quantidade       Decimal? @map("Quantidade") @db.Decimal(18, 2)
+  unitario         Decimal? @map("Unitário") @db.Decimal(18, 2)
+  total            Decimal? @map("Total") @db.Decimal(18, 2)
+  liquido          Decimal? @map("Líquido") @db.Decimal(18, 2)
+  totalLiquido     Decimal? @map("TotalLiquido") @db.Decimal(18, 2)
+  contaPontos      Boolean? @map("ContaPontos")
+  quantidadePontos Int?     @map("QuantidadePontos")
+  grupoOrcamento   String?  @map("GrupoOrçamento") @db.NVarChar(50)
+  localInstalacao  String?  @map("LocalInstalação") @db.NVarChar(200)
+
+  // Relation via Planílha (Orcamento.planilha)
+  orcamento        Orcamento @relation(fields: [planilha], references: [planilha], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("OrçamentosProdutos")
+}
+
+// ============================================================
+// OrçamentosServiçosAdicionais (Quote Additional Services)
+// ============================================================
+
+model OrcamentoServicoAdicional {
+  codInterno     Int      @id @map("CodInterno")
+  planilha       Int      @map("Planílha")
+  codServico     Int?     @map("CodServiço")
+  valorServico   Decimal? @map("ValorServiço") @db.Decimal(18, 2)
+  manutencao     Boolean? @map("Manutenção")
+  observacoes    String?  @map("Observações") @db.NVarChar(500)
+  quantidade     Decimal? @map("Quantidade") @db.Decimal(18, 2)
+  descontoTotal  Decimal? @map("DescontoTotal") @db.Decimal(18, 2)
+
+  // Relation via Planílha
+  orcamento      Orcamento @relation(fields: [planilha], references: [planilha], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("OrçamentosServiçosAdicionais")
+}
+
+// ============================================================
+// Clientes (Clients / Vendors / Technicians — multi-role)
+// ============================================================
+
+model Cliente {
+  codCliente          Int       @id @map("CodCliente")
+  nome                String    @map("Nome") @db.NVarChar(200)
+  fantasia            String?   @map("Fantasia") @db.NVarChar(200)
+  cgcCpf              String?   @map("CGCCPF") @db.NVarChar(20)
+  inscricaoEstadual   String?   @map("InscriçãoEstadual") @db.NVarChar(30)
+  endereco            String?   @map("Endereço") @db.NVarChar(200)
+  numCasa             String?   @map("NumCasa") @db.NVarChar(20)
+  bairro              String?   @map("Bairro") @db.NVarChar(100)
+  cidade              String?   @map("Cidade") @db.NVarChar(100)
+  estado              String?   @map("Estado") @db.NVarChar(2)
+  cep                 String?   @map("CEP") @db.NVarChar(10)
+  fone1               String?   @map("Fone1") @db.NVarChar(50)
+  fone2               String?   @map("Fone2") @db.NVarChar(50)
+  celular             String?   @map("Celular") @db.NVarChar(50)
+  email               String?   @map("Email") @db.NVarChar(200)
+  tipo                String?   @map("Tipo") @db.Char(1)
+  dataCadastro        DateTime? @map("DataCadastro") @db.DateTime
+  modalidade          String?   @map("Modalidade") @db.Char(1)
+  empresa             Int?      @map("Empresa")
+  unidade             Int?      @map("Unidade")
+  vendedor            Int?      @map("Vendedor")
+  tecnico             Int?      @map("Técnico")
+  area                Int?      @map("Área")
+  valorNF             Decimal?  @map("ValorNF") @db.Decimal(18, 2)
+  cancelamento        DateTime? @map("Cancelamento") @db.DateTime
+  latitude            Decimal?  @map("Latitude") @db.Decimal(12, 8)
+  longitude           Decimal?  @map("Longitude") @db.Decimal(12, 8)
+  pontosAlarme        Int?      @map("PontosAlarme")
+  nivelSeguranca      String?   @map("NívelSegurança") @db.Char(1)
+
+  @@map("Clientes")
+}
+
+// ============================================================
+// OSs (Service Orders)
+// ============================================================
+
+model OrdemServico {
+  codInterno      Int       @id @map("CodInterno")
+  ordem           Int?      @map("Ordem")
+  cliente         Int?      @map("Cliente")
+  tecnico         Int?      @map("Técnico")
+  vendedor        Int?      @map("Vendedor")
+  status          String?   @map("Status") @db.Char(1)
+  tipo            String?   @map("Tipo") @db.Char(1)
+  prioridade      String?   @map("Prioridade") @db.Char(1)
+  dataAbertura    DateTime? @map("DataAbertura") @db.DateTime
+  dataFechamento  DateTime? @map("DataFechamento") @db.DateTime
+  dataAgenda      DateTime? @map("DataAgenda") @db.DateTime
+  observacoes     String?   @map("Observações") @db.NVarChar(4000)
+  orcamento       Int?      @map("Orçamento")
+  empresa         Int?      @map("Empresa")
+  unidade         Int?      @map("Unidade")
+
+  @@map("OSs")
+}
+
+// ============================================================
 // Senhas (Users / Operators)
 // ============================================================
 
@@ -153,6 +315,10 @@ model SenhaUser {
   senhaSis        String   @map("Senhasis") @db.NVarChar(100)
   identificacao   String?  @map("Identificação") @db.NVarChar(200)
   usuarioInativo  Boolean? @map("UsuárioInativo")
+  empresa         Int?     @map("Empresa")
+  funcionario     Int?     @map("Funcionário")
+  acessoCompleto  Boolean? @map("AcessoCompleto")
+  dataCadastro    DateTime? @map("DataCadastro") @db.DateTime
 
   @@map("Senhas")
 }

@@ -252,6 +252,87 @@ Prospects ───────────────> Orçamentos ───�
 
 ---
 
+## 8. Clientes (Multi-role: clients, vendors, technicians)
+
+**Tabela SQL:** `Clientes`
+**PK:** `CodCliente` (int)
+**Modulo MVP:** Clientes, Vendedores, Tecnicos (read-only subset)
+
+A tabela Clientes armazena diferentes tipos de cadastro (Tipo):
+- `C` = Cliente
+- `V` = Vendedor
+- `F` = Fornecedor
+- `T` = Transportadora
+- `Z` = Tecnico
+- `U` = Funcionario
+- `A` = Ambos (Cliente e Fornecedor)
+
+### Campos mapeados (subset read-only)
+
+| Coluna SQL         | Alias API      | Tipo SQL              | Descricao                              |
+|--------------------|----------------|-----------------------|-----------------------------------------|
+| CodCliente         | id             | int (PK)              | Codigo do cliente                      |
+| Nome               | name           | nvarchar              | Nome ou razao social                   |
+| Fantasia           | tradeName      | nvarchar              | Nome fantasia                          |
+| CGCCPF             | document       | nvarchar              | CPF ou CNPJ                            |
+| Endereço           | address        | nvarchar              | Logradouro                             |
+| Bairro             | neighborhood   | nvarchar              | Bairro                                 |
+| Cidade             | city           | nvarchar              | Cidade                                 |
+| Estado             | state          | nvarchar              | UF                                     |
+| CEP                | zipCode        | nvarchar              | CEP                                    |
+| Fone1              | phone          | nvarchar              | Telefone principal                     |
+| Email              | email          | nvarchar              | Email                                  |
+| Tipo               | type           | char(1)               | Tipo do cadastro (C/V/F/T/Z/U/A)      |
+| Modalidade         | modality       | char(1)               | V=Venda, L=Locacao, R=Rastreamento    |
+| Vendedor           | sellerId       | int (FK self)         | Vendedor responsavel                   |
+| Técnico            | technicianId   | int (FK self)         | Tecnico responsavel                    |
+| ValorNF            | monthlyValue   | decimal               | Valor recorrencia mensal               |
+| Cancelamento       | cancelledAt    | datetime              | Data de cancelamento                   |
+| PontosAlarme       | alarmPoints    | int                   | Pontos de alarme instalados            |
+| NívelSegurança     | securityLevel  | char(1)               | 1=MAlto, 2=Alto, 3=Normal, 4=Baixo, 5=MBaixo |
+
+---
+
+## 9. OrçamentosProdutos (Quote Line Items)
+
+**Tabela SQL:** `OrçamentosProdutos`
+**PK:** `CodInterno` (int)
+**FK:** `Planílha` → `Orçamentos.Planílha`
+
+| Coluna SQL       | Alias API      | Tipo SQL   | Descricao                              |
+|------------------|----------------|------------|----------------------------------------|
+| CodInterno       | id             | int (PK)   | PK                                     |
+| Planílha         | quoteSheet     | int (FK)   | Planilha do orcamento                  |
+| CodProduto       | productId      | int (FK)   | Produto                                |
+| Descrição        | description    | nvarchar   | Nome do produto                        |
+| Quantidade       | quantity       | decimal    | Quantidade                             |
+| Unitário         | unitPrice      | decimal    | Valor unitario sem desconto            |
+| Total            | total          | decimal    | Total sem desconto                     |
+| Líquido          | netPrice       | decimal    | Valor unitario com desconto            |
+| TotalLiquido     | netTotal       | decimal    | Total com desconto                     |
+| GrupoOrçamento   | quoteGroup     | nvarchar   | Grupo no orcamento                     |
+| LocalInstalação  | installLocation| nvarchar   | Local de instalacao                    |
+
+---
+
+## 10. OrçamentosServiçosAdicionais (Quote Services)
+
+**Tabela SQL:** `OrçamentosServiçosAdicionais`
+**PK:** `CodInterno` (int)
+**FK:** `Planílha` → `Orçamentos.Planílha`
+
+| Coluna SQL     | Alias API      | Tipo SQL   | Descricao                    |
+|----------------|----------------|------------|------------------------------|
+| CodInterno     | id             | int (PK)   | PK                           |
+| Planílha       | quoteSheet     | int (FK)   | Planilha do orcamento        |
+| CodServiço     | serviceId      | int (FK)   | Servico adicional            |
+| ValorServiço   | serviceValue   | decimal    | Valor mensal                 |
+| Quantidade     | quantity       | decimal    | Quantidade                   |
+| Manutenção     | maintenance    | bit        | Se tera manutencao           |
+| Observações    | notes          | nvarchar   | Observacoes                  |
+
+---
+
 ## Mapeamento Modulos MVP ↔ Tabelas SQL
 
 | Modulo Frontend     | Tabela Principal     | Tabelas Secundarias                    |
