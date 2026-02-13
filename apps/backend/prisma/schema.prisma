@@ -1,0 +1,158 @@
+// Security24h — Prisma Schema (SQL Server)
+// Mapeamento parcial das tabelas do sistema legado.
+// Apenas tabelas usadas pela API read-only estão modeladas.
+// Referencia completa: /tabelas.md + /docs/DB_MAPPING.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Produtos (Equipment)
+// ============================================================
+
+model Produto {
+  codProduto         Int      @id @map("CodProduto")
+  descricao          String   @map("Descriçao") @db.NVarChar(200)
+  codFabricante      String?  @map("CodFabricante") @db.NVarChar(50)
+  codMarca           Int?     @map("CodMarca")
+  codGrupo           Int?     @map("CodGrupo")
+  codSubGrupo        Int?     @map("CodSubGrupo")
+  codCategoria       Int?     @map("CodCategoria")
+  preco              Decimal? @map("Preço") @db.Decimal(18, 2)
+  foto               String?  @map("Foto") @db.NVarChar(500)
+  cancelado          Boolean  @default(false) @map("Cancelado")
+  pontos             Int?     @map("Pontos")
+  produtoKit         Boolean  @default(false) @map("ProdutoKit")
+  acrescimoInstalacao Decimal? @map("AcréscimoInstalação") @db.Decimal(18, 2)
+  acrescimoMensal    Decimal? @map("AcréscimoMensal") @db.Decimal(18, 2)
+  ncm                String?  @map("NCM") @db.NVarChar(20)
+  aplicacao          String?  @map("Aplicação") @db.NVarChar(4000)
+  grupoOrcamento     String?  @map("GrupoOrçamento") @db.NVarChar(50)
+  dataCadastro       DateTime? @map("DataCadastro") @db.DateTime
+  modeloFabricante   String?  @map("ModeloFabricante") @db.NVarChar(100)
+  codUnidade         Int?     @map("CodUnidade")
+
+  // Relations
+  kitItens           ProdutoKit[] @relation("KitMaster")
+  kitPertence        ProdutoKit[] @relation("KitItem")
+
+  @@map("Produtos")
+}
+
+// ============================================================
+// ProdutosKits (Kit Composition)
+// ============================================================
+
+model ProdutoKit {
+  codInterno         Int      @id @map("CodInterno")
+  codProdutoKit      Int      @map("CodProdutoKit")
+  codProdutoAgregado Int      @map("CodProdutoAgregado")
+  quantidade         Decimal  @map("Quantidade") @db.Decimal(18, 2)
+  percentual         Decimal? @map("Percentual") @db.Decimal(18, 2)
+
+  // Relations
+  kitMaster          Produto  @relation("KitMaster", fields: [codProdutoKit], references: [codProduto], onDelete: NoAction, onUpdate: NoAction)
+  itemProduto        Produto  @relation("KitItem", fields: [codProdutoAgregado], references: [codProduto], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("ProdutosKits")
+}
+
+// ============================================================
+// Prospects (Leads / Pipeline)
+// ============================================================
+
+model Prospect {
+  codProspect   Int       @id @map("CodProspect")
+  nome          String    @map("Nome") @db.NVarChar(200)
+  email         String?   @map("Email") @db.NVarChar(200)
+  fone1         String?   @map("Fone1") @db.NVarChar(50)
+  endereco      String?   @map("Endereço") @db.NVarChar(200)
+  cidade        String?   @map("Cidade") @db.NVarChar(100)
+  estado        String?   @map("Estado") @db.NVarChar(2)
+  cep           String?   @map("CEP") @db.NVarChar(10)
+  vendedor      Int?      @map("Vendedor")
+  origem        Int?      @map("Origem")
+  status        String    @default("A") @map("Status") @db.Char(1)
+  dataCadastro  DateTime? @map("DataCadastro") @db.DateTime
+  inativo       Boolean   @default(false) @map("Inativo")
+  cpf           String?   @map("CPF") @db.NVarChar(20)
+  latitude      Decimal?  @map("Latitude") @db.Decimal(12, 8)
+  longitude     Decimal?  @map("Longitude") @db.Decimal(12, 8)
+  acompanhaPipe Boolean   @default(false) @map("AcompanhaPipe")
+  usuario       String?   @map("Usuário") @db.NVarChar(50)
+
+  // Relations
+  acoes         ProspectAcaoVenda[]
+
+  @@map("Prospects")
+}
+
+// ============================================================
+// ProspectsAcaoVendas (Lead Timeline)
+// ============================================================
+
+model ProspectAcaoVenda {
+  codAcao       Int       @id @map("CodAção")
+  codProspect   Int       @map("CodProspect")
+  data          DateTime  @map("Data") @db.DateTime
+  hora          String?   @map("Hora") @db.NVarChar(10)
+  descricao     String    @map("Descrição") @db.NVarChar(4000)
+  acao          Int?      @map("Ação")
+  vendedor      Int?      @map("Vendedor")
+  probabilidade Int?      @map("Probabilidade")
+
+  // Relations
+  prospect      Prospect  @relation(fields: [codProspect], references: [codProspect], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("ProspectsAçãoVendas")
+}
+
+// ============================================================
+// EtapasOrcamento (Pipeline Stages)
+// ============================================================
+
+model EtapaOrcamento {
+  codInterno   Int      @id @map("CodInterno")
+  usuario      String?  @map("Usuário") @db.NVarChar(50)
+  unidade      Int?     @map("Unidade")
+  etapa        String   @map("Etapa") @db.NVarChar(100)
+  ordem        Int?     @map("Ordem")
+  corEtapa     String?  @map("CorEtapa") @db.NVarChar(20)
+  descrEtapa   String?  @map("DescrEtapa") @db.NVarChar(500)
+
+  @@map("EtapasOrçamento")
+}
+
+// ============================================================
+// DadosEntidades (Generic Lookup)
+// ============================================================
+
+model DadoEntidade {
+  codInterno  Int      @id @map("CodInterno")
+  codEntidade Int      @map("CodEntidade")
+  codigo      Int?     @map("Codigo")
+  descreve    String   @map("Descreve") @db.NVarChar(200)
+  inativa     Boolean  @default(false) @map("Inativa")
+
+  @@map("DadosEntidades")
+}
+
+// ============================================================
+// Senhas (Users / Operators)
+// ============================================================
+
+model SenhaUser {
+  idUsuario       Int      @id @map("IDUsuário")
+  usuario         String   @map("Usuário") @db.NVarChar(50)
+  senhaSis        String   @map("Senhasis") @db.NVarChar(100)
+  identificacao   String?  @map("Identificação") @db.NVarChar(200)
+  usuarioInativo  Boolean? @map("UsuárioInativo")
+
+  @@map("Senhas")
+}
