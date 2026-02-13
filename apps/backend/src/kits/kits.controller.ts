@@ -7,19 +7,17 @@ export class KitsController {
 
   @Get()
   list(
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
     @Query('q') q?: string,
     @Query('codMarca') codMarca?: string,
   ) {
-    return this.kitsRepo.findAll(
-      {
-        q: q || undefined,
-        codMarca: codMarca ? Number(codMarca) : undefined,
-      },
-      Number(page),
-      Number(pageSize),
-    );
+    return this.kitsRepo.findAll({
+      page,
+      pageSize,
+      q: q || undefined,
+      codMarca: codMarca ? Number(codMarca) : undefined,
+    });
   }
 
   @Get(':id')

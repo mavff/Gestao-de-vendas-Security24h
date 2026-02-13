@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { buildPaginatedResponse, PaginatedResponse, parsePagination, PaginationQuery } from '../shared/pagination';
 
-export interface KitFilters {
+export interface KitFilters extends PaginationQuery {
   q?: string;
   codMarca?: number;
 }
@@ -10,9 +11,10 @@ export interface KitFilters {
 export class KitsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(filters: KitFilters = {}, page = 1, pageSize = 20) {
+  async findAll(filters: KitFilters = {}): Promise<PaginatedResponse<any>> {
     this.prisma.ensureConnection();
 
+    const { skip, take, page, pageSize } = parsePagination(filters);
     const where: Record<string, any> = {
       produtoKit: true,
       cancelado: false,
@@ -29,8 +31,8 @@ export class KitsRepository {
       this.prisma.produto.findMany({
         where,
         orderBy: { codProduto: 'asc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip,
+        take,
         include: {
           kitItens: {
             include: { itemProduto: true },
@@ -40,7 +42,7 @@ export class KitsRepository {
       this.prisma.produto.count({ where }),
     ]);
 
-    return { items, total, page, pageSize };
+    return buildPaginatedResponse(items, total, page, pageSize);
   }
 
   async findById(codProduto: number) {
