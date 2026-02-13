@@ -8,6 +8,7 @@ import { KitsModule } from './kits/kits.module';
 import { LeadsModule } from './leads/leads.module';
 import { LookupsModule } from './lookups/lookups.module';
 import { ProductsModule } from './products/products.module';
+import { ProspectsModule } from './prospects/prospects.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { SenhaUser } from './database/senha-user.entity';
 import { Prospect } from './database/prospect.entity';
@@ -54,6 +55,7 @@ function buildTypeOrmModule(): DynamicModule[] {
     ProductsModule,
     KitsModule,
     LookupsModule,
+    ProspectsModule,
     ...(process.env.SQL_SERVER_HOST ? [AuthModule, LeadsModule, QuotesModule] : []),
   ],
 })
