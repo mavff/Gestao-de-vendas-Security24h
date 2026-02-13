@@ -9,7 +9,7 @@ export class RateLimitMiddleware implements NestMiddleware {
     const ttl = Number(process.env.RATE_LIMIT_TTL || 60) * 1000;
     const limit = Number(process.env.RATE_LIMIT_LIMIT || 100);
     const now = Date.now();
-    const key = req.ip;
+    const key = req.ip ?? '0.0.0.0';
     const record = this.hits.get(key);
 
     if (!record || record.expiresAt < now) {

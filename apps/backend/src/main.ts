@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -6,15 +6,34 @@ import { JsonLoggerInterceptor } from './common/json-logger.interceptor';
 import { RateLimitMiddleware } from './common/rate-limit.middleware';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
 
   app.use(helmet());
   app.use(new RateLimitMiddleware().use);
+
+  const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3001')
+    .split(',')
+    .map((o) => o.trim());
+
+  app.enableCors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  });
+
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalInterceptors(new JsonLoggerInterceptor());
 
-  const port = Number(process.env.PORT || 3000);
+  const port = Number(process.env.PORT || 3001);
+  const logger = new Logger('Bootstrap');
+
   await app.listen(port, '0.0.0.0');
+  logger.log(`API running on http://localhost:${port}`);
+  logger.log(`Health: http://localhost:${port}/health`);
+
+  if (!process.env.DATABASE_URL && !process.env.SQL_SERVER_HOST) {
+    logger.warn('DATABASE_URL not set — DB endpoints will return DB_NOT_CONFIGURED');
+  }
 }
 
 bootstrap();
