@@ -2,8 +2,12 @@ import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
+import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
+import { KitsModule } from './kits/kits.module';
 import { LeadsModule } from './leads/leads.module';
+import { LookupsModule } from './lookups/lookups.module';
+import { ProductsModule } from './products/products.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { SenhaUser } from './database/senha-user.entity';
 import { Prospect } from './database/prospect.entity';
@@ -45,7 +49,11 @@ function buildTypeOrmModule(): DynamicModule[] {
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ...buildTypeOrmModule(),
+    PrismaModule,
     HealthModule,
+    ProductsModule,
+    KitsModule,
+    LookupsModule,
     ...(process.env.SQL_SERVER_HOST ? [AuthModule, LeadsModule, QuotesModule] : []),
   ],
 })
