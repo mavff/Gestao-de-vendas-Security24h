@@ -1,9 +1,12 @@
 'use client';
 
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from '@dnd-kit/core';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { theme } from '../../components/common/theme';
+import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
+import { useAuth } from '../../contexts/AuthContext';
 import { mockLeads } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import { Lead, LeadStage } from '../../types';
@@ -12,12 +15,16 @@ const stages: LeadStage[] = ['Novo', 'Contato', 'Proposta', 'Negociação', 'Fec
 const origins: Lead['origin'][] = ['Site', 'Indicação', 'Campanha', 'WhatsApp'];
 
 export function KanbanPage() {
+  const router = useRouter();
+  const { role } = useAuth();
+  const { showToast } = useToast();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [search, setSearch] = useState('');
   const [responsible, setResponsible] = useState('todos');
   const [origin, setOrigin] = useState('todos');
   const [showInlineForm, setShowInlineForm] = useState(false);
+  const canCreateProposta = role === 'ADMIN' || role === 'VENDEDOR';
 
   useEffect(() => {
     setLeads(loadMock('mock_leads', mockLeads));
@@ -53,17 +60,18 @@ export function KanbanPage() {
   function createLead(newLead: Lead) {
     setLeads((current) => [...current, newLead]);
     setShowInlineForm(false);
+    showToast('Lead criado com sucesso.', 'success');
   }
 
   return (
-    <AppShell title="Kanban de Leads">
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <input placeholder="Buscar cliente/empresa" value={search} onChange={(e) => setSearch(e.target.value)} style={inputStyle} />
+    <AppShell title="Pipeline">
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <input placeholder="Buscar cliente/empresa" value={search} onChange={(e) => setSearch(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
         <select value={responsible} onChange={(e) => setResponsible(e.target.value)} style={inputStyle}><option value="todos">Responsável</option>{Array.from(new Set(leads.map((l) => l.responsible))).map((r) => <option key={r} value={r}>{r}</option>)}</select>
         <select value={origin} onChange={(e) => setOrigin(e.target.value)} style={inputStyle}><option value="todos">Origem</option>{Array.from(new Set(leads.map((l) => l.origin))).map((o) => <option key={o} value={o}>{o}</option>)}</select>
       </div>
       <DndContext onDragEnd={onDragEnd}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(180px, 1fr))', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
           {stages.map((stage) => {
             const stageLeads = filtered.filter((lead) => lead.stage === stage);
             const total = stageLeads.reduce((sum, lead) => sum + lead.value, 0);
@@ -105,7 +113,7 @@ export function KanbanPage() {
           })}
         </div>
       </DndContext>
-      {selectedLead && <LeadDetail lead={selectedLead} onClose={() => setSelectedLead(null)} onSave={updateLead} />}
+      {selectedLead && <LeadDetail lead={selectedLead} onClose={() => setSelectedLead(null)} onSave={updateLead} onGerarProposta={canCreateProposta ? (id) => router.push(`/venda/${id}`) : undefined} />}
     </AppShell>
   );
 }
@@ -181,6 +189,7 @@ function InlineLeadForm({ onCreate, onCancel }: { onCreate: (lead: Lead) => void
       notes: [],
       timeline: [{ id: 't' + Date.now(), date: dateStr, text: 'Lead cadastrado' }],
       attachments: [],
+      fotos: [],
     };
     onCreate(newLead);
   }
@@ -207,18 +216,27 @@ function formatDate(iso: string): string {
   return iso;
 }
 
-function LeadDetail({ lead, onClose, onSave }: { lead: Lead; onClose: () => void; onSave: (lead: Lead) => void }) {
+function LeadDetail({ lead, onClose, onSave, onGerarProposta }: { lead: Lead; onClose: () => void; onSave: (lead: Lead) => void; onGerarProposta?: (leadId: string) => void }) {
   const [draft, setDraft] = useState(lead);
 
   useEffect(() => setDraft(lead), [lead]);
 
   return (
-    <div style={{ position: 'fixed', right: 0, top: 0, width: 420, height: '100vh', background: '#111', borderLeft: `1px solid ${theme.border}`, padding: 16, overflowY: 'auto' }}>
-      <h3 style={{ marginTop: 0 }}>{lead.name}</h3>
-      <label>Responsável</label><input style={inputStyle} value={draft.responsible} onChange={(e) => setDraft({ ...draft, responsible: e.target.value })} />
-      <label>Valor</label><input style={inputStyle} type="number" value={draft.value} onChange={(e) => setDraft({ ...draft, value: Number(e.target.value) })} />
-      <label>Etapa</label><select style={inputStyle} value={draft.stage} onChange={(e) => setDraft({ ...draft, stage: e.target.value as LeadStage })}>{stages.map((s) => <option key={s}>{s}</option>)}</select>
-      <h4>Timeline</h4>
+    <div style={{ position: 'fixed', right: 0, top: 0, width: 420, maxWidth: '90vw', height: '100vh', background: theme.panel, borderLeft: `1px solid ${theme.border}`, padding: 16, overflowY: 'auto', zIndex: 40 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h3 style={{ margin: 0, color: theme.gold, fontSize: 18 }}>{lead.name}</h3>
+        <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: theme.muted, cursor: 'pointer', fontSize: 18 }}>x</button>
+      </div>
+      <div style={{ fontSize: 13, color: theme.muted, marginBottom: 12 }}>{lead.company} &middot; {lead.origin} &middot; {lead.week}</div>
+
+      <label style={labelStyle}>Responsável</label>
+      <input style={inputStyle} value={draft.responsible} onChange={(e) => setDraft({ ...draft, responsible: e.target.value })} />
+      <label style={labelStyle}>Valor (R$)</label>
+      <input style={inputStyle} type="number" value={draft.value} onChange={(e) => setDraft({ ...draft, value: Number(e.target.value) })} />
+      <label style={labelStyle}>Etapa</label>
+      <select style={inputStyle} value={draft.stage} onChange={(e) => setDraft({ ...draft, stage: e.target.value as LeadStage })}>{stages.map((s) => <option key={s}>{s}</option>)}</select>
+
+      <h4 style={{ color: theme.gold, margin: '14px 0 8px', fontSize: 14 }}>Timeline</h4>
       <div style={{ position: 'relative', paddingLeft: 20 }}>
         {draft.timeline.map((item, i) => (
           <div key={item.id} style={{ position: 'relative', paddingBottom: i < draft.timeline.length - 1 ? 16 : 0 }}>
@@ -241,27 +259,47 @@ function LeadDetail({ lead, onClose, onSave }: { lead: Lead; onClose: () => void
               }} />
             )}
             <div style={{ fontSize: 12, color: theme.muted }}>{formatDate(item.date)}</div>
-            <div style={{ fontSize: 14 }}>{item.text}</div>
+            <div style={{ fontSize: 13 }}>{item.text}</div>
           </div>
         ))}
       </div>
-      <h4>Notas</h4>
-      <ul>{draft.notes.map((note) => <li key={note}>{note}</li>)}</ul>
-      <h4>Anexos</h4>
-      <input type="file" onChange={(e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const url = URL.createObjectURL(file);
-        setDraft((current) => ({ ...current, attachments: [...current.attachments, { id: crypto.randomUUID(), name: file.name, url }] }));
-      }} />
-      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>{draft.attachments.map((a) => <a key={a.id} href={a.url} target="_blank">{a.name}</a>)}</div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+
+      <h4 style={{ color: theme.gold, margin: '14px 0 8px', fontSize: 14 }}>Notas</h4>
+      {draft.notes.length === 0 ? (
+        <div style={{ fontSize: 13, color: theme.muted }}>Nenhuma nota.</div>
+      ) : (
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>{draft.notes.map((note) => <li key={note} style={{ marginBottom: 4 }}>{note}</li>)}</ul>
+      )}
+
+      <h4 style={{ color: theme.gold, margin: '14px 0 8px', fontSize: 14 }}>Anexos</h4>
+      <label style={{ display: 'inline-block', background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: theme.muted }}>
+        + Arquivo
+        <input type="file" style={{ display: 'none' }} onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const url = URL.createObjectURL(file);
+          setDraft((current) => ({ ...current, attachments: [...current.attachments, { id: crypto.randomUUID(), name: file.name, url }] }));
+        }} />
+      </label>
+      {draft.attachments.length > 0 && (
+        <div style={{ display: 'grid', gap: 4, marginTop: 8 }}>
+          {draft.attachments.map((a) => (
+            <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: theme.gold, textDecoration: 'underline' }}>{a.name}</a>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap', borderTop: `1px solid ${theme.border}`, paddingTop: 12 }}>
         <button onClick={() => onSave(draft)} style={btnStyle}>Salvar</button>
-        <button onClick={onClose} style={{ ...btnStyle, background: theme.soft }}>Fechar</button>
+        {onGerarProposta && (
+          <button onClick={() => onGerarProposta(lead.id)} style={{ ...btnStyle, background: theme.gold }}>Abrir Venda</button>
+        )}
+        <button onClick={onClose} style={{ ...btnStyle, background: theme.soft, color: theme.text }}>Fechar</button>
       </div>
     </div>
   );
 }
 
 const inputStyle: React.CSSProperties = { background: theme.soft, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 8, padding: '8px 10px' };
-const btnStyle: React.CSSProperties = { background: theme.gold, border: 'none', borderRadius: 8, color: '#111', padding: '8px 12px', cursor: 'pointer' };
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, color: theme.muted, marginBottom: 4, marginTop: 8 };
+const btnStyle: React.CSSProperties = { background: theme.gold, border: 'none', borderRadius: 8, color: '#111', padding: '8px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13 };

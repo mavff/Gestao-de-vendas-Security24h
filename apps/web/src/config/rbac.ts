@@ -5,35 +5,68 @@ export type NavItem = {
   label: string;
 };
 
-const allNav: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/kanban', label: 'Pipeline' },
-  { href: '/propostas', label: 'Propostas' },
-  { href: '/instalacoes', label: 'Ordens de Serviço' },
-  { href: '/equipamentos', label: 'Equipamentos' },
-  { href: '/kits', label: 'Kits' },
-  { href: '/usuarios', label: 'Usuários' },
-  { href: '/missoes', label: 'Missões' },
-];
-
-/** Routes each role is allowed to access */
-const roleRoutes: Record<UserRole, string[]> = {
-  ADMIN:    ['/dashboard', '/kanban', '/leads', '/propostas', '/instalacoes', '/equipamentos', '/kits', '/usuarios', '/missoes'],
-  SDR:      ['/dashboard', '/kanban', '/leads'],
-  VENDEDOR: ['/dashboard', '/kanban', '/leads', '/propostas', '/instalacoes', '/equipamentos', '/kits'],
-  TECNICO:  ['/dashboard', '/instalacoes'],
-  INFRA:    ['/dashboard', '/equipamentos', '/kits', '/usuarios'],
-  MONITOR:  ['/dashboard'],
+type RouteConfig = {
+  path: string;
+  roles: UserRole[];
+  sidebarRoles?: UserRole[];
+  label?: string;
+  showInSidebar?: boolean;
 };
 
+const allRoles: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
+const publicPaths = ['/login'];
+
+const routes: RouteConfig[] = [
+  { path: '/', roles: allRoles },
+  { path: '/dashboard', roles: allRoles, label: 'Dashboard', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'SDR', 'MONITOR'] },
+  { path: '/kanban', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'INFRA'], label: 'Pipeline', showInSidebar: true },
+  { path: '/vendas', roles: ['ADMIN', 'VENDEDOR'], label: 'Minhas Vendas', showInSidebar: true, sidebarRoles: ['VENDEDOR'] },
+  { path: '/venda', roles: ['ADMIN', 'VENDEDOR'] },
+  { path: '/leads', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR'] },
+  { path: '/propostas', roles: ['ADMIN', 'GESTOR', 'VENDEDOR'], label: 'Propostas', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'VENDEDOR'] },
+  { path: '/solucoes', roles: ['ADMIN', 'VENDEDOR', 'TECNICO'], label: 'Soluções', showInSidebar: true, sidebarRoles: ['ADMIN', 'VENDEDOR', 'TECNICO'] },
+  { path: '/orcamentos', roles: ['ADMIN', 'GESTOR', 'VENDEDOR'], label: 'Orçamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'VENDEDOR'] },
+  { path: '/instalacoes', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Ordens de Serviço', showInSidebar: true },
+  { path: '/equipamentos', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Equipamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'INFRA'] },
+  { path: '/kits', roles: ['ADMIN', 'INFRA', 'VENDEDOR'], label: 'Kits', showInSidebar: true, sidebarRoles: ['ADMIN', 'INFRA', 'VENDEDOR'] },
+  { path: '/usuarios', roles: ['ADMIN', 'INFRA'], label: 'Usuários', showInSidebar: true },
+  { path: '/missoes', roles: allRoles, label: 'Missões', showInSidebar: true },
+  { path: '/login', roles: allRoles },
+];
+
+function normalizePath(pathname: string): string {
+  if (!pathname || pathname === '/') return '/';
+  return pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+}
+
+function findRoute(pathname: string): RouteConfig | undefined {
+  const normalized = normalizePath(pathname);
+
+  return routes.find((route) => (
+    normalized === route.path || normalized.startsWith(route.path + '/')
+  ));
+}
+
 export function getNavForRole(role: UserRole): NavItem[] {
-  const allowed = roleRoutes[role];
-  return allNav.filter((item) => allowed.includes(item.href));
+  return routes
+    .filter((route) => route.showInSidebar && route.label && (route.sidebarRoles ?? route.roles).includes(role))
+    .map((route) => ({ href: route.path, label: route.label! }));
+}
+
+export function isPublicPath(pathname: string): boolean {
+  return publicPaths.includes(normalizePath(pathname));
+}
+
+export function getFallbackRouteForRole(role: UserRole): string {
+  const first = getNavForRole(role)[0];
+  return first?.href ?? '/dashboard';
 }
 
 export function canAccess(role: UserRole, pathname: string): boolean {
-  // Root path is always dashboard
-  if (pathname === '/') return true;
-  const allowed = roleRoutes[role];
-  return allowed.some((route) => pathname === route || pathname.startsWith(route + '/'));
+  if (isPublicPath(pathname)) return true;
+
+  const route = findRoute(pathname);
+  if (!route) return false;
+
+  return route.roles.includes(role);
 }

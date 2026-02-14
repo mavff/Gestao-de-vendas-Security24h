@@ -1,8 +1,8 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, ReactNode } from 'react';
-import { canAccess } from '../../config/rbac';
+import { ReactNode, useEffect, useRef } from 'react';
+import { canAccess, getFallbackRouteForRole } from '../../config/rbac';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../common/Toast';
 
@@ -14,14 +14,15 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   const redirected = useRef(false);
 
   const allowed = canAccess(role, pathname);
+  const fallbackPath = getFallbackRouteForRole(role);
 
   useEffect(() => {
     if (!allowed && !redirected.current) {
       redirected.current = true;
-      showToast('Acesso negado — sem permissão para esta página.', 'error');
-      router.replace('/dashboard');
+      showToast('Acesso negado: sem permissao para esta pagina.', 'error');
+      router.replace(fallbackPath);
     }
-  }, [allowed, router, showToast]);
+  }, [allowed, fallbackPath, router, showToast]);
 
   // Reset ref when pathname changes (user navigated to a new valid page)
   useEffect(() => {

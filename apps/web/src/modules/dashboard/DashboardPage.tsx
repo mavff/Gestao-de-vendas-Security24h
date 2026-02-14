@@ -29,7 +29,7 @@ export function DashboardPage() {
       </p>
 
       {/* KPI Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 16 }}>
         <KpiCard label="Total Leads" value={String(data.kpis.totalLeads)} description="Leads no período" />
         <KpiCard label="Taxa Conversão" value={`${data.kpis.conversionRate}%`} description="Leads → Fechados" />
         <KpiCard label="Receita Estimada" value={formatCurrency(data.kpis.estimatedRevenue)} description="Valor projetado" />

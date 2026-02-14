@@ -40,7 +40,7 @@ export function useAuth() {
   return useContext(Ctx);
 }
 
-const validRoles: UserRole[] = ['ADMIN', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
+const validRoles: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
 
 function isValidRole(value: string): value is UserRole {
   return validRoles.includes(value as UserRole);
