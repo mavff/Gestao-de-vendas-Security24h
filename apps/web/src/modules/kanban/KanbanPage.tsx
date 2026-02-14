@@ -189,6 +189,7 @@ function InlineLeadForm({ onCreate, onCancel }: { onCreate: (lead: Lead) => void
       notes: [],
       timeline: [{ id: 't' + Date.now(), date: dateStr, text: 'Lead cadastrado' }],
       attachments: [],
+      fotos: [],
     };
     onCreate(newLead);
   }

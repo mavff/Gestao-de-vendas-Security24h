@@ -10,6 +10,7 @@ export const mockLeads: Lead[] = [
       { id: 't1c', date: '2026-01-05', text: 'Ligação agendada' },
     ],
     attachments: [],
+    fotos: [],
   },
   {
     id: 'L2', name: 'Fernanda Gomes', company: 'Condomínio Sol', value: 28300, stage: 'Contato', responsible: 'Marcos', origin: 'Indicação', week: 'Sem 2', status: 'ativo',
@@ -20,6 +21,7 @@ export const mockLeads: Lead[] = [
       { id: 't2c', date: '2026-01-08', text: 'Visita técnica agendada' },
     ],
     attachments: [],
+    fotos: [],
   },
   {
     id: 'L3', name: 'Ricardo Moraes', company: 'Loja Beta', value: 18400, stage: 'Proposta', responsible: 'João', origin: 'Campanha', week: 'Sem 3', status: 'ativo',
@@ -30,6 +32,7 @@ export const mockLeads: Lead[] = [
       { id: 't3c', date: '2026-01-09', text: 'Proposta enviada' },
     ],
     attachments: [],
+    fotos: [],
   },
   {
     id: 'L4', name: 'Ana Beatriz', company: 'Residencial Vita', value: 9800, stage: 'Negociação', responsible: 'Nina', origin: 'WhatsApp', week: 'Sem 4', status: 'ativo',
@@ -40,6 +43,7 @@ export const mockLeads: Lead[] = [
       { id: 't4c', date: '2026-01-12', text: 'Contraproposta recebida' },
     ],
     attachments: [],
+    fotos: [],
   },
   {
     id: 'L5', name: 'Luan Costa', company: 'Auto Center X', value: 32200, stage: 'Fechado', responsible: 'Paula', origin: 'Site', week: 'Sem 5', status: 'ativo',
@@ -50,6 +54,7 @@ export const mockLeads: Lead[] = [
       { id: 't5c', date: '2026-01-14', text: 'Venda fechada — contrato assinado' },
     ],
     attachments: [],
+    fotos: [],
   },
 ];
 

@@ -13,6 +13,7 @@ export type Lead = {
   notes: string[];
   timeline: { id: string; date: string; text: string }[];
   attachments: { id: string; name: string; url?: string }[];
+  fotos: string[];
 };
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'SDR' | 'VENDEDOR' | 'TECNICO' | 'INFRA' | 'MONITOR';

@@ -128,6 +128,7 @@ export function VendaPage() {
   }, []);
 
   /* --- persist --- */
+  useEffect(() => { if (leads.length) saveMock('mock_leads', leads); }, [leads]);
   useEffect(() => { if (solucoes.length) saveMock('mock_solucoes', solucoes); }, [solucoes]);
   useEffect(() => { saveMock('mock_orcamentos', orcamentos); }, [orcamentos]);
   useEffect(() => { if (propostas.length) saveMock('mock_propostas', propostas); }, [propostas]);
@@ -416,7 +417,12 @@ export function VendaPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'Cliente' && <TabCliente lead={lead} />}
+      {activeTab === 'Cliente' && (
+        <TabCliente
+          lead={lead}
+          onUpdateFotos={(fotos) => setLeads((cur) => cur.map((l) => l.id === leadId ? { ...l, fotos } : l))}
+        />
+      )}
 
       {activeTab === 'Solução' && solDraft && (
         <TabSolucao
@@ -426,7 +432,7 @@ export function VendaPage() {
           solucaoExistente={solucao}
           onSave={handleSaveSolucao}
           onAprovar={handleAprovarSolucao}
-          canApprove={role === 'ADMIN'}
+          canApprove={role === 'ADMIN' || role === 'VENDEDOR'}
         />
       )}
 
@@ -442,7 +448,7 @@ export function VendaPage() {
       )}
 
       {activeTab === 'Proposta' && proposta && (
-        <TabProposta proposta={proposta} onEnviar={handleEnviarProposta} onAprovar={handleAprovarProposta} canApprove={role === 'ADMIN'} />
+        <TabProposta proposta={proposta} onEnviar={handleEnviarProposta} onAprovar={handleAprovarProposta} canApprove={role === 'ADMIN' || role === 'VENDEDOR'} />
       )}
     </AppShell>
   );
@@ -452,9 +458,38 @@ export function VendaPage() {
    Tab: Cliente
    ================================================================ */
 
-function TabCliente({ lead }: { lead: Lead }) {
+function TabCliente({ lead, onUpdateFotos }: { lead: Lead; onUpdateFotos: (fotos: string[]) => void }) {
+  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
+  const fotos = lead.fotos ?? [];
+
+  function handleAddPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      onUpdateFotos([...fotos, reader.result as string]);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  function handleRemovePhoto(idx: number) {
+    onUpdateFotos(fotos.filter((_, i) => i !== idx));
+  }
+
   return (
     <div style={{ maxWidth: 600 }}>
+      {/* Photo lightbox */}
+      {expandedPhoto && (
+        <>
+          <div onClick={() => setExpandedPhoto(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 60, cursor: 'pointer' }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 61, maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img src={expandedPhoto} alt="Foto ampliada" style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 10, objectFit: 'contain' }} />
+            <button onClick={() => setExpandedPhoto(null)} style={{ position: 'absolute', top: -12, right: -12, background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: '50%', width: 28, height: 28, color: theme.text, cursor: 'pointer', fontSize: 14 }}>x</button>
+          </div>
+        </>
+      )}
+
       <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
         <h3 style={{ margin: '0 0 12px', color: theme.gold, fontSize: 16 }}>{lead.name}</h3>
         <div style={{ display: 'grid', gap: 8 }}>
@@ -466,6 +501,65 @@ function TabCliente({ lead }: { lead: Lead }) {
           <InfoRow label="Semana" value={lead.week} />
           <InfoRow label="Status" value={lead.status} />
         </div>
+      </div>
+
+      {/* Site photos / blueprints */}
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h4 style={{ margin: 0, color: theme.gold, fontSize: 14 }}>Fotos e Planta do Local</h4>
+          <span style={{ fontSize: 12, color: theme.muted }}>{fotos.length} foto(s)</span>
+        </div>
+        <div style={{ fontSize: 12, color: theme.muted, marginBottom: 10 }}>
+          Anexe fotos da fachada, ambientes internos e planta do imóvel para referência na montagem da solução.
+        </div>
+
+        <label style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8,
+          padding: '8px 14px', fontSize: 13, cursor: 'pointer', color: theme.text, marginBottom: 10,
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="M21 15l-5-5L5 21" />
+          </svg>
+          Adicionar foto / planta
+          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAddPhoto} />
+        </label>
+
+        {fotos.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {fotos.map((foto, i) => (
+              <div key={i} style={{ position: 'relative' }}>
+                <img
+                  src={foto}
+                  width={120}
+                  height={90}
+                  alt={`Foto ${i + 1}`}
+                  onClick={() => setExpandedPhoto(foto)}
+                  style={{ borderRadius: 8, objectFit: 'cover', border: `1px solid ${theme.border}`, cursor: 'pointer', display: 'block' }}
+                />
+                <button
+                  onClick={() => handleRemovePhoto(i)}
+                  style={{
+                    position: 'absolute', top: -6, right: -6,
+                    background: theme.danger, border: 'none', borderRadius: '50%',
+                    width: 20, height: 20, color: '#fff', cursor: 'pointer',
+                    fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  x
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {fotos.length === 0 && (
+          <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 10, padding: 16, textAlign: 'center', color: theme.muted, fontSize: 12 }}>
+            Nenhuma foto adicionada. Tire fotos do local durante a visita técnica.
+          </div>
+        )}
       </div>
 
       {lead.timeline.length > 0 && (
