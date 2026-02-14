@@ -6,7 +6,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "echo 'no automated tests yet'"
+    "test": "echo 'no automated tests yet'",
+    "smoke:api": "ts-node --project tsconfig.scripts.json scripts/smoke-api.ts"
   },
   "dependencies": {
     "next": "14.2.21",
