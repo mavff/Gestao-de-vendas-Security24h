@@ -15,7 +15,7 @@ const statuses: OSStatus[] = ['pendente', 'em andamento', 'concluida'];
 export function InstallationsPage() {
   const { showToast } = useToast();
   const { role } = useAuth();
-  const canEdit = role === 'TECNICO' || role === 'ADMIN';
+  const canEdit = role === 'TECNICO' || role === 'ADMIN' || role === 'INFRA';
 
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
   const [users, setUsers] = useState<User[]>([]);

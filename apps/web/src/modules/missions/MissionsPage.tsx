@@ -29,7 +29,7 @@ const emptyDraft: Mission = { id: '', title: '', description: '', assignedTo: ''
 export function MissionsPage() {
   const { showToast } = useToast();
   const { role } = useAuth();
-  const canManage = role === 'ADMIN' || role === 'GESTOR';
+  const canManage = role === 'ADMIN' || role === 'GESTOR' || role === 'INFRA';
 
   const [missions, setMissions] = useState<Mission[]>([]);
   const [users, setUsers] = useState<User[]>([]);

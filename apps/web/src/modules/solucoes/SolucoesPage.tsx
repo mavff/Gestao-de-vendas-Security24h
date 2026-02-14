@@ -73,7 +73,7 @@ function emptySolucao(): SolucaoTecnica {
 export function SolucoesPage() {
   const { showToast } = useToast();
   const { role } = useAuth();
-  const canWrite = role === 'ADMIN' || role === 'VENDEDOR' || role === 'TECNICO';
+  const canWrite = role === 'ADMIN' || role === 'VENDEDOR';
   const canApprove = role === 'ADMIN' || role === 'TECNICO';
 
   const [solucoes, setSolucoes] = useState<SolucaoTecnica[]>([]);
