@@ -25,6 +25,7 @@ export function KanbanPage() {
   const [origin, setOrigin] = useState('todos');
   const [showInlineForm, setShowInlineForm] = useState(false);
   const canCreateProposta = role === 'ADMIN' || role === 'VENDEDOR';
+  const canDrag = role !== 'INFRA' && role !== 'MONITOR';
 
   useEffect(() => {
     setLeads(loadMock('mock_leads', mockLeads));
@@ -84,7 +85,7 @@ export function KanbanPage() {
                 </div>
                 <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
                   {stageLeads.map((lead) => (
-                    <DraggableLead key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} />
+                    <DraggableLead key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} disabled={!canDrag} />
                   ))}
                 </div>
                 {stage === 'Novo' && !showInlineForm && (
@@ -138,8 +139,8 @@ function DropColumn({ stage, children }: { stage: LeadStage; children: React.Rea
   );
 }
 
-function DraggableLead({ lead, onClick }: { lead: Lead; onClick: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id });
+function DraggableLead({ lead, onClick, disabled }: { lead: Lead; onClick: () => void; disabled?: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id, disabled });
   return (
     <div
       ref={setNodeRef}
@@ -151,7 +152,7 @@ function DraggableLead({ lead, onClick }: { lead: Lead; onClick: () => void }) {
         border: `1px solid ${theme.border}`,
         borderRadius: 10,
         padding: 10,
-        cursor: 'grab',
+        cursor: disabled ? 'pointer' : 'grab',
         transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
         opacity: isDragging ? 0.6 : 1,
         boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.4)' : 'none',

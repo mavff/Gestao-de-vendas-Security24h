@@ -6,16 +6,22 @@ import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
 import { mockEquipments, mockOrdens, mockPropostas, mockUsers } from '../../mocks/data';
+import { compressImage } from '../../services/imageUtils';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import { Equipment, InstallationPoint, OrdemDeServico, Proposta, User } from '../../types';
 
 type OSStatus = OrdemDeServico['status'];
-const statuses: OSStatus[] = ['pendente', 'em andamento', 'concluida'];
+const statuses: OSStatus[] = ['pendente', 'agendado', 'em andamento', 'concluida'];
+
+type ViewMode = 'lista' | 'backlog';
 
 export function InstallationsPage() {
   const { showToast } = useToast();
   const { role } = useAuth();
-  const canEdit = role === 'TECNICO' || role === 'ADMIN' || role === 'INFRA';
+
+  // Granular permissions: canSchedule = operational fields, canEditPontos = technical fields
+  const canSchedule = role === 'ADMIN' || role === 'TECNICO' || role === 'INFRA';
+  const canEditPontos = role === 'ADMIN' || role === 'TECNICO';
 
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -24,6 +30,9 @@ export function InstallationsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<OSStatus | 'todos'>('todos');
   const [filterTecnico, setFilterTecnico] = useState('todos');
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    role === 'INFRA' || role === 'ADMIN' ? 'backlog' : 'lista',
+  );
 
   useEffect(() => {
     const data = loadMock('mock_ordens', mockOrdens);
@@ -54,105 +63,281 @@ export function InstallationsPage() {
 
   return (
     <AppShell title="Ordens de Serviço">
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 300px) 1fr', gap: 16, minHeight: 'calc(100vh - 140px)' }}>
-        {/* Left panel — list */}
-        <div>
-          <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as OSStatus | 'todos')} style={inputStyle}>
-              <option value="todos">Todos os status</option>
-              {statuses.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-            </select>
-            <select value={filterTecnico} onChange={(e) => setFilterTecnico(e.target.value)} style={inputStyle}>
-              <option value="todos">Todos os técnicos</option>
-              {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-
-          {filtered.length === 0 && (
-            <div style={{ color: theme.muted, fontSize: 13, textAlign: 'center', padding: 20 }}>Nenhuma OS encontrada.</div>
-          )}
-
-          <div style={{ display: 'grid', gap: 6 }}>
-            {filtered.map((os) => {
-              const isSelected = os.id === selectedId;
-              const progress = os.pontos.length > 0
-                ? Math.round((os.pontos.filter((p) => p.status === 'Finalizado').length / os.pontos.length) * 100)
-                : 0;
-              return (
-                <button
-                  key={os.id}
-                  onClick={() => setSelectedId(os.id)}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    background: isSelected ? 'rgba(200,169,81,0.08)' : theme.panel,
-                    border: `1px solid ${isSelected ? theme.gold : theme.border}`,
-                    borderRadius: 10,
-                    padding: 10,
-                    cursor: 'pointer',
-                    color: theme.text,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong style={{ fontSize: 13 }}>{os.cliente}</strong>
-                    <StatusBadge value={os.status} />
-                  </div>
-                  <div style={{ fontSize: 11, color: theme.muted, marginTop: 4 }}>
-                    {os.id} · {os.pontos.length} ponto(s)
-                    {os.dataAgendada && ` · ${formatDate(os.dataAgendada)}`}
-                  </div>
-                  {/* Mini progress bar */}
-                  {os.pontos.length > 0 && (
-                    <div style={{ marginTop: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: theme.muted, marginBottom: 2 }}>
-                        <span>Progresso</span>
-                        <span>{progress}%</span>
-                      </div>
-                      <div style={{ height: 4, borderRadius: 2, background: theme.soft }}>
-                        <div style={{
-                          height: '100%', borderRadius: 2, width: `${progress}%`,
-                          background: progress === 100 ? theme.success : theme.gold,
-                          transition: 'width 200ms ease',
-                        }} />
-                      </div>
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+      {/* View mode toggle + filters */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: `1px solid ${theme.border}` }}>
+          <button
+            onClick={() => setViewMode('lista')}
+            style={{
+              padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+              background: viewMode === 'lista' ? theme.gold : theme.soft,
+              color: viewMode === 'lista' ? '#111' : theme.text,
+            }}
+          >
+            Lista
+          </button>
+          <button
+            onClick={() => setViewMode('backlog')}
+            style={{
+              padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+              background: viewMode === 'backlog' ? theme.gold : theme.soft,
+              color: viewMode === 'backlog' ? '#111' : theme.text,
+            }}
+          >
+            Backlog
+          </button>
         </div>
-
-        {/* Right panel — detail */}
-        <div>
-          {!selected ? (
-            <div style={{ color: theme.muted, textAlign: 'center', paddingTop: 40 }}>Selecione uma OS na lista.</div>
-          ) : (
-            <OSDetail
-              os={selected}
-              tecnicos={tecnicos}
-              equipments={equipments}
-              propostas={propostas}
-              canEdit={canEdit}
-              onUpdate={updateOS}
-              onToast={showToast}
-            />
-          )}
-        </div>
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as OSStatus | 'todos')} style={{ ...inputStyle, width: 'auto', flex: 'none', marginBottom: 0 }}>
+          <option value="todos">Todos os status</option>
+          {statuses.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+        </select>
+        <select value={filterTecnico} onChange={(e) => setFilterTecnico(e.target.value)} style={{ ...inputStyle, width: 'auto', flex: 'none', marginBottom: 0 }}>
+          <option value="todos">Todos os técnicos</option>
+          {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
       </div>
+
+      {viewMode === 'backlog' ? (
+        <BacklogView
+          ordens={filtered}
+          tecnicos={tecnicos}
+          canSchedule={canSchedule}
+          onUpdate={updateOS}
+          onToast={showToast}
+        />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 300px) 1fr', gap: 16, minHeight: 'calc(100vh - 180px)' }}>
+          {/* Left panel — list */}
+          <div>
+            {filtered.length === 0 && (
+              <div style={{ color: theme.muted, fontSize: 13, textAlign: 'center', padding: 20 }}>Nenhuma OS encontrada.</div>
+            )}
+
+            <div style={{ display: 'grid', gap: 6 }}>
+              {filtered.map((os) => {
+                const isSelected = os.id === selectedId;
+                const progress = os.pontos.length > 0
+                  ? Math.round((os.pontos.filter((p) => p.status === 'Finalizado').length / os.pontos.length) * 100)
+                  : 0;
+                return (
+                  <button
+                    key={os.id}
+                    onClick={() => setSelectedId(os.id)}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      background: isSelected ? 'rgba(200,169,81,0.08)' : theme.panel,
+                      border: `1px solid ${isSelected ? theme.gold : theme.border}`,
+                      borderRadius: 10,
+                      padding: 10,
+                      cursor: 'pointer',
+                      color: theme.text,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: 13 }}>{os.cliente}</strong>
+                      <StatusBadge value={os.status} />
+                    </div>
+                    <div style={{ fontSize: 11, color: theme.muted, marginTop: 4 }}>
+                      {os.id} · {os.pontos.length} ponto(s)
+                      {os.dataAgendada && ` · ${formatDate(os.dataAgendada)}`}
+                    </div>
+                    {/* Mini progress bar */}
+                    {os.pontos.length > 0 && (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: theme.muted, marginBottom: 2 }}>
+                          <span>Progresso</span>
+                          <span>{progress}%</span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 2, background: theme.soft }}>
+                          <div style={{
+                            height: '100%', borderRadius: 2, width: `${progress}%`,
+                            background: progress === 100 ? theme.success : theme.gold,
+                            transition: 'width 200ms ease',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right panel — detail */}
+          <div>
+            {!selected ? (
+              <div style={{ color: theme.muted, textAlign: 'center', paddingTop: 40 }}>Selecione uma OS na lista.</div>
+            ) : (
+              <OSDetail
+                os={selected}
+                tecnicos={tecnicos}
+                equipments={equipments}
+                propostas={propostas}
+                canSchedule={canSchedule}
+                canEditPontos={canEditPontos}
+                onUpdate={updateOS}
+                onToast={showToast}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </AppShell>
+  );
+}
+
+/* ---- Backlog View (ETAPA D) ---- */
+
+function BacklogView({ ordens, tecnicos, canSchedule, onUpdate, onToast }: {
+  ordens: OrdemDeServico[];
+  tecnicos: User[];
+  canSchedule: boolean;
+  onUpdate: (os: OrdemDeServico) => void;
+  onToast: (msg: string, type: 'success' | 'error' | 'warning') => void;
+}) {
+  return (
+    <div>
+      {ordens.length === 0 && (
+        <div style={{ color: theme.muted, fontSize: 13, textAlign: 'center', padding: 20 }}>Nenhuma OS encontrada.</div>
+      )}
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+        {ordens.map((os) => (
+          <BacklogCard key={os.id} os={os} tecnicos={tecnicos} canSchedule={canSchedule} onUpdate={onUpdate} onToast={onToast} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BacklogCard({ os, tecnicos, canSchedule, onUpdate, onToast }: {
+  os: OrdemDeServico;
+  tecnicos: User[];
+  canSchedule: boolean;
+  onUpdate: (os: OrdemDeServico) => void;
+  onToast: (msg: string, type: 'success' | 'error' | 'warning') => void;
+}) {
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [schedDate, setSchedDate] = useState(os.dataAgendada);
+  const [schedTecnico, setSchedTecnico] = useState(os.tecnicoId);
+
+  const pontosFinalizados = os.pontos.filter((p) => p.status === 'Finalizado').length;
+  const totalPontos = os.pontos.length;
+  const progressPct = totalPontos > 0 ? Math.round((pontosFinalizados / totalPontos) * 100) : 0;
+  const totalFotos = os.pontos.reduce((s, p) => s + p.photos.length, 0);
+  const tecnicoName = tecnicos.find((t) => t.id === os.tecnicoId)?.name ?? 'Não atribuído';
+  const statusColor = statusColorMap[os.status] ?? theme.muted;
+
+  function handleAgendar() {
+    if (!schedDate || !schedTecnico) {
+      onToast('Preencha data e técnico para agendar.', 'warning');
+      return;
+    }
+    onUpdate({ ...os, dataAgendada: schedDate, tecnicoId: schedTecnico, status: 'agendado' });
+    setShowSchedule(false);
+    onToast('OS agendada com sucesso!', 'success');
+  }
+
+  function handleCriarMissao() {
+    window.location.href = `/missoes?osId=${os.id}&cliente=${encodeURIComponent(os.cliente)}`;
+  }
+
+  return (
+    <div style={{
+      background: theme.panel,
+      border: `1px solid ${theme.border}`,
+      borderRadius: 12,
+      padding: 14,
+      borderLeft: `4px solid ${statusColor}`,
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+        <div>
+          <strong style={{ fontSize: 14 }}>{os.cliente}</strong>
+          <div style={{ fontSize: 11, color: theme.muted, marginTop: 2 }}>{os.id}</div>
+        </div>
+        <StatusBadge value={os.status} />
+      </div>
+
+      {/* Info row */}
+      <div style={{ display: 'flex', gap: 12, fontSize: 12, color: theme.muted, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span>Técnico: <strong style={{ color: theme.text }}>{tecnicoName}</strong></span>
+        {os.dataAgendada && <span>Data: <strong style={{ color: theme.text }}>{formatDate(os.dataAgendada)}</strong></span>}
+        <span>{totalPontos} ponto(s)</span>
+        {totalFotos > 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
+            {totalFotos}
+          </span>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      {totalPontos > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: theme.muted, marginBottom: 2 }}>
+            <span>Progresso</span>
+            <span style={{ color: progressPct === 100 ? theme.success : theme.gold, fontWeight: 600 }}>{progressPct}%</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: theme.soft }}>
+            <div style={{
+              height: '100%', borderRadius: 3, width: `${progressPct}%`,
+              background: progressPct === 100 ? theme.success : theme.gold,
+              transition: 'width 200ms ease',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Quick schedule form */}
+      {showSchedule && canSchedule && (
+        <div style={{ background: theme.soft, borderRadius: 8, padding: 10, marginBottom: 8, border: `1px solid ${theme.border}` }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: theme.gold, marginBottom: 6 }}>Agendar OS</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+            <div>
+              <label style={{ fontSize: 11, color: theme.muted }}>Data</label>
+              <input type="date" value={schedDate} onChange={(e) => setSchedDate(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: theme.muted }}>Técnico</label>
+              <select value={schedTecnico} onChange={(e) => setSchedTecnico(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }}>
+                <option value="">Selecionar...</option>
+                {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={handleAgendar} style={{ ...btnGold, fontSize: 12, padding: '6px 12px' }}>Confirmar</button>
+            <button onClick={() => setShowSchedule(false)} style={{ ...btnSoft, fontSize: 12, padding: '6px 12px' }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Quick actions */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {canSchedule && os.status === 'pendente' && !showSchedule && (
+          <button onClick={() => setShowSchedule(true)} style={{ ...btnGold, fontSize: 11, padding: '5px 10px' }}>
+            Agendar
+          </button>
+        )}
+        <button onClick={handleCriarMissao} style={{ ...btnSoft, fontSize: 11, padding: '5px 10px' }}>
+          Criar Missão
+        </button>
+      </div>
+    </div>
   );
 }
 
 /* ---- Detalhe da OS ---- */
 
-function OSDetail({ os, tecnicos, equipments, propostas, canEdit, onUpdate, onToast }: {
+function OSDetail({ os, tecnicos, equipments, propostas, canSchedule, canEditPontos, onUpdate, onToast }: {
   os: OrdemDeServico;
   tecnicos: User[];
   equipments: Equipment[];
   propostas: Proposta[];
-  canEdit: boolean;
+  canSchedule: boolean;
+  canEditPontos: boolean;
   onUpdate: (os: OrdemDeServico) => void;
   onToast: (msg: string, type: 'success' | 'error' | 'warning') => void;
 }) {
@@ -223,28 +408,28 @@ function OSDetail({ os, tecnicos, equipments, propostas, canEdit, onUpdate, onTo
           <StatusBadge value={os.status} />
         </div>
 
-        {/* Fields */}
+        {/* Fields — operational (canSchedule) */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
           <div>
             <label style={labelStyle}>Técnico</label>
-            <select value={os.tecnicoId} disabled={!canEdit} onChange={(e) => updateField('tecnicoId', e.target.value)} style={inputStyle}>
+            <select value={os.tecnicoId} disabled={!canSchedule} onChange={(e) => updateField('tecnicoId', e.target.value)} style={inputStyle}>
               <option value="">Não atribuído</option>
               {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
           <div>
             <label style={labelStyle}>Data agendada</label>
-            <input type="date" value={os.dataAgendada} disabled={!canEdit} onChange={(e) => updateField('dataAgendada', e.target.value)} style={inputStyle} />
+            <input type="date" value={os.dataAgendada} disabled={!canSchedule} onChange={(e) => updateField('dataAgendada', e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Status</label>
-            <select value={os.status} disabled={!canEdit} onChange={(e) => updateField('status', e.target.value as OSStatus)} style={inputStyle}>
+            <select value={os.status} disabled={!canSchedule} onChange={(e) => updateField('status', e.target.value as OSStatus)} style={inputStyle}>
               {statuses.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
             </select>
           </div>
           <div>
             <label style={labelStyle}>Observações gerais</label>
-            <input value={os.observacoes} disabled={!canEdit} onChange={(e) => updateField('observacoes', e.target.value)} style={inputStyle} placeholder="Observações gerais" />
+            <input value={os.observacoes} disabled={!canSchedule} onChange={(e) => updateField('observacoes', e.target.value)} style={inputStyle} placeholder="Observações gerais" />
           </div>
         </div>
 
@@ -317,7 +502,7 @@ function OSDetail({ os, tecnicos, equipments, propostas, canEdit, onUpdate, onTo
         </div>
       )}
 
-      {/* Interactive Checklist */}
+      {/* Interactive Checklist — technical (canEditPontos) */}
       {os.checklist.length > 0 && (
         <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -330,13 +515,13 @@ function OSDetail({ os, tecnicos, equipments, propostas, canEdit, onUpdate, onTo
             {os.checklist.map((ck) => (
               <button
                 key={ck.id}
-                onClick={() => canEdit && toggleChecklist(ck.id)}
-                disabled={!canEdit}
+                onClick={() => canEditPontos && toggleChecklist(ck.id)}
+                disabled={!canEditPontos}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   background: ck.done ? theme.success + '10' : theme.soft,
                   border: `1px solid ${ck.done ? theme.success + '44' : theme.border}`,
-                  borderRadius: 8, padding: '10px 12px', cursor: canEdit ? 'pointer' : 'default',
+                  borderRadius: 8, padding: '10px 12px', cursor: canEditPontos ? 'pointer' : 'default',
                   color: theme.text, textAlign: 'left', width: '100%',
                   transition: 'background 150ms, border-color 150ms',
                 }}
@@ -364,16 +549,16 @@ function OSDetail({ os, tecnicos, equipments, propostas, canEdit, onUpdate, onTo
         </div>
       )}
 
-      {/* Pontos de instalação */}
+      {/* Pontos de instalação — technical (canEditPontos) */}
       <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <h4 style={{ color: theme.gold, margin: 0, fontSize: 14 }}>Pontos de Instalação ({os.pontos.length})</h4>
-          {canEdit && !showAddPonto && (
+          {canEditPontos && !showAddPonto && (
             <button onClick={() => setShowAddPonto(true)} style={btnGold}>+ Ponto</button>
           )}
         </div>
 
-        {showAddPonto && canEdit && (
+        {showAddPonto && canEditPontos && (
           <AddPontoForm
             equipments={equipments}
             onAdd={(ponto) => {
@@ -396,7 +581,7 @@ function OSDetail({ os, tecnicos, equipments, propostas, canEdit, onUpdate, onTo
               key={ponto.id}
               ponto={ponto}
               equipments={equipments}
-              canEdit={canEdit}
+              canEdit={canEditPontos}
               onUpdate={updatePonto}
               onRemove={removePonto}
               onExpandPhoto={setExpandedPhoto}
@@ -405,8 +590,8 @@ function OSDetail({ os, tecnicos, equipments, propostas, canEdit, onUpdate, onTo
         </div>
       </div>
 
-      {/* Concluir */}
-      {canEdit && os.status !== 'concluida' && (
+      {/* Concluir — needs canEditPontos (technical completion) */}
+      {canEditPontos && os.status !== 'concluida' && (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button onClick={concluirOS} style={{ ...btnGold, background: theme.success, padding: '12px 24px', fontSize: 14 }}>
             Finalizar Instalação
@@ -537,12 +722,9 @@ function PontoCard({ ponto, equipments, canEdit, onUpdate, onRemove, onExpandPho
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const base64 = reader.result as string;
+                  compressImage(file).then((base64) => {
                     onUpdate({ ...ponto, photos: [...ponto.photos, base64] });
-                  };
-                  reader.readAsDataURL(file);
+                  });
                   e.target.value = '';
                 }}
               />
@@ -648,13 +830,15 @@ function AddPontoForm({ equipments, onAdd, onCancel }: {
 
 /* ---- Helpers ---- */
 
+const statusColorMap: Record<string, string> = {
+  pendente: theme.warning,
+  agendado: '#5B9BD5',
+  'em andamento': theme.gold,
+  concluida: theme.success,
+};
+
 function StatusBadge({ value }: { value: string }) {
-  const colorMap: Record<string, string> = {
-    pendente: theme.warning,
-    'em andamento': theme.gold,
-    concluida: theme.success,
-  };
-  const color = colorMap[value] ?? theme.muted;
+  const color = statusColorMap[value] ?? theme.muted;
   return (
     <span style={{
       fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5,
@@ -667,7 +851,12 @@ function StatusBadge({ value }: { value: string }) {
 }
 
 function statusLabel(s: OSStatus): string {
-  const map: Record<OSStatus, string> = { pendente: 'Pendente', 'em andamento': 'Em andamento', concluida: 'Concluída' };
+  const map: Record<OSStatus, string> = {
+    pendente: 'Pendente',
+    agendado: 'Agendado',
+    'em andamento': 'Em andamento',
+    concluida: 'Concluída',
+  };
   return map[s] ?? s;
 }
 

@@ -67,7 +67,7 @@ export function useDroppable({ id }: { id: string | number }) {
   };
 }
 
-export function useDraggable({ id }: { id: string | number }) {
+export function useDraggable({ id, disabled }: { id: string | number; disabled?: boolean }) {
   const ctx = useContext(Ctx);
   const nodeRef = useRef<HTMLElement | null>(null);
 
@@ -78,27 +78,29 @@ export function useDraggable({ id }: { id: string | number }) {
     }
   }, []);
 
-  return {
-    attributes: { draggable: true },
-    listeners: {
-      onDragStart: () => {
-        ctx.setActiveId(id);
-        if (nodeRef.current) {
-          nodeRef.current.style.opacity = '0.5';
-          nodeRef.current.style.transform = 'scale(1.03)';
-        }
-      },
-      onDragEnd: () => {
-        if (nodeRef.current) {
-          nodeRef.current.style.opacity = '1';
-          nodeRef.current.style.transform = '';
-        }
-        ctx.setActiveId(null);
-        ctx.setOverId(null);
-      },
+  const listeners = disabled ? {} : {
+    onDragStart: () => {
+      ctx.setActiveId(id);
+      if (nodeRef.current) {
+        nodeRef.current.style.opacity = '0.5';
+        nodeRef.current.style.transform = 'scale(1.03)';
+      }
     },
+    onDragEnd: () => {
+      if (nodeRef.current) {
+        nodeRef.current.style.opacity = '1';
+        nodeRef.current.style.transform = '';
+      }
+      ctx.setActiveId(null);
+      ctx.setOverId(null);
+    },
+  };
+
+  return {
+    attributes: { draggable: !disabled },
+    listeners,
     setNodeRef,
     transform: null as { x: number; y: number } | null,
-    isDragging: ctx.activeId === id,
+    isDragging: !disabled && ctx.activeId === id,
   };
 }

@@ -148,7 +148,7 @@ export type OrdemDeServico = {
   checklist: ChecklistItem[];
   pontos: InstallationPoint[];
   observacoes: string;
-  status: 'pendente' | 'em andamento' | 'concluida';
+  status: 'pendente' | 'agendado' | 'em andamento' | 'concluida';
   createdAt: string;
 };
 

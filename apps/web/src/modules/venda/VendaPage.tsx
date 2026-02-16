@@ -11,6 +11,7 @@ import {
   mockEquipments, mockLeads, mockOportunidades, mockOrcamentos,
   mockOrdens, mockPropostas, mockSolucoes, mockUsers,
 } from '../../mocks/data';
+import { compressImage } from '../../services/imageUtils';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
   BlocoCategoria, BlocoTecnico, Equipment, FAIXAS_ZONA, FaixaZona,
@@ -465,11 +466,9 @@ function TabCliente({ lead, onUpdateFotos }: { lead: Lead; onUpdateFotos: (fotos
   function handleAddPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      onUpdateFotos([...fotos, reader.result as string]);
-    };
-    reader.readAsDataURL(file);
+    compressImage(file).then((base64) => {
+      onUpdateFotos([...fotos, base64]);
+    });
     e.target.value = '';
   }
 

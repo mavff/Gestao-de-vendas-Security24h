@@ -13,5 +13,9 @@ export function loadMock<T>(key: string, fallback: T): T {
 
 export function saveMock<T>(key: string, value: T): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn(`[saveMock] Falha ao salvar "${key}" no localStorage (possivelmente cheio):`, e);
+  }
 }
