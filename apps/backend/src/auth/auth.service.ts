@@ -47,8 +47,20 @@ export class AuthService {
   }
 
   private resolveRole(username: string): string {
-    const admins = (process.env.ADMIN_USERS || '').split(',').map((v) => v.trim());
-    if (admins.includes(username)) return 'ADMIN';
+    const roleEnvKeys: [string, string][] = [
+      ['ADMIN_USERS', 'ADMIN'],
+      ['SDR_USERS', 'SDR'],
+      ['TECNICO_USERS', 'TECNICO'],
+      ['INFRA_USERS', 'INFRA'],
+      ['MONITOR_USERS', 'MONITOR'],
+      ['GESTOR_USERS', 'GESTOR'],
+    ];
+
+    for (const [envKey, role] of roleEnvKeys) {
+      const users = (process.env[envKey] || '').split(',').map((v) => v.trim()).filter(Boolean);
+      if (users.includes(username)) return role;
+    }
+
     return 'VENDEDOR';
   }
 }

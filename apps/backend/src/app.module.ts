@@ -5,23 +5,17 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { KitsModule } from './kits/kits.module';
-import { LeadsModule } from './leads/leads.module';
 import { LookupsModule } from './lookups/lookups.module';
 import { OrcamentosModule } from './orcamentos/orcamentos.module';
 import { ProductsModule } from './products/products.module';
 import { ProspectsModule } from './prospects/prospects.module';
-import { QuotesModule } from './quotes/quotes.module';
 import { SenhaUser } from './database/senha-user.entity';
-import { Prospect } from './database/prospect.entity';
-import { ProspectAcaoVenda } from './database/prospect-acao-venda.entity';
-import { Orcamento } from './database/orcamento.entity';
-import { OrcamentoProduto } from './database/orcamento-produto.entity';
 
 const logger = new Logger('AppModule');
 
 /**
  * Returns TypeOrmModule only when SQL_SERVER_HOST is configured.
- * This lets the server boot without a real database (fail-soft).
+ * Used exclusively for Auth (read-only against Senhas table).
  */
 function buildTypeOrmModule(): DynamicModule[] {
   if (!process.env.SQL_SERVER_HOST) {
@@ -37,7 +31,7 @@ function buildTypeOrmModule(): DynamicModule[] {
       username: process.env.SQL_SERVER_USERNAME,
       password: process.env.SQL_SERVER_PASSWORD,
       database: process.env.SQL_SERVER_DATABASE,
-      entities: [SenhaUser, Prospect, ProspectAcaoVenda, Orcamento, OrcamentoProduto],
+      entities: [SenhaUser],
       options: {
         encrypt: process.env.SQL_SERVER_ENCRYPT === 'true',
         trustServerCertificate: true,
@@ -58,7 +52,7 @@ function buildTypeOrmModule(): DynamicModule[] {
     LookupsModule,
     ProspectsModule,
     OrcamentosModule,
-    ...(process.env.SQL_SERVER_HOST ? [AuthModule, LeadsModule, QuotesModule] : []),
+    ...(process.env.SQL_SERVER_HOST ? [AuthModule] : []),
   ],
 })
 export class AppModule {}
