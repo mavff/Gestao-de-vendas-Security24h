@@ -297,22 +297,6 @@ export function VendaPage() {
     setActiveStep('OS');
   }
 
-  /* --- render --- */
-
-  if (!lead) {
-    return (
-      <AppShell title="Venda">
-        <div style={{ textAlign: 'center', padding: 40, color: theme.muted }}>
-          Lead não encontrado (ID: {leadId}).
-          <br />
-          <button onClick={() => { window.location.href = '/kanban'; }} style={{ ...btnGold, marginTop: 16 }}>
-            Voltar ao Pipeline
-          </button>
-        </div>
-      </AppShell>
-    );
-  }
-
   /* --- contextual alert --- */
   const alertMsg = useMemo(() => {
     if (ordem?.status === 'concluida') return { text: 'Instalação concluída com sucesso!', color: theme.success, icon: '✓' };
@@ -334,6 +318,22 @@ export function VendaPage() {
     'Fotos/Pontos': vistoria ? (vistoria.status === 'concluida' ? 'Concluída' : `${vistoria.ambientes.length} amb.`) : 'Pendente',
     'OS': ordem ? (ordem.status === 'concluida' ? 'Concluída' : ordem.status.replace('_', ' ')) : 'Aguardando',
   }), [solucao, vistoria, ordem]);
+
+  /* --- render --- */
+
+  if (!lead) {
+    return (
+      <AppShell title="Venda">
+        <div style={{ textAlign: 'center', padding: 40, color: theme.muted }}>
+          Lead não encontrado (ID: {leadId}).
+          <br />
+          <button onClick={() => { window.location.href = '/kanban'; }} style={{ ...btnGold, marginTop: 16 }}>
+            Voltar ao Pipeline
+          </button>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell title={`Venda — ${lead.name}`}>
