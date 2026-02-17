@@ -33,7 +33,7 @@ export const mockLeads: Lead[] = [
     ],
     attachments: [],
     contato: '(11) 91234-5678', endereco: 'Av. Paulista 900, SP', tipoLocal: 'Comercial',
-    vendaStep: 'proposta',
+    vendaStep: 'vistoria',
   },
   {
     id: 'L4', name: 'Ana Beatriz', company: 'Residencial Vita', value: 9800, stage: 'Negociação', responsible: 'Nina', origin: 'WhatsApp', week: 'Sem 4', status: 'ativo',

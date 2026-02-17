@@ -4,11 +4,11 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { AppShell } from '../../components/layout/AppShell';
-import { mockLeads, mockOrcamentos, mockOrdens, mockPropostas, mockSolucoes } from '../../mocks/data';
+import { mockLeads, mockOrdens, mockSolucoes, mockVistorias } from '../../mocks/data';
 import { loadMock } from '../../services/mockStorage';
-import { Lead, Orcamento, OrdemDeServico, Proposta, SolucaoTecnica } from '../../types';
+import { Lead, OrdemDeServico, SolucaoTecnica, Vistoria } from '../../types';
 
-type VendaStatus = 'solucao' | 'orcamento' | 'proposta_rascunho' | 'proposta_enviada' | 'aprovada' | 'em_instalacao' | 'concluida';
+type VendaStatus = 'solucao' | 'vistoria' | 'os_pendente' | 'em_instalacao' | 'concluida';
 
 type VendaResumo = {
   leadId: string;
@@ -17,22 +17,20 @@ type VendaResumo = {
   valor: number;
   status: VendaStatus;
   statusLabel: string;
-  etapa: number; // 0-4 for progress bar
+  etapa: number; // 0-3 for progress bar
   marca: string;
   createdAt: string;
 };
 
 const STATUS_CONFIG: Record<VendaStatus, { label: string; color: string; etapa: number }> = {
-  solucao:           { label: 'Montando Solução',    color: theme.muted,   etapa: 1 },
-  orcamento:         { label: 'Orçamento Gerado',    color: theme.warning, etapa: 2 },
-  proposta_rascunho: { label: 'Proposta em Rascunho', color: theme.warning, etapa: 3 },
-  proposta_enviada:  { label: 'Aguardando Aprovação', color: '#5B9BD5',    etapa: 3 },
-  aprovada:          { label: 'Aprovada — OS Criada', color: theme.success, etapa: 4 },
-  em_instalacao:     { label: 'Em Instalação',       color: theme.gold,    etapa: 4 },
-  concluida:         { label: 'Concluída',           color: theme.success, etapa: 4 },
+  solucao:       { label: 'Montando Solução',  color: theme.muted,   etapa: 1 },
+  vistoria:      { label: 'Fotos/Pontos',      color: '#5B9BD5',     etapa: 2 },
+  os_pendente:   { label: 'OS Criada',         color: theme.warning, etapa: 3 },
+  em_instalacao: { label: 'Em Instalação',     color: theme.gold,    etapa: 3 },
+  concluida:     { label: 'Concluída',         color: theme.success, etapa: 3 },
 };
 
-const ETAPAS = ['Lead', 'Solução', 'Orçamento', 'Proposta', 'OS'];
+const ETAPAS = ['Lead', 'Solução', 'Fotos/Pontos', 'OS'];
 
 type FiltroStatus = 'todas' | 'em_andamento' | 'aguardando' | 'concluidas';
 
@@ -40,8 +38,7 @@ export function VendasListPage() {
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [solucoes, setSolucoes] = useState<SolucaoTecnica[]>([]);
-  const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
-  const [propostas, setPropostas] = useState<Proposta[]>([]);
+  const [vistorias, setVistorias] = useState<Vistoria[]>([]);
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
   const [filtro, setFiltro] = useState<FiltroStatus>('todas');
   const [search, setSearch] = useState('');
@@ -49,8 +46,7 @@ export function VendasListPage() {
   useEffect(() => {
     setLeads(loadMock('mock_leads', mockLeads));
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
-    setOrcamentos(loadMock('mock_orcamentos', mockOrcamentos));
-    setPropostas(loadMock('mock_propostas', mockPropostas));
+    setVistorias(loadMock('mock_vistorias', mockVistorias));
     setOrdens(loadMock('mock_ordens', mockOrdens));
   }, []);
 
@@ -59,58 +55,52 @@ export function VendasListPage() {
 
     for (const lead of leads) {
       const sol = solucoes.find((s) => s.leadId === lead.id);
-      const orc = orcamentos.find((o) => o.leadId === lead.id);
-      const prop = propostas.find((p) => p.leadId === lead.id);
+      const vis = vistorias.find((v) => v.leadId === lead.id);
       const os = ordens.find((o) => o.leadId === lead.id);
 
       // Only show leads that have at least a solução started
-      if (!sol && !orc && !prop && !os) continue;
+      if (!sol && !vis && !os) continue;
 
       let status: VendaStatus = 'solucao';
       if (os && os.status === 'concluida') {
         status = 'concluida';
       } else if (os && os.status === 'em_andamento') {
         status = 'em_instalacao';
-      } else if (prop && prop.status === 'aprovada') {
-        status = 'aprovada';
-      } else if (prop && prop.status === 'enviada') {
-        status = 'proposta_enviada';
-      } else if (prop && prop.status === 'gerada') {
-        status = 'proposta_rascunho';
-      } else if (orc) {
-        status = 'orcamento';
+      } else if (os) {
+        status = 'os_pendente';
+      } else if (vis) {
+        status = 'vistoria';
       }
 
       const cfg = STATUS_CONFIG[status];
-      const valor = prop?.total ?? orc?.totalFinal ?? lead.value;
 
       result.push({
         leadId: lead.id,
         leadNome: lead.name,
         empresa: lead.company,
-        valor,
+        valor: lead.value,
         status,
         statusLabel: cfg.label,
         etapa: cfg.etapa,
         marca: sol?.marca ?? '',
-        createdAt: sol?.createdAt ?? orc?.createdAt ?? prop?.createdAt ?? '',
+        createdAt: sol?.createdAt ?? '',
       });
     }
 
     // Most recent first
     result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return result;
-  }, [leads, solucoes, orcamentos, propostas, ordens]);
+  }, [leads, solucoes, vistorias, ordens]);
 
   const filtered = useMemo(() => {
     let list = vendas;
 
     if (filtro === 'em_andamento') {
-      list = list.filter((v) => ['solucao', 'orcamento', 'proposta_rascunho'].includes(v.status));
+      list = list.filter((v) => ['solucao', 'vistoria'].includes(v.status));
     } else if (filtro === 'aguardando') {
-      list = list.filter((v) => ['proposta_enviada'].includes(v.status));
+      list = list.filter((v) => v.status === 'os_pendente');
     } else if (filtro === 'concluidas') {
-      list = list.filter((v) => ['aprovada', 'em_instalacao', 'concluida'].includes(v.status));
+      list = list.filter((v) => ['em_instalacao', 'concluida'].includes(v.status));
     }
 
     if (search.trim()) {
@@ -123,9 +113,9 @@ export function VendasListPage() {
 
   const countByFiltro = useMemo(() => ({
     todas: vendas.length,
-    em_andamento: vendas.filter((v) => ['solucao', 'orcamento', 'proposta_rascunho'].includes(v.status)).length,
-    aguardando: vendas.filter((v) => v.status === 'proposta_enviada').length,
-    concluidas: vendas.filter((v) => ['aprovada', 'em_instalacao', 'concluida'].includes(v.status)).length,
+    em_andamento: vendas.filter((v) => ['solucao', 'vistoria'].includes(v.status)).length,
+    aguardando: vendas.filter((v) => v.status === 'os_pendente').length,
+    concluidas: vendas.filter((v) => ['em_instalacao', 'concluida'].includes(v.status)).length,
   }), [vendas]);
 
   return (

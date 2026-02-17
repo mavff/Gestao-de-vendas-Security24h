@@ -2,8 +2,6 @@ export type LeadStage = 'Novo' | 'Contato' | 'Proposta' | 'Negociação' | 'Fech
 
 export type VendaStep =
   | 'solucao'
-  | 'orcamentos'
-  | 'proposta'
   | 'vistoria'
   | 'os_criada';
 
@@ -153,8 +151,8 @@ export type OSStatus = 'bloqueada' | 'pendente' | 'agendada' | 'em_andamento' | 
 
 export type OrdemDeServico = {
   id: string;
-  propostaId: string;
-  vistoriaId: string;
+  propostaId?: string;
+  vistoriaId?: string;
   leadId: string;
   cliente: string;
   dataAgendada: string;

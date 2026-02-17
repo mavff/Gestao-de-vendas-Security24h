@@ -8,15 +8,15 @@ import { AppShell } from '../../components/layout/AppShell';
 import { KIT_CATEGORIA_LABELS } from '../../config/kitPresets';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  mockEquipments, mockKits, mockLeads, mockOrcamentos,
-  mockOrdens, mockPropostas, mockSolucoes, mockUsers, mockVistorias,
+  mockEquipments, mockKits, mockLeads,
+  mockOrdens, mockSolucoes, mockUsers, mockVistorias,
 } from '../../mocks/data';
 import { compressImage } from '../../services/imageUtils';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
-  AmbienteVistoria, BlocoCategoria, BlocoTecnico, Equipment, FAIXAS_ZONA, FaixaZona,
-  InstallationPoint, ItemSolucao, Kit, Lead, Marca, Orcamento, OrcamentoItem,
-  OrdemDeServico, Proposta, SolucaoTecnica, User, VendaStep, Vistoria,
+  AmbienteVistoria, BlocoCategoria, BlocoTecnico, Equipment,
+  InstallationPoint, ItemSolucao, Kit, Lead, Marca,
+  OrdemDeServico, SolucaoTecnica, User, VendaStep, Vistoria,
 } from '../../types';
 
 /* ================================================================
@@ -56,25 +56,11 @@ const wizardSteps: WizardStep[] = [
   { label: 'Resumo', blocos: [] },
 ];
 
-const STEP_LABELS = ['Solução', 'Orçamentos', 'Proposta', 'Vistoria', 'OS'] as const;
+const STEP_LABELS = ['Solução', 'Fotos/Pontos', 'OS'] as const;
 type StepName = (typeof STEP_LABELS)[number];
 
 function emptyBlocos(): BlocoTecnico[] {
   return allBlocos.map((cat) => ({ categoria: cat, itens: [] }));
-}
-
-function getFaixa(zonas: number): FaixaZona {
-  return FAIXAS_ZONA.find((f) => zonas >= f.min && zonas <= f.max) ?? FAIXAS_ZONA[FAIXAS_ZONA.length - 1];
-}
-
-function calcularOrcamento(zonas: number, subtotalEquip: number, desconto: number) {
-  const faixa = getFaixa(zonas);
-  const markupEquip = subtotalEquip * (faixa.fator - 1);
-  const totalEquip = subtotalEquip + markupEquip;
-  const subtotal = totalEquip + faixa.maoDeObra;
-  const descontoValor = subtotal * (desconto / 100);
-  const totalFinal = subtotal - descontoValor;
-  return { faixa, totalEquip, maoDeObra: faixa.maoDeObra, mensalidade: faixa.mensalidade, totalFinal, fator: faixa.fator };
 }
 
 function formatCurrency(v: number): string {
@@ -98,8 +84,6 @@ export function VendaPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [solucoes, setSolucoes] = useState<SolucaoTecnica[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
-  const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
-  const [propostas, setPropostas] = useState<Proposta[]>([]);
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
   const [vistorias, setVistorias] = useState<Vistoria[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -109,15 +93,12 @@ export function VendaPage() {
   const [activeStep, setActiveStep] = useState<StepName>('Solução');
   const [solDraft, setSolDraft] = useState<SolucaoTecnica | null>(null);
   const [wizStep, setWizStep] = useState(0);
-  const [editingOrcId, setEditingOrcId] = useState<string | null>(null);
 
   /* --- load --- */
   useEffect(() => {
     setLeads(loadMock('mock_leads', mockLeads));
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
     setEquipments(loadMock('mock_equipments', mockEquipments));
-    setOrcamentos(loadMock('mock_orcamentos', mockOrcamentos));
-    setPropostas(loadMock('mock_propostas', mockPropostas));
     setOrdens(loadMock('mock_ordens', mockOrdens));
     setVistorias(loadMock('mock_vistorias', mockVistorias));
     setUsers(loadMock('mock_users', mockUsers));
@@ -127,17 +108,12 @@ export function VendaPage() {
   /* --- persist --- */
   useEffect(() => { if (leads.length) saveMock('mock_leads', leads); }, [leads]);
   useEffect(() => { if (solucoes.length) saveMock('mock_solucoes', solucoes); }, [solucoes]);
-  useEffect(() => { saveMock('mock_orcamentos', orcamentos); }, [orcamentos]);
-  useEffect(() => { if (propostas.length) saveMock('mock_propostas', propostas); }, [propostas]);
   useEffect(() => { saveMock('mock_ordens', ordens); }, [ordens]);
   useEffect(() => { saveMock('mock_vistorias', vistorias); }, [vistorias]);
 
   /* --- derived for this lead --- */
   const lead = leads.find((l) => l.id === leadId) ?? null;
   const solucao = solucoes.find((s) => s.leadId === leadId) ?? null;
-  const leadOrcamentos = useMemo(() => orcamentos.filter((o) => o.leadId === leadId).sort((a, b) => a.numero - b.numero), [orcamentos, leadId]);
-  const orcamentoEscolhido = leadOrcamentos.find((o) => o.status === 'escolhido') ?? null;
-  const proposta = propostas.find((p) => p.leadId === leadId) ?? null;
   const vistoria = vistorias.find((v) => v.leadId === leadId) ?? null;
   const ordem = ordens.find((o) => o.leadId === leadId) ?? null;
 
@@ -171,23 +147,16 @@ export function VendaPage() {
      Step accessibility
      ============================================= */
   const solucaoPronta = solucao?.status === 'pronta';
-  const temOrcEscolhido = !!orcamentoEscolhido;
-  const propostaAprovada = proposta?.status === 'aprovada';
   const vistoriaConcluida = vistoria?.status === 'concluida';
 
   const stepEnabled: Record<StepName, boolean> = {
     'Solução': true,
-    'Orçamentos': solucaoPronta,
-    'Proposta': temOrcEscolhido,
-    'Vistoria': propostaAprovada,
+    'Fotos/Pontos': solucaoPronta,
     'OS': vistoriaConcluida,
   };
 
-  const progressIndex = vistoriaConcluida ? 5
-    : propostaAprovada ? 4
-    : proposta ? 3
-    : temOrcEscolhido ? 3
-    : leadOrcamentos.length > 0 ? 2
+  const progressIndex = vistoriaConcluida ? 3
+    : vistoria ? 2
     : solucaoPronta ? 1
     : 0;
 
@@ -222,9 +191,21 @@ export function VendaPage() {
       setSolucoes((cur) => [...cur, pronta]);
     }
     setSolDraft(pronta);
-    updateLeadStep('orcamentos');
-    showToast('Solução marcada como pronta!', 'success');
-    setActiveStep('Orçamentos');
+
+    // Create vistoria if it doesn't exist yet
+    if (!vistoria) {
+      const userId = users.find((u) => u.role === role)?.id ?? 'U1';
+      const newVis: Vistoria = {
+        id: 'VIS' + Date.now(), leadId, propostaId: '',
+        ambientes: [], observacoes: '', status: 'pendente',
+        criadoPor: userId, createdAt: now, updatedAt: now,
+      };
+      setVistorias((cur) => [...cur, newVis]);
+    }
+
+    updateLeadStep('vistoria');
+    showToast('Solução pronta! Registre as fotos e pontos do local.', 'success');
+    setActiveStep('Fotos/Pontos');
   }
 
   function handleVoltarRascunho() {
@@ -238,144 +219,7 @@ export function VendaPage() {
   }
 
   /* =============================================
-     Actions — Orçamentos
-     ============================================= */
-
-  function buildOrcamentoFromSolucao(sol: SolucaoTecnica, marca?: Marca): Omit<Orcamento, 'id' | 'numero' | 'createdAt'> {
-    const useMarca = marca ?? sol.marca;
-    const itens: OrcamentoItem[] = [];
-    for (const bloco of sol.blocos) {
-      for (const item of bloco.itens) {
-        const eq = equipments.find((e) => e.id === item.equipmentId);
-        if (!eq) continue;
-        itens.push({
-          equipmentId: item.equipmentId, nome: eq.name,
-          quantidade: item.quantidade, precoUnitario: eq.price,
-          subtotal: eq.price * item.quantidade, bloco: bloco.categoria,
-        });
-      }
-    }
-    const subtotalEquip = itens.reduce((s, i) => s + i.subtotal, 0);
-    const zonas = 4;
-    const calc = calcularOrcamento(zonas, subtotalEquip, 0);
-    return {
-      solucaoId: sol.id, leadId: sol.leadId, clienteNome: sol.clienteNome,
-      marca: useMarca, zonas, itens, subtotalEquipamentos: subtotalEquip,
-      fatorZona: calc.fator, totalEquipamentos: calc.totalEquip,
-      maoDeObra: calc.maoDeObra, mensalidade: calc.mensalidade,
-      desconto: 0, totalFinal: calc.totalFinal, observacoes: '',
-      status: 'rascunho',
-    };
-  }
-
-  function handleCriarOrcamento() {
-    if (!solucao) return;
-    const nextNum = leadOrcamentos.length > 0 ? Math.max(...leadOrcamentos.map((o) => o.numero)) + 1 : 1;
-    const base = buildOrcamentoFromSolucao(solucao);
-    const newOrc: Orcamento = { ...base, id: 'ORC' + Date.now(), numero: nextNum, createdAt: new Date().toISOString().slice(0, 10) };
-    setOrcamentos((cur) => [...cur, newOrc]);
-    setEditingOrcId(newOrc.id);
-    if (!lead?.vendaStep || lead.vendaStep === 'solucao') updateLeadStep('orcamentos');
-    showToast(`Orçamento ${nextNum} criado.`, 'success');
-  }
-
-  function handleDuplicarOrcamento(orc: Orcamento) {
-    const nextNum = Math.max(...leadOrcamentos.map((o) => o.numero)) + 1;
-    const dup: Orcamento = { ...orc, id: 'ORC' + Date.now(), numero: nextNum, status: 'rascunho', createdAt: new Date().toISOString().slice(0, 10) };
-    setOrcamentos((cur) => [...cur, dup]);
-    showToast(`Orçamento ${nextNum} duplicado.`, 'success');
-  }
-
-  function handleExcluirOrcamento(orc: Orcamento) {
-    if (orc.status === 'escolhido') return;
-    setOrcamentos((cur) => cur.filter((o) => o.id !== orc.id));
-    if (editingOrcId === orc.id) setEditingOrcId(null);
-    showToast(`Orçamento ${orc.numero} excluído.`, 'warning');
-  }
-
-  function handleEscolherOrcamento(orc: Orcamento) {
-    setOrcamentos((cur) => cur.map((o) => {
-      if (o.leadId !== leadId) return o;
-      if (o.id === orc.id) return { ...o, status: 'escolhido' as const };
-      if (o.status === 'escolhido') return { ...o, status: 'finalizado' as const };
-      return o;
-    }));
-    showToast(`Orçamento ${orc.numero} escolhido.`, 'success');
-  }
-
-  function handleSaveOrcamento(updated: Orcamento) {
-    const subtotalEquip = updated.itens.reduce((s, i) => s + i.subtotal, 0);
-    const calc = calcularOrcamento(updated.zonas, subtotalEquip, updated.desconto);
-    const saved: Orcamento = {
-      ...updated,
-      subtotalEquipamentos: subtotalEquip,
-      fatorZona: calc.fator, totalEquipamentos: calc.totalEquip,
-      maoDeObra: calc.maoDeObra, mensalidade: calc.mensalidade,
-      totalFinal: calc.totalFinal,
-    };
-    setOrcamentos((cur) => cur.map((o) => o.id === saved.id ? saved : o));
-    setEditingOrcId(null);
-    showToast('Orçamento salvo.', 'success');
-  }
-
-  /* =============================================
-     Actions — Proposta
-     ============================================= */
-
-  function handleGerarProposta() {
-    if (!orcamentoEscolhido) return;
-    const calc = calcularOrcamento(orcamentoEscolhido.zonas, orcamentoEscolhido.subtotalEquipamentos, orcamentoEscolhido.desconto);
-
-    const novaProposta: Proposta = {
-      id: 'PR' + Date.now(), orcamentoId: orcamentoEscolhido.id,
-      leadId: orcamentoEscolhido.leadId, leadNome: orcamentoEscolhido.clienteNome,
-      itens: orcamentoEscolhido.itens.map((i) => ({
-        equipamentoId: i.equipmentId, nome: i.nome,
-        quantidade: i.quantidade, precoUnitario: i.precoUnitario,
-      })),
-      servicos: [
-        { descricao: 'Instalação + Configuração', valor: calc.maoDeObra, tipo: 'instalacao' },
-        { descricao: 'Monitoramento 24h (mensal)', valor: calc.mensalidade, tipo: 'mensalidade' },
-      ],
-      total: calc.totalFinal + calc.mensalidade,
-      observacoes: orcamentoEscolhido.observacoes || '',
-      status: 'gerada', createdAt: new Date().toISOString().slice(0, 10),
-    };
-    setPropostas((cur) => {
-      const filtered = cur.filter((p) => p.leadId !== leadId);
-      return [...filtered, novaProposta];
-    });
-    updateLeadStep('proposta');
-    showToast('Proposta gerada!', 'success');
-    setActiveStep('Proposta');
-  }
-
-  function handleEnviarProposta() {
-    if (!proposta) return;
-    setPropostas((cur) => cur.map((p) => p.id === proposta.id ? { ...p, status: 'enviada' as const } : p));
-    showToast('Proposta enviada ao cliente.', 'success');
-  }
-
-  function handleAprovarProposta() {
-    if (!proposta) return;
-    setPropostas((cur) => cur.map((p) => p.id === proposta.id ? { ...p, status: 'aprovada' as const } : p));
-
-    // Create empty vistoria
-    const now = new Date().toISOString().slice(0, 10);
-    const userId = users.find((u) => u.role === role)?.id ?? 'U1';
-    const newVis: Vistoria = {
-      id: 'VIS' + Date.now(), leadId, propostaId: proposta.id,
-      ambientes: [], observacoes: '', status: 'pendente',
-      criadoPor: userId, createdAt: now, updatedAt: now,
-    };
-    setVistorias((cur) => [...cur, newVis]);
-    updateLeadStep('vistoria');
-    showToast('Proposta aprovada! Registre as fotos e pontos do local.', 'success');
-    setActiveStep('Vistoria');
-  }
-
-  /* =============================================
-     Actions — Vistoria
+     Actions — Vistoria (Fotos/Pontos)
      ============================================= */
 
   function handleAddAmbiente(nome: string) {
@@ -401,7 +245,7 @@ export function VendaPage() {
   }
 
   function handleConcluirVistoria() {
-    if (!vistoria || !proposta) return;
+    if (!vistoria || !solucao) return;
     const hasPhoto = vistoria.ambientes.some((a) => a.pontos.some((p) => p.photos.length > 0));
     if (vistoria.ambientes.length === 0) {
       showToast('Adicione pelo menos 1 ambiente.', 'error');
@@ -416,17 +260,24 @@ export function VendaPage() {
     const concluida: Vistoria = { ...vistoria, status: 'concluida', updatedAt: now };
     setVistorias((cur) => cur.map((v) => v.id === vistoria.id ? concluida : v));
 
-    // Create OS with pontos from vistoria
+    // Create OS with pontos from vistoria and checklist from solução
     const allPontos: InstallationPoint[] = vistoria.ambientes.flatMap((a) => a.pontos);
-    const checklist = proposta.itens.map((item, idx) => ({
-      id: 'CK' + Date.now() + idx,
-      text: `Instalar ${item.quantidade}x ${item.nome}`,
-      done: false,
-    }));
+    let ckIdx = 0;
+    const checklist = solucao.blocos.flatMap((bloco) =>
+      bloco.itens.map((item) => {
+        const eq = equipments.find((e) => e.id === item.equipmentId);
+        return {
+          id: 'CK' + Date.now() + (ckIdx++),
+          text: `Instalar ${item.quantidade}x ${eq?.name ?? item.equipmentId}`,
+          done: false,
+        };
+      }),
+    );
 
+    const clienteNome = lead ? `${lead.name} — ${lead.company}` : solucao.clienteNome;
     const newOS: OrdemDeServico = {
-      id: 'OS' + Date.now(), propostaId: proposta.id, vistoriaId: vistoria.id,
-      leadId, cliente: proposta.leadNome, dataAgendada: '', tecnicoId: '',
+      id: 'OS' + Date.now(), vistoriaId: vistoria.id,
+      leadId, cliente: clienteNome, dataAgendada: '', tecnicoId: '',
       checklist, pontos: allPontos, observacoes: '', status: 'pendente',
       createdAt: now,
     };
@@ -456,36 +307,29 @@ export function VendaPage() {
   const alertMsg = useMemo(() => {
     if (ordem?.status === 'concluida') return { text: 'Instalação concluída com sucesso!', color: theme.success, icon: '✓' };
     if (ordem) return { text: 'OS criada. Acompanhe o andamento em Instalações.', color: theme.gold, icon: '→' };
-    if (vistoria?.status === 'concluida') return { text: 'Vistoria concluída! OS será criada automaticamente.', color: theme.success, icon: '✓' };
+    if (vistoria?.status === 'concluida') return { text: 'Fotos/Pontos concluídos! OS liberada.', color: theme.success, icon: '✓' };
     if (vistoria) {
       const totalPontos = vistoria.ambientes.reduce((s, a) => s + a.pontos.length, 0);
-      return { text: `Vistoria em andamento — ${vistoria.ambientes.length} ambiente(s), ${totalPontos} ponto(s) mapeados.`, color: '#5B9BD5', icon: '◎' };
+      return { text: `Fotos/Pontos em andamento — ${vistoria.ambientes.length} ambiente(s), ${totalPontos} ponto(s).`, color: '#5B9BD5', icon: '◎' };
     }
-    if (proposta?.status === 'aprovada') return { text: 'Proposta aprovada! Prossiga para a Vistoria do local.', color: theme.success, icon: '→' };
-    if (proposta?.status === 'enviada') return { text: 'Aguardando aprovação do cliente/gestor.', color: theme.warning, icon: '⏳' };
-    if (proposta?.status === 'gerada') return { text: 'Proposta gerada. Envie ao cliente para aprovação.', color: theme.muted, icon: '!' };
-    if (temOrcEscolhido) return { text: 'Orçamento escolhido! Gere a proposta comercial.', color: theme.gold, icon: '→' };
-    if (leadOrcamentos.length > 0) return { text: `${leadOrcamentos.length} orçamento(s) criado(s). Escolha um para prosseguir.`, color: theme.warning, icon: '!' };
-    if (solucaoPronta) return { text: 'Solução pronta! Crie orçamentos para comparação.', color: theme.gold, icon: '→' };
-    if (solucao) return { text: 'Solução em rascunho. Adicione equipamentos e marque como pronta.', color: theme.muted, icon: '✎' };
+    if (solucaoPronta) return { text: 'Solução pronta! Registre as fotos e pontos do local.', color: theme.gold, icon: '→' };
+    if (solucao) return { text: 'Solução em rascunho. Selecione um kit e marque como pronta.', color: theme.muted, icon: '✎' };
     return { text: 'Comece montando a Solução Técnica para este cliente.', color: theme.muted, icon: '1' };
-  }, [solucao, solucaoPronta, leadOrcamentos, temOrcEscolhido, proposta, vistoria, ordem]);
+  }, [solucao, solucaoPronta, vistoria, ordem]);
 
   /* --- step sub-labels --- */
   const stepSublabel: Record<StepName, string> = useMemo(() => ({
     'Solução': solucao ? (solucao.status === 'pronta' ? 'Pronta' : 'Rascunho') : 'Não iniciada',
-    'Orçamentos': leadOrcamentos.length > 0 ? `${leadOrcamentos.length} orc.${temOrcEscolhido ? ' · 1 escolhido' : ''}` : 'Nenhum',
-    'Proposta': proposta ? (proposta.status === 'aprovada' ? 'Aprovada' : proposta.status === 'enviada' ? 'Enviada' : 'Gerada') : 'Não gerada',
-    'Vistoria': vistoria ? (vistoria.status === 'concluida' ? 'Concluída' : `${vistoria.ambientes.length} amb.`) : 'Pendente',
+    'Fotos/Pontos': vistoria ? (vistoria.status === 'concluida' ? 'Concluída' : `${vistoria.ambientes.length} amb.`) : 'Pendente',
     'OS': ordem ? (ordem.status === 'concluida' ? 'Concluída' : ordem.status.replace('_', ' ')) : 'Aguardando',
-  }), [solucao, leadOrcamentos, temOrcEscolhido, proposta, vistoria, ordem]);
+  }), [solucao, vistoria, ordem]);
 
   return (
     <AppShell title={`Venda — ${lead.name}`}>
       {/* GESTOR read-only banner */}
       {!canEdit && canApprove && (
         <div style={{ background: '#5B9BD5' + '15', border: `1px solid #5B9BD544`, borderRadius: 10, padding: '8px 14px', marginBottom: 10, fontSize: 12, color: '#5B9BD5', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 700 }}>Modo Gestor</span> — Visualização somente leitura. Você pode aprovar propostas.
+          <span style={{ fontWeight: 700 }}>Modo Gestor</span> — Visualização somente leitura.
         </div>
       )}
 
@@ -577,33 +421,7 @@ export function VendaPage() {
         />
       )}
 
-      {activeStep === 'Orçamentos' && (
-        <StepOrcamentos
-          orcamentos={leadOrcamentos}
-          editingId={editingOrcId}
-          setEditingId={setEditingOrcId}
-          onCriar={handleCriarOrcamento}
-          onDuplicar={handleDuplicarOrcamento}
-          onExcluir={handleExcluirOrcamento}
-          onEscolher={handleEscolherOrcamento}
-          onSave={handleSaveOrcamento}
-          onGerarProposta={handleGerarProposta}
-          temEscolhido={temOrcEscolhido}
-          canEdit={canEdit}
-        />
-      )}
-
-      {activeStep === 'Proposta' && proposta && (
-        <TabProposta proposta={proposta} onEnviar={handleEnviarProposta} onAprovar={handleAprovarProposta} canEdit={canEdit} canApprove={canApprove} />
-      )}
-      {activeStep === 'Proposta' && !proposta && temOrcEscolhido && (
-        <div style={{ textAlign: 'center', padding: 40, color: theme.muted }}>
-          <p>Nenhuma proposta gerada ainda.</p>
-          {canEdit && <button onClick={handleGerarProposta} style={btnGold}>Gerar Proposta do Orçamento Escolhido</button>}
-        </div>
-      )}
-
-      {activeStep === 'Vistoria' && vistoria && (
+      {activeStep === 'Fotos/Pontos' && vistoria && (
         <StepVistoria
           vistoria={vistoria}
           onAddAmbiente={handleAddAmbiente}
@@ -692,7 +510,7 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
     return (
       <div>
         <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: theme.success, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <span>Solução marcada como pronta. Prossiga para criar orçamentos.</span>
+          <span>Solução marcada como pronta. Prossiga para Fotos/Pontos.</span>
           {canEditProp && <button onClick={onVoltarRascunho} style={{ ...btnSoft, fontSize: 12, padding: '4px 10px' }}>Voltar para rascunho</button>}
         </div>
         <StepResumo draft={draft} equipments={equipments} />
@@ -885,214 +703,7 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
 }
 
 /* ================================================================
-   Step: Orçamentos dinâmicos
-   ================================================================ */
-
-function StepOrcamentos({ orcamentos, editingId, setEditingId, onCriar, onDuplicar, onExcluir, onEscolher, onSave, onGerarProposta, temEscolhido, canEdit }: {
-  orcamentos: Orcamento[];
-  editingId: string | null;
-  setEditingId: (id: string | null) => void;
-  onCriar: () => void;
-  onDuplicar: (orc: Orcamento) => void;
-  onExcluir: (orc: Orcamento) => void;
-  onEscolher: (orc: Orcamento) => void;
-  onSave: (orc: Orcamento) => void;
-  onGerarProposta: () => void;
-  temEscolhido: boolean;
-  canEdit: boolean;
-}) {
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Orçamentos ({orcamentos.length})</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {canEdit && <button onClick={onCriar} style={btnGold}>+ Novo Orçamento</button>}
-          {temEscolhido && canEdit && <button onClick={onGerarProposta} style={{ ...btnGold, background: theme.success }}>Gerar Proposta →</button>}
-        </div>
-      </div>
-
-      {orcamentos.length === 0 && (
-        <div style={{ border: `2px dashed ${theme.border}`, borderRadius: 12, padding: 40, textAlign: 'center', color: theme.muted }}>
-          <p style={{ fontSize: 14, marginBottom: 12 }}>Nenhum orçamento criado ainda.</p>
-          {canEdit && <button onClick={onCriar} style={btnGold}>Criar primeiro orçamento</button>}
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
-        {orcamentos.map((orc) => {
-          const isEditing = editingId === orc.id;
-          const isEscolhido = orc.status === 'escolhido';
-
-          if (isEditing) {
-            return <OrcamentoEditor key={orc.id} orcamento={orc} onSave={onSave} onCancel={() => setEditingId(null)} />;
-          }
-
-          return (
-            <div key={orc.id} style={{
-              background: theme.panel, border: `2px solid ${isEscolhido ? theme.gold : theme.border}`,
-              borderRadius: 12, padding: 16, position: 'relative',
-            }}>
-              {isEscolhido && (
-                <div style={{ position: 'absolute', top: -10, right: 12, background: theme.gold, color: '#111', fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 999 }}>
-                  ESCOLHIDO
-                </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <h4 style={{ margin: 0, fontSize: 15, color: theme.text }}>Orçamento {orc.numero}</h4>
-                <MarcaBadge marca={orc.marca} />
-              </div>
-              <div style={{ fontSize: 13, color: theme.muted, marginBottom: 4 }}>{orc.itens.length} itens · {orc.zonas} zonas</div>
-              <div style={{ fontSize: 13, color: theme.muted, marginBottom: 4 }}>Desconto: {orc.desconto}%</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: theme.gold, marginBottom: 12 }}>R$ {formatCurrency(orc.totalFinal)}</div>
-              <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>Mensalidade: R$ {formatCurrency(orc.mensalidade)}/mês</div>
-
-              {canEdit && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {!isEscolhido && <button onClick={() => onEscolher(orc)} style={{ ...btnGold, fontSize: 12, padding: '5px 10px' }}>Escolher</button>}
-                  <button onClick={() => setEditingId(orc.id)} style={{ ...btnSoft, fontSize: 12, padding: '5px 10px' }}>Editar</button>
-                  <button onClick={() => onDuplicar(orc)} style={{ ...btnSoft, fontSize: 12, padding: '5px 10px' }}>Duplicar</button>
-                  {!isEscolhido && <button onClick={() => onExcluir(orc)} style={{ ...btnSoft, fontSize: 12, padding: '5px 10px', color: theme.danger, borderColor: theme.danger }}>Excluir</button>}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function OrcamentoEditor({ orcamento, onSave, onCancel }: { orcamento: Orcamento; onSave: (orc: Orcamento) => void; onCancel: () => void }) {
-  const [draft, setDraft] = useState(orcamento);
-
-  const subtotalEquip = draft.itens.reduce((s, i) => s + i.subtotal, 0);
-  const calc = calcularOrcamento(draft.zonas, subtotalEquip, draft.desconto);
-
-  function updateItemQty(eqId: string, qty: number) {
-    setDraft((d) => ({
-      ...d,
-      itens: d.itens.map((i) => i.equipmentId === eqId ? { ...i, quantidade: Math.max(1, qty), subtotal: Math.max(1, qty) * i.precoUnitario } : i),
-    }));
-  }
-
-  return (
-    <div style={{ background: theme.panel, border: `2px solid ${theme.gold}`, borderRadius: 12, padding: 16 }}>
-      <h4 style={{ margin: '0 0 12px', fontSize: 15, color: theme.gold }}>Editando Orçamento {draft.numero}</h4>
-
-      <label style={labelStyle}>Marca</label>
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-        {marcas.map((m) => (
-          <button key={m} onClick={() => setDraft({ ...draft, marca: m })} style={{
-            padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
-            background: draft.marca === m ? theme.gold + '22' : theme.soft,
-            border: `1px solid ${draft.marca === m ? theme.gold : theme.border}`,
-            color: draft.marca === m ? theme.gold : theme.text,
-          }}>
-            {m}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
-        <div>
-          <label style={labelStyle}>Zonas</label>
-          <input type="number" min={1} max={50} value={draft.zonas} onChange={(e) => setDraft({ ...draft, zonas: Math.max(1, Math.min(50, Number(e.target.value))) })} style={{ ...inputStyle, width: 80, textAlign: 'center' }} />
-        </div>
-        <div>
-          <label style={labelStyle}>Desconto (%)</label>
-          <input type="number" min={0} max={30} value={draft.desconto} onChange={(e) => setDraft({ ...draft, desconto: Math.max(0, Math.min(30, Number(e.target.value))) })} style={{ ...inputStyle, width: 80, textAlign: 'center' }} />
-        </div>
-      </div>
-
-      <label style={labelStyle}>Equipamentos</label>
-      <div style={{ display: 'grid', gap: 4, marginBottom: 10 }}>
-        {draft.itens.map((item) => (
-          <div key={item.equipmentId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</span>
-            <input type="number" min={1} value={item.quantidade} onChange={(e) => updateItemQty(item.equipmentId, Number(e.target.value))} style={{ ...inputStyle, width: 50, padding: '4px', textAlign: 'center', marginBottom: 0 }} />
-            <span style={{ color: theme.muted, minWidth: 75, textAlign: 'right' }}>R$ {formatCurrency(item.quantidade * item.precoUnitario)}</span>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ background: theme.soft, borderRadius: 8, padding: 10, marginBottom: 10 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-          <span style={{ color: theme.muted }}>Total final</span>
-          <span style={{ fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(calc.totalFinal)}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-          <span style={{ color: theme.muted }}>Mensalidade</span>
-          <span>R$ {formatCurrency(calc.mensalidade)}/mês</span>
-        </div>
-      </div>
-
-      <label style={labelStyle}>Observações</label>
-      <textarea value={draft.observacoes} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <button onClick={() => onSave(draft)} style={btnGold}>Salvar</button>
-        <button onClick={onCancel} style={btnSoft}>Cancelar</button>
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   Step: Proposta
-   ================================================================ */
-
-function TabProposta({ proposta, onEnviar, onAprovar, canEdit, canApprove }: {
-  proposta: Proposta; onEnviar: () => void; onAprovar: () => void; canEdit: boolean; canApprove: boolean;
-}) {
-  return (
-    <div style={{ maxWidth: 700 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>{proposta.leadNome}</h3>
-        <StatusBadge value={proposta.status} />
-      </div>
-
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <h4 style={{ margin: '0 0 10px', fontSize: 14, color: theme.gold }}>Equipamentos</h4>
-        {proposta.itens.map((item, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-            <span>{item.quantidade}x {item.nome}</span>
-            <span style={{ color: theme.muted }}>R$ {formatCurrency(item.quantidade * item.precoUnitario)}</span>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <h4 style={{ margin: '0 0 10px', fontSize: 14, color: theme.gold }}>Serviços</h4>
-        {proposta.servicos.map((s, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-            <span>{s.descricao} <span style={{ fontSize: 11, color: theme.muted }}>({s.tipo === 'mensalidade' ? 'mensal' : 'único'})</span></span>
-            <span style={{ color: theme.muted }}>R$ {formatCurrency(s.valor)}</span>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))', border: `2px solid ${theme.gold}44`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold }}>Total da Proposta</span>
-          <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(proposta.total)}</span>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        {proposta.status === 'gerada' && canEdit && <button onClick={onEnviar} style={btnGold}>Enviar ao cliente</button>}
-        {proposta.status === 'enviada' && canApprove && <button onClick={onAprovar} style={{ ...btnGold, background: theme.success }}>Aprovar Proposta</button>}
-        {proposta.status === 'aprovada' && (
-          <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: 12, fontSize: 13, color: theme.success }}>
-            Proposta aprovada! Prossiga para a Vistoria do local.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   Step: Vistoria (Fotos/Pontos)
+   Step: Fotos/Pontos (Vistoria)
    ================================================================ */
 
 function StepVistoria({ vistoria, onAddAmbiente, onUpdateAmbiente, onRemoveAmbiente, onConcluir, canEdit }: {

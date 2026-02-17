@@ -166,7 +166,7 @@ function DraggableLead({ lead, onClick, disabled }: { lead: Lead; onClick: () =>
         <span style={{ fontSize: 12, color: theme.gold }}>{lead.responsible} · {lead.origin}</span>
         {lead.vendaStep && (
           <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: theme.gold + '22', color: theme.gold, textTransform: 'uppercase', letterSpacing: 0.3 }}>
-            {lead.vendaStep === 'solucao' ? 'Sol.' : lead.vendaStep === 'orcamentos' ? 'Orç.' : lead.vendaStep === 'proposta' ? 'Prop.' : lead.vendaStep === 'vistoria' ? 'Vist.' : 'OS'}
+            {lead.vendaStep === 'solucao' ? 'Sol.' : lead.vendaStep === 'vistoria' ? 'Vist.' : 'OS'}
           </span>
         )}
       </div>
