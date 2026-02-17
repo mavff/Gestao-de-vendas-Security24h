@@ -228,7 +228,7 @@ export type BlocoTecnico = {
   itens: ItemSolucao[];
 };
 
-export type SolucaoStatus = 'rascunho' | 'pronta';
+export type SolucaoStatus = 'rascunho' | 'pronta' | 'aprovada';
 
 export type SolucaoTecnica = {
   id: string;

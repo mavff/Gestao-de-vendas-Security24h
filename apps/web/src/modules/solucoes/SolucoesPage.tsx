@@ -677,7 +677,8 @@ function MarcaBadge({ marca }: { marca: Marca }) {
 function SolucaoStatusBadge({ status }: { status: SolucaoTecnica['status'] }) {
   const map: Record<SolucaoTecnica['status'], { label: string; color: string }> = {
     rascunho: { label: 'Rascunho', color: theme.muted },
-    pronta: { label: 'Pronta', color: theme.success },
+    pronta: { label: 'Aguardando aprovação', color: '#5B9BD5' },
+    aprovada: { label: 'Aprovada', color: theme.success },
   };
   const { label, color } = map[status];
   return (

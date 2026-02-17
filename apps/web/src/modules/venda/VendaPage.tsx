@@ -146,18 +146,19 @@ export function VendaPage() {
   /* =============================================
      Step accessibility
      ============================================= */
-  const solucaoPronta = solucao?.status === 'pronta';
+  const solucaoPronta = solucao?.status === 'pronta' || solucao?.status === 'aprovada';
+  const solucaoAprovada = solucao?.status === 'aprovada';
   const vistoriaConcluida = vistoria?.status === 'concluida';
 
   const stepEnabled: Record<StepName, boolean> = {
     'Solução': true,
-    'Fotos/Pontos': solucaoPronta,
+    'Fotos/Pontos': solucaoAprovada,
     'OS': vistoriaConcluida,
   };
 
   const progressIndex = vistoriaConcluida ? 3
     : vistoria ? 2
-    : solucaoPronta ? 1
+    : solucaoAprovada ? 1
     : 0;
 
   /* =============================================
@@ -191,6 +192,15 @@ export function VendaPage() {
       setSolucoes((cur) => [...cur, pronta]);
     }
     setSolDraft(pronta);
+    showToast('Solução enviada para aprovação do Gestor.', 'success');
+  }
+
+  function handleAprovar() {
+    if (!solDraft) return;
+    const now = new Date().toISOString().slice(0, 10);
+    const aprovada: SolucaoTecnica = { ...solDraft, status: 'aprovada', updatedAt: now };
+    setSolucoes((cur) => cur.map((s) => s.id === solDraft.id ? aprovada : s));
+    setSolDraft(aprovada);
 
     // Create vistoria if it doesn't exist yet
     if (!vistoria) {
@@ -204,7 +214,7 @@ export function VendaPage() {
     }
 
     updateLeadStep('vistoria');
-    showToast('Solução pronta! Registre as fotos e pontos do local.', 'success');
+    showToast('Solução aprovada! Prossiga com Fotos/Pontos.', 'success');
     setActiveStep('Fotos/Pontos');
   }
 
@@ -312,14 +322,15 @@ export function VendaPage() {
       const totalPontos = vistoria.ambientes.reduce((s, a) => s + a.pontos.length, 0);
       return { text: `Fotos/Pontos em andamento — ${vistoria.ambientes.length} ambiente(s), ${totalPontos} ponto(s).`, color: '#5B9BD5', icon: '◎' };
     }
-    if (solucaoPronta) return { text: 'Solução pronta! Registre as fotos e pontos do local.', color: theme.gold, icon: '→' };
+    if (solucaoAprovada) return { text: 'Solução aprovada! Registre as fotos e pontos do local.', color: theme.gold, icon: '→' };
+    if (solucaoPronta) return { text: 'Solução enviada para aprovação. Aguardando Gestor/Admin.', color: '#5B9BD5', icon: '◎' };
     if (solucao) return { text: 'Solução em rascunho. Selecione um kit e marque como pronta.', color: theme.muted, icon: '✎' };
     return { text: 'Comece montando a Solução Técnica para este cliente.', color: theme.muted, icon: '1' };
-  }, [solucao, solucaoPronta, vistoria, ordem]);
+  }, [solucao, solucaoPronta, solucaoAprovada, vistoria, ordem]);
 
   /* --- step sub-labels --- */
   const stepSublabel: Record<StepName, string> = useMemo(() => ({
-    'Solução': solucao ? (solucao.status === 'pronta' ? 'Pronta' : 'Rascunho') : 'Não iniciada',
+    'Solução': solucao ? (solucao.status === 'aprovada' ? 'Aprovada' : solucao.status === 'pronta' ? 'Aguardando aprovação' : 'Rascunho') : 'Não iniciada',
     'Fotos/Pontos': vistoria ? (vistoria.status === 'concluida' ? 'Concluída' : `${vistoria.ambientes.length} amb.`) : 'Pendente',
     'OS': ordem ? (ordem.status === 'concluida' ? 'Concluída' : ordem.status.replace('_', ' ')) : 'Aguardando',
   }), [solucao, vistoria, ordem]);
@@ -329,7 +340,7 @@ export function VendaPage() {
       {/* GESTOR read-only banner */}
       {!canEdit && canApprove && (
         <div style={{ background: '#5B9BD5' + '15', border: `1px solid #5B9BD544`, borderRadius: 10, padding: '8px 14px', marginBottom: 10, fontSize: 12, color: '#5B9BD5', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 700 }}>Modo Gestor</span> — Visualização somente leitura.
+          <span style={{ fontWeight: 700 }}>Modo Gestor</span> — Visualização e aprovação de soluções.
         </div>
       )}
 
@@ -416,8 +427,10 @@ export function VendaPage() {
           solucaoExistente={solucao}
           onSave={handleSaveSolucao}
           onMarcarPronta={handleMarcarPronta}
+          onAprovar={handleAprovar}
           onVoltarRascunho={handleVoltarRascunho}
           canEdit={canEdit}
+          canApprove={canApprove}
         />
       )}
 
@@ -443,7 +456,7 @@ export function VendaPage() {
    Step: Solução (kit + wizard) — mostly unchanged
    ================================================================ */
 
-function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoExistente, onSave, onMarcarPronta, onVoltarRascunho, canEdit: canEditProp }: {
+function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoExistente, onSave, onMarcarPronta, onAprovar, onVoltarRascunho, canEdit: canEditProp, canApprove: canApproveProp }: {
   draft: SolucaoTecnica;
   setDraft: (d: SolucaoTecnica) => void;
   step: number;
@@ -453,14 +466,18 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
   solucaoExistente: SolucaoTecnica | null;
   onSave: () => void;
   onMarcarPronta: () => void;
+  onAprovar: () => void;
   onVoltarRascunho: () => void;
   canEdit: boolean;
+  canApprove: boolean;
 }) {
   const [kitMode, setKitMode] = useState(true);
   const [selectedKitId, setSelectedKitId] = useState<string | null>(null);
 
   const kitsForMarca = useMemo(() => kits.filter((k) => k.marca === draft.marca), [kits, draft.marca]);
   const isPronta = solucaoExistente?.status === 'pronta';
+  const isAprovada = solucaoExistente?.status === 'aprovada';
+  const isReadOnly = isPronta || isAprovada;
 
   useEffect(() => { setSelectedKitId(null); }, [draft.marca]);
 
@@ -505,13 +522,25 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
     });
   }
 
-  /* Pronta: read-only with option to go back */
-  if (isPronta) {
+  /* Read-only states: pronta (awaiting approval) or aprovada */
+  if (isReadOnly) {
+    const bannerColor = isAprovada ? theme.success : '#5B9BD5';
+    const bannerText = isAprovada
+      ? 'Solução aprovada! Prossiga para Fotos/Pontos.'
+      : 'Solução enviada para aprovação. Aguardando Gestor/Admin.';
+
     return (
       <div>
-        <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: theme.success, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <span>Solução marcada como pronta. Prossiga para Fotos/Pontos.</span>
-          {canEditProp && <button onClick={onVoltarRascunho} style={{ ...btnSoft, fontSize: 12, padding: '4px 10px' }}>Voltar para rascunho</button>}
+        <div style={{ background: bannerColor + '15', border: `1px solid ${bannerColor}44`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: bannerColor, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <span>{bannerText}</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {isPronta && canApproveProp && (
+              <button onClick={onAprovar} style={{ ...btnGold, background: theme.success, fontSize: 12, padding: '4px 12px' }}>Aprovar Solução</button>
+            )}
+            {(canEditProp || canApproveProp) && (
+              <button onClick={onVoltarRascunho} style={{ ...btnSoft, fontSize: 12, padding: '4px 10px' }}>Voltar para rascunho</button>
+            )}
+          </div>
         </div>
         <StepResumo draft={draft} equipments={equipments} />
       </div>
