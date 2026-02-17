@@ -81,7 +81,7 @@ export function OrcamentosPage() {
       setTimeout(() => {
         const sols = loadMock('mock_solucoes', mockSolucoes);
         const eqs = loadMock('mock_equipments', mockEquipments);
-        const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'aprovada');
+        const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'pronta');
         if (sol) {
           const orc = gerarOrcamentoDeSolucao(sol, eqs);
           setOrcamentos((cur) => {
@@ -127,8 +127,8 @@ export function OrcamentosPage() {
 
     return {
       id: 'ORC' + Date.now(),
+      numero: Date.now() % 10000,
       solucaoId: sol.id,
-      oportunidadeId: sol.oportunidadeId,
       leadId: sol.leadId,
       clienteNome: sol.clienteNome,
       marca: sol.marca,
@@ -142,7 +142,7 @@ export function OrcamentosPage() {
       desconto,
       totalFinal: calc.totalFinal,
       observacoes: '',
-      status: 'gerado',
+      status: 'rascunho',
       createdAt: new Date().toISOString().slice(0, 10),
     };
   }
@@ -171,7 +171,7 @@ export function OrcamentosPage() {
 
     const novaProposta: Proposta = {
       id: 'PR' + Date.now(),
-      oportunidadeId: orc.oportunidadeId,
+      orcamentoId: orc.id,
       leadId: orc.leadId,
       leadNome: orc.clienteNome,
       itens: propostaItens,
@@ -181,16 +181,14 @@ export function OrcamentosPage() {
       ],
       total: orc.totalFinal + orc.mensalidade,
       observacoes: orc.observacoes || 'Gerada automaticamente a partir do orçamento.',
-      status: 'rascunho',
+      status: 'gerada',
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
     setPropostas((cur) => [...cur, novaProposta]);
 
-    const updatedOrc: Orcamento = { ...orc, status: 'proposta_criada' };
+    const updatedOrc: Orcamento = { ...orc, status: 'escolhido' };
     setOrcamentos((cur) => cur.map((o) => o.id === orc.id ? updatedOrc : o));
-
-    setSolucoes((cur) => cur.map((s) => s.id === orc.solucaoId ? { ...s, status: 'orcamento_gerado' as const } : s));
 
     setSelectedId(updatedOrc.id);
     showToast('Proposta gerada! Acesse a aba Propostas.', 'success');
@@ -217,7 +215,7 @@ export function OrcamentosPage() {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
         <button onClick={() => setShowSolucaoModal(true)} style={btnGold}>+ Gerar a partir de Solução</button>
         <div style={{ flex: 1 }} />
-        {(['todas', 'gerado', 'ajustado', 'proposta_criada'] as StatusFilter[]).map((f) => (
+        {(['todas', 'rascunho', 'finalizado', 'escolhido'] as StatusFilter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -228,7 +226,7 @@ export function OrcamentosPage() {
               background: filter === f ? 'rgba(200,169,81,0.1)' : 'transparent',
             }}
           >
-            {f === 'todas' ? 'Todas' : f === 'proposta_criada' ? 'Proposta criada' : f.charAt(0).toUpperCase() + f.slice(1)}
+            {f === 'todas' ? 'Todas' : f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
       </div>
@@ -270,7 +268,7 @@ export function OrcamentosPage() {
       {/* Modal: Selecionar Solução */}
       {showSolucaoModal && (
         <SolucaoSelectorModal
-          solucoes={solucoes.filter((s) => s.status === 'aprovada')}
+          solucoes={solucoes.filter((s) => s.status === 'pronta')}
           onSelect={handleGerarFromModal}
           onClose={() => setShowSolucaoModal(false)}
         />
@@ -346,7 +344,7 @@ function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
   const calc = calcularOrcamento(zonas, subtotalEquip, desconto);
   const faixa = calc.faixa;
 
-  const isProposta = orcamento.status === 'proposta_criada';
+  const isProposta = orcamento.status === 'escolhido';
 
   function handleSalvar() {
     onSave({
@@ -359,7 +357,7 @@ function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
       maoDeObra: calc.maoDeObra,
       mensalidade: calc.mensalidade,
       totalFinal: calc.totalFinal,
-      status: orcamento.status === 'gerado' ? 'ajustado' : orcamento.status,
+      status: orcamento.status === 'rascunho' ? 'finalizado' : orcamento.status,
     });
   }
 
@@ -541,7 +539,7 @@ function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
           </>
         )}
         {isProposta && (
-          <span style={{ fontSize: 13, color: theme.success, alignSelf: 'center' }}>Proposta já gerada para este orçamento.</span>
+          <span style={{ fontSize: 13, color: theme.success, alignSelf: 'center' }}>Orçamento escolhido para proposta.</span>
         )}
         <div style={{ flex: 1 }} />
         <button onClick={onBack} style={btnSoft}>Voltar</button>
@@ -604,9 +602,9 @@ function FaixaBadge({ label, large }: { label: string; large?: boolean }) {
 
 function OrcamentoStatusBadge({ status }: { status: Orcamento['status'] }) {
   const map: Record<Orcamento['status'], { label: string; color: string }> = {
-    gerado: { label: 'Gerado', color: theme.muted },
-    ajustado: { label: 'Ajustado', color: theme.warning },
-    proposta_criada: { label: 'Proposta criada', color: theme.success },
+    rascunho: { label: 'Rascunho', color: theme.muted },
+    finalizado: { label: 'Finalizado', color: theme.warning },
+    escolhido: { label: 'Escolhido', color: theme.success },
   };
   const { label, color } = map[status];
   return (

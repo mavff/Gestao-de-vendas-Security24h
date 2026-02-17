@@ -8,15 +8,15 @@ import { AppShell } from '../../components/layout/AppShell';
 import { getPresetsForMarca, KIT_CATEGORIA_LABELS } from '../../config/kitPresets';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  mockEquipments, mockLeads, mockOportunidades, mockOrcamentos,
-  mockOrdens, mockPropostas, mockSolucoes, mockUsers,
+  mockEquipments, mockLeads, mockOrcamentos,
+  mockOrdens, mockPropostas, mockSolucoes, mockUsers, mockVistorias,
 } from '../../mocks/data';
 import { compressImage } from '../../services/imageUtils';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
-  BlocoCategoria, BlocoTecnico, Equipment, FAIXAS_ZONA, FaixaZona,
-  ItemSolucao, Lead, Marca, Oportunidade, Orcamento, OrcamentoItem,
-  OrdemDeServico, Proposta, SolucaoTecnica, User,
+  AmbienteVistoria, BlocoCategoria, BlocoTecnico, Equipment, FAIXAS_ZONA, FaixaZona,
+  InstallationPoint, ItemSolucao, Lead, Marca, Orcamento, OrcamentoItem,
+  OrdemDeServico, Proposta, SolucaoTecnica, User, VendaStep, Vistoria,
 } from '../../types';
 
 /* ================================================================
@@ -56,8 +56,8 @@ const wizardSteps: WizardStep[] = [
   { label: 'Resumo', blocos: [] },
 ];
 
-const TAB_LABELS = ['Cliente', 'Solução', 'Orçamento', 'Proposta'] as const;
-type TabName = (typeof TAB_LABELS)[number];
+const STEP_LABELS = ['Solução', 'Orçamentos', 'Proposta', 'Vistoria', 'OS'] as const;
+type StepName = (typeof STEP_LABELS)[number];
 
 function emptyBlocos(): BlocoTecnico[] {
   return allBlocos.map((cat) => ({ categoria: cat, itens: [] }));
@@ -81,13 +81,6 @@ function formatCurrency(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function formatDate(iso: string): string {
-  if (!iso) return '—';
-  const parts = iso.split('-');
-  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  return iso;
-}
-
 /* ================================================================
    VendaPage — Main
    ================================================================ */
@@ -98,33 +91,34 @@ export function VendaPage() {
   const { role } = useAuth();
   const { showToast } = useToast();
 
+  const canEdit = role === 'ADMIN' || role === 'VENDEDOR';
+  const canApprove = role === 'ADMIN' || role === 'GESTOR';
+
   /* --- all data --- */
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [oportunidades, setOportunidades] = useState<Oportunidade[]>([]);
   const [solucoes, setSolucoes] = useState<SolucaoTecnica[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
   const [propostas, setPropostas] = useState<Proposta[]>([]);
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
+  const [vistorias, setVistorias] = useState<Vistoria[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
   /* --- UI state --- */
-  const [activeTab, setActiveTab] = useState<TabName>('Cliente');
+  const [activeStep, setActiveStep] = useState<StepName>('Solução');
   const [solDraft, setSolDraft] = useState<SolucaoTecnica | null>(null);
   const [wizStep, setWizStep] = useState(0);
-  const [orcZonas, setOrcZonas] = useState(4);
-  const [orcDesconto, setOrcDesconto] = useState(0);
-  const [orcObs, setOrcObs] = useState('');
+  const [editingOrcId, setEditingOrcId] = useState<string | null>(null);
 
   /* --- load --- */
   useEffect(() => {
     setLeads(loadMock('mock_leads', mockLeads));
-    setOportunidades(loadMock('mock_oportunidades', mockOportunidades));
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
     setEquipments(loadMock('mock_equipments', mockEquipments));
     setOrcamentos(loadMock('mock_orcamentos', mockOrcamentos));
     setPropostas(loadMock('mock_propostas', mockPropostas));
     setOrdens(loadMock('mock_ordens', mockOrdens));
+    setVistorias(loadMock('mock_vistorias', mockVistorias));
     setUsers(loadMock('mock_users', mockUsers));
   }, []);
 
@@ -134,18 +128,24 @@ export function VendaPage() {
   useEffect(() => { saveMock('mock_orcamentos', orcamentos); }, [orcamentos]);
   useEffect(() => { if (propostas.length) saveMock('mock_propostas', propostas); }, [propostas]);
   useEffect(() => { saveMock('mock_ordens', ordens); }, [ordens]);
-  useEffect(() => { if (oportunidades.length) saveMock('mock_oportunidades', oportunidades); }, [oportunidades]);
+  useEffect(() => { saveMock('mock_vistorias', vistorias); }, [vistorias]);
 
   /* --- derived for this lead --- */
   const lead = leads.find((l) => l.id === leadId) ?? null;
-  const oportunidade = oportunidades.find((o) => o.leadId === leadId && o.status !== 'perdida') ?? null;
   const solucao = solucoes.find((s) => s.leadId === leadId) ?? null;
-  const orcamento = orcamentos.find((o) => o.leadId === leadId) ?? null;
+  const leadOrcamentos = useMemo(() => orcamentos.filter((o) => o.leadId === leadId).sort((a, b) => a.numero - b.numero), [orcamentos, leadId]);
+  const orcamentoEscolhido = leadOrcamentos.find((o) => o.status === 'escolhido') ?? null;
   const proposta = propostas.find((p) => p.leadId === leadId) ?? null;
+  const vistoria = vistorias.find((v) => v.leadId === leadId) ?? null;
+  const ordem = ordens.find((o) => o.leadId === leadId) ?? null;
 
-  /* --- init solução draft when entering the tab --- */
+  function updateLeadStep(step: VendaStep) {
+    setLeads((cur) => cur.map((l) => l.id === leadId ? { ...l, vendaStep: step } : l));
+  }
+
+  /* --- init solução draft --- */
   useEffect(() => {
-    if (activeTab !== 'Solução' || solDraft || !lead) return;
+    if (activeStep !== 'Solução' || solDraft || !lead) return;
 
     if (solucao) {
       setSolDraft({ ...solucao });
@@ -155,38 +155,42 @@ export function VendaPage() {
     const now = new Date().toISOString().slice(0, 10);
     const userId = users.find((u) => u.role === role)?.id ?? 'U1';
 
-    let opId = oportunidade?.id ?? '';
-    if (!opId) {
-      opId = 'OP' + Date.now();
-      const newOp: Oportunidade = {
-        id: opId, leadId, valorEstimado: lead.value, probabilidade: 50,
-        proximaAcao: 'Montando solução técnica', status: 'aberta',
-        vendedorId: userId, createdAt: now,
-      };
-      setOportunidades((cur) => [...cur, newOp]);
-    }
-
     setSolDraft({
-      id: '', oportunidadeId: opId, leadId,
+      id: '', leadId,
       clienteNome: `${lead.name} — ${lead.company}`,
       marca: 'Intelbras', blocos: emptyBlocos(), observacaoGeral: '',
       status: 'rascunho', criadoPor: userId, createdAt: now, updatedAt: now,
     });
     setWizStep(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, lead, solucao, solDraft]);
-
-  /* --- init orçamento fields when entering the tab --- */
-  useEffect(() => {
-    if (activeTab === 'Orçamento' && orcamento) {
-      setOrcZonas(orcamento.zonas);
-      setOrcDesconto(orcamento.desconto);
-      setOrcObs(orcamento.observacoes);
-    }
-  }, [activeTab, orcamento]);
+  }, [activeStep, lead, solucao, solDraft]);
 
   /* =============================================
-     Actions
+     Step accessibility
+     ============================================= */
+  const solucaoPronta = solucao?.status === 'pronta';
+  const temOrcEscolhido = !!orcamentoEscolhido;
+  const propostaAprovada = proposta?.status === 'aprovada';
+  const vistoriaConcluida = vistoria?.status === 'concluida';
+
+  const stepEnabled: Record<StepName, boolean> = {
+    'Solução': true,
+    'Orçamentos': solucaoPronta,
+    'Proposta': temOrcEscolhido,
+    'Vistoria': propostaAprovada,
+    'OS': vistoriaConcluida,
+  };
+
+  const progressIndex = vistoriaConcluida ? 5
+    : propostaAprovada ? 4
+    : proposta ? 3
+    : temOrcEscolhido ? 3
+    : leadOrcamentos.length > 0 ? 2
+    : solucaoPronta ? 1
+    : 0;
+
+  /* =============================================
+     Actions — Solução
      ============================================= */
 
   function handleSaveSolucao() {
@@ -204,22 +208,41 @@ export function VendaPage() {
     showToast('Solução salva.', 'success');
   }
 
-  function handleAprovarSolucao() {
+  function handleMarcarPronta() {
     if (!solDraft) return;
     const now = new Date().toISOString().slice(0, 10);
     const id = solDraft.id || 'SOL' + Date.now();
-    const approved: SolucaoTecnica = { ...solDraft, id, status: 'aprovada', updatedAt: now };
+    const pronta: SolucaoTecnica = { ...solDraft, id, status: 'pronta', updatedAt: now };
 
     if (solDraft.id) {
-      setSolucoes((cur) => cur.map((s) => s.id === id ? approved : s));
+      setSolucoes((cur) => cur.map((s) => s.id === id ? pronta : s));
     } else {
-      setSolucoes((cur) => [...cur, approved]);
+      setSolucoes((cur) => [...cur, pronta]);
     }
-    setSolDraft(approved);
+    setSolDraft(pronta);
+    updateLeadStep('orcamentos');
+    showToast('Solução marcada como pronta!', 'success');
+    setActiveStep('Orçamentos');
+  }
 
-    // --- auto-generate orçamento ---
+  function handleVoltarRascunho() {
+    if (!solDraft) return;
+    const now = new Date().toISOString().slice(0, 10);
+    const rascunho: SolucaoTecnica = { ...solDraft, status: 'rascunho', updatedAt: now };
+    setSolucoes((cur) => cur.map((s) => s.id === solDraft.id ? rascunho : s));
+    setSolDraft(rascunho);
+    updateLeadStep('solucao');
+    showToast('Solução voltou para rascunho.', 'warning');
+  }
+
+  /* =============================================
+     Actions — Orçamentos
+     ============================================= */
+
+  function buildOrcamentoFromSolucao(sol: SolucaoTecnica, marca?: Marca): Omit<Orcamento, 'id' | 'numero' | 'createdAt'> {
+    const useMarca = marca ?? sol.marca;
     const itens: OrcamentoItem[] = [];
-    for (const bloco of approved.blocos) {
+    for (const bloco of sol.blocos) {
       for (const item of bloco.itens) {
         const eq = equipments.find((e) => e.id === item.equipmentId);
         if (!eq) continue;
@@ -233,48 +256,78 @@ export function VendaPage() {
     const subtotalEquip = itens.reduce((s, i) => s + i.subtotal, 0);
     const zonas = 4;
     const calc = calcularOrcamento(zonas, subtotalEquip, 0);
-
-    const newOrc: Orcamento = {
-      id: 'ORC' + Date.now(), solucaoId: id,
-      oportunidadeId: approved.oportunidadeId, leadId: approved.leadId,
-      clienteNome: approved.clienteNome, marca: approved.marca,
-      zonas, itens, subtotalEquipamentos: subtotalEquip,
+    return {
+      solucaoId: sol.id, leadId: sol.leadId, clienteNome: sol.clienteNome,
+      marca: useMarca, zonas, itens, subtotalEquipamentos: subtotalEquip,
       fatorZona: calc.fator, totalEquipamentos: calc.totalEquip,
       maoDeObra: calc.maoDeObra, mensalidade: calc.mensalidade,
       desconto: 0, totalFinal: calc.totalFinal, observacoes: '',
-      status: 'gerado', createdAt: now,
+      status: 'rascunho',
     };
-    setOrcamentos((cur) => [...cur, newOrc]);
-    setOrcZonas(4);
-    setOrcDesconto(0);
-    setOrcObs('');
-
-    showToast('Solução aprovada e orçamento gerado!', 'success');
-    setActiveTab('Orçamento');
   }
 
-  function handleSaveOrcamento() {
-    if (!orcamento) return;
-    const calc = calcularOrcamento(orcZonas, orcamento.subtotalEquipamentos, orcDesconto);
-    const updated: Orcamento = {
-      ...orcamento, zonas: orcZonas, desconto: orcDesconto, observacoes: orcObs,
+  function handleCriarOrcamento() {
+    if (!solucao) return;
+    const nextNum = leadOrcamentos.length > 0 ? Math.max(...leadOrcamentos.map((o) => o.numero)) + 1 : 1;
+    const base = buildOrcamentoFromSolucao(solucao);
+    const newOrc: Orcamento = { ...base, id: 'ORC' + Date.now(), numero: nextNum, createdAt: new Date().toISOString().slice(0, 10) };
+    setOrcamentos((cur) => [...cur, newOrc]);
+    setEditingOrcId(newOrc.id);
+    if (!lead?.vendaStep || lead.vendaStep === 'solucao') updateLeadStep('orcamentos');
+    showToast(`Orçamento ${nextNum} criado.`, 'success');
+  }
+
+  function handleDuplicarOrcamento(orc: Orcamento) {
+    const nextNum = Math.max(...leadOrcamentos.map((o) => o.numero)) + 1;
+    const dup: Orcamento = { ...orc, id: 'ORC' + Date.now(), numero: nextNum, status: 'rascunho', createdAt: new Date().toISOString().slice(0, 10) };
+    setOrcamentos((cur) => [...cur, dup]);
+    showToast(`Orçamento ${nextNum} duplicado.`, 'success');
+  }
+
+  function handleExcluirOrcamento(orc: Orcamento) {
+    if (orc.status === 'escolhido') return;
+    setOrcamentos((cur) => cur.filter((o) => o.id !== orc.id));
+    if (editingOrcId === orc.id) setEditingOrcId(null);
+    showToast(`Orçamento ${orc.numero} excluído.`, 'warning');
+  }
+
+  function handleEscolherOrcamento(orc: Orcamento) {
+    setOrcamentos((cur) => cur.map((o) => {
+      if (o.leadId !== leadId) return o;
+      if (o.id === orc.id) return { ...o, status: 'escolhido' as const };
+      if (o.status === 'escolhido') return { ...o, status: 'finalizado' as const };
+      return o;
+    }));
+    showToast(`Orçamento ${orc.numero} escolhido.`, 'success');
+  }
+
+  function handleSaveOrcamento(updated: Orcamento) {
+    const subtotalEquip = updated.itens.reduce((s, i) => s + i.subtotal, 0);
+    const calc = calcularOrcamento(updated.zonas, subtotalEquip, updated.desconto);
+    const saved: Orcamento = {
+      ...updated,
+      subtotalEquipamentos: subtotalEquip,
       fatorZona: calc.fator, totalEquipamentos: calc.totalEquip,
       maoDeObra: calc.maoDeObra, mensalidade: calc.mensalidade,
       totalFinal: calc.totalFinal,
-      status: orcamento.status === 'gerado' ? 'ajustado' : orcamento.status,
     };
-    setOrcamentos((cur) => cur.map((o) => o.id === orcamento.id ? updated : o));
+    setOrcamentos((cur) => cur.map((o) => o.id === saved.id ? saved : o));
+    setEditingOrcId(null);
     showToast('Orçamento salvo.', 'success');
   }
 
+  /* =============================================
+     Actions — Proposta
+     ============================================= */
+
   function handleGerarProposta() {
-    if (!orcamento) return;
-    const calc = calcularOrcamento(orcZonas, orcamento.subtotalEquipamentos, orcDesconto);
+    if (!orcamentoEscolhido) return;
+    const calc = calcularOrcamento(orcamentoEscolhido.zonas, orcamentoEscolhido.subtotalEquipamentos, orcamentoEscolhido.desconto);
 
     const novaProposta: Proposta = {
-      id: 'PR' + Date.now(), oportunidadeId: orcamento.oportunidadeId,
-      leadId: orcamento.leadId, leadNome: orcamento.clienteNome,
-      itens: orcamento.itens.map((i) => ({
+      id: 'PR' + Date.now(), orcamentoId: orcamentoEscolhido.id,
+      leadId: orcamentoEscolhido.leadId, leadNome: orcamentoEscolhido.clienteNome,
+      itens: orcamentoEscolhido.itens.map((i) => ({
         equipamentoId: i.equipmentId, nome: i.nome,
         quantidade: i.quantidade, precoUnitario: i.precoUnitario,
       })),
@@ -283,67 +336,103 @@ export function VendaPage() {
         { descricao: 'Monitoramento 24h (mensal)', valor: calc.mensalidade, tipo: 'mensalidade' },
       ],
       total: calc.totalFinal + calc.mensalidade,
-      observacoes: orcObs || 'Gerada automaticamente.',
-      status: 'rascunho', createdAt: new Date().toISOString().slice(0, 10),
+      observacoes: orcamentoEscolhido.observacoes || '',
+      status: 'gerada', createdAt: new Date().toISOString().slice(0, 10),
     };
-    setPropostas((cur) => [...cur, novaProposta]);
-
-    const updatedOrc: Orcamento = {
-      ...orcamento, zonas: orcZonas, desconto: orcDesconto, observacoes: orcObs,
-      fatorZona: calc.fator, totalEquipamentos: calc.totalEquip,
-      maoDeObra: calc.maoDeObra, mensalidade: calc.mensalidade,
-      totalFinal: calc.totalFinal, status: 'proposta_criada',
-    };
-    setOrcamentos((cur) => cur.map((o) => o.id === orcamento.id ? updatedOrc : o));
-
-    if (solucao) {
-      setSolucoes((cur) => cur.map((s) => s.id === solucao.id ? { ...s, status: 'orcamento_gerado' as const } : s));
-    }
-
+    setPropostas((cur) => {
+      const filtered = cur.filter((p) => p.leadId !== leadId);
+      return [...filtered, novaProposta];
+    });
+    updateLeadStep('proposta');
     showToast('Proposta gerada!', 'success');
-    setActiveTab('Proposta');
+    setActiveStep('Proposta');
   }
 
   function handleEnviarProposta() {
     if (!proposta) return;
-    setPropostas((cur) => cur.map((p) => p.id === proposta.id ? { ...p, status: 'enviado' as const } : p));
+    setPropostas((cur) => cur.map((p) => p.id === proposta.id ? { ...p, status: 'enviada' as const } : p));
     showToast('Proposta enviada ao cliente.', 'success');
   }
 
   function handleAprovarProposta() {
     if (!proposta) return;
-    setPropostas((cur) => cur.map((p) => p.id === proposta.id ? { ...p, status: 'aprovado' as const } : p));
+    setPropostas((cur) => cur.map((p) => p.id === proposta.id ? { ...p, status: 'aprovada' as const } : p));
 
-    if (oportunidade) {
-      setOportunidades((cur) => cur.map((o) => o.id === oportunidade.id ? { ...o, status: 'ganha' as const } : o));
-    }
-
-    const newOS: OrdemDeServico = {
-      id: 'OS' + Date.now(), propostaId: proposta.id,
-      oportunidadeId: proposta.oportunidadeId, leadId: proposta.leadId,
-      cliente: proposta.leadNome, dataAgendada: '', tecnicoId: '',
-      checklist: proposta.itens.map((i, idx) => ({
-        id: 'CK' + Date.now() + idx,
-        text: `Instalar ${i.quantidade}x ${i.nome}`,
-        done: false,
-      })),
-      pontos: [], observacoes: '', status: 'pendente',
-      createdAt: new Date().toISOString().slice(0, 10),
+    // Create empty vistoria
+    const now = new Date().toISOString().slice(0, 10);
+    const userId = users.find((u) => u.role === role)?.id ?? 'U1';
+    const newVis: Vistoria = {
+      id: 'VIS' + Date.now(), leadId, propostaId: proposta.id,
+      ambientes: [], observacoes: '', status: 'pendente',
+      criadoPor: userId, createdAt: now, updatedAt: now,
     };
-    setOrdens((cur) => [...cur, newOS]);
-    showToast('Proposta aprovada! OS criada automaticamente.', 'success');
+    setVistorias((cur) => [...cur, newVis]);
+    updateLeadStep('vistoria');
+    showToast('Proposta aprovada! Registre as fotos e pontos do local.', 'success');
+    setActiveStep('Vistoria');
   }
 
-  /* --- tab availability --- */
-  const canAccessOrcamento = !!orcamento;
-  const canAccessProposta = !!proposta;
+  /* =============================================
+     Actions — Vistoria
+     ============================================= */
 
-  /* --- progress --- */
-  const progress = proposta?.status === 'aprovado' ? 4
-    : proposta ? 3
-    : orcamento ? 2
-    : solucao ? 1
-    : 0;
+  function handleAddAmbiente(nome: string) {
+    if (!vistoria) return;
+    const now = new Date().toISOString().slice(0, 10);
+    const newAmb: AmbienteVistoria = { id: 'AMB' + Date.now(), nome, pontos: [], status: 'pendente' };
+    const updated: Vistoria = { ...vistoria, ambientes: [...vistoria.ambientes, newAmb], status: 'em_andamento', updatedAt: now };
+    setVistorias((cur) => cur.map((v) => v.id === vistoria.id ? updated : v));
+  }
+
+  function handleUpdateAmbiente(ambId: string, amb: AmbienteVistoria) {
+    if (!vistoria) return;
+    const now = new Date().toISOString().slice(0, 10);
+    const updated: Vistoria = { ...vistoria, ambientes: vistoria.ambientes.map((a) => a.id === ambId ? amb : a), updatedAt: now };
+    setVistorias((cur) => cur.map((v) => v.id === vistoria.id ? updated : v));
+  }
+
+  function handleRemoveAmbiente(ambId: string) {
+    if (!vistoria) return;
+    const now = new Date().toISOString().slice(0, 10);
+    const updated: Vistoria = { ...vistoria, ambientes: vistoria.ambientes.filter((a) => a.id !== ambId), updatedAt: now };
+    setVistorias((cur) => cur.map((v) => v.id === vistoria.id ? updated : v));
+  }
+
+  function handleConcluirVistoria() {
+    if (!vistoria || !proposta) return;
+    const hasPhoto = vistoria.ambientes.some((a) => a.pontos.some((p) => p.photos.length > 0));
+    if (vistoria.ambientes.length === 0) {
+      showToast('Adicione pelo menos 1 ambiente.', 'error');
+      return;
+    }
+    if (!hasPhoto) {
+      showToast('Adicione pelo menos 1 foto em algum ambiente.', 'error');
+      return;
+    }
+
+    const now = new Date().toISOString().slice(0, 10);
+    const concluida: Vistoria = { ...vistoria, status: 'concluida', updatedAt: now };
+    setVistorias((cur) => cur.map((v) => v.id === vistoria.id ? concluida : v));
+
+    // Create OS with pontos from vistoria
+    const allPontos: InstallationPoint[] = vistoria.ambientes.flatMap((a) => a.pontos);
+    const checklist = proposta.itens.map((item, idx) => ({
+      id: 'CK' + Date.now() + idx,
+      text: `Instalar ${item.quantidade}x ${item.nome}`,
+      done: false,
+    }));
+
+    const newOS: OrdemDeServico = {
+      id: 'OS' + Date.now(), propostaId: proposta.id, vistoriaId: vistoria.id,
+      leadId, cliente: proposta.leadNome, dataAgendada: '', tecnicoId: '',
+      checklist, pontos: allPontos, observacoes: '', status: 'pendente',
+      createdAt: now,
+    };
+    setOrdens((cur) => [...cur, newOS]);
+    updateLeadStep('os_criada');
+    showToast('Vistoria concluída! OS liberada para agendamento.', 'success');
+    setActiveStep('OS');
+  }
 
   /* --- render --- */
 
@@ -361,250 +450,179 @@ export function VendaPage() {
     );
   }
 
+  /* --- contextual alert --- */
+  const alertMsg = useMemo(() => {
+    if (ordem?.status === 'concluida') return { text: 'Instalação concluída com sucesso!', color: theme.success, icon: '✓' };
+    if (ordem) return { text: 'OS criada. Acompanhe o andamento em Instalações.', color: theme.gold, icon: '→' };
+    if (vistoria?.status === 'concluida') return { text: 'Vistoria concluída! OS será criada automaticamente.', color: theme.success, icon: '✓' };
+    if (vistoria) {
+      const totalPontos = vistoria.ambientes.reduce((s, a) => s + a.pontos.length, 0);
+      return { text: `Vistoria em andamento — ${vistoria.ambientes.length} ambiente(s), ${totalPontos} ponto(s) mapeados.`, color: '#5B9BD5', icon: '◎' };
+    }
+    if (proposta?.status === 'aprovada') return { text: 'Proposta aprovada! Prossiga para a Vistoria do local.', color: theme.success, icon: '→' };
+    if (proposta?.status === 'enviada') return { text: 'Aguardando aprovação do cliente/gestor.', color: theme.warning, icon: '⏳' };
+    if (proposta?.status === 'gerada') return { text: 'Proposta gerada. Envie ao cliente para aprovação.', color: theme.muted, icon: '!' };
+    if (temOrcEscolhido) return { text: 'Orçamento escolhido! Gere a proposta comercial.', color: theme.gold, icon: '→' };
+    if (leadOrcamentos.length > 0) return { text: `${leadOrcamentos.length} orçamento(s) criado(s). Escolha um para prosseguir.`, color: theme.warning, icon: '!' };
+    if (solucaoPronta) return { text: 'Solução pronta! Crie orçamentos para comparação.', color: theme.gold, icon: '→' };
+    if (solucao) return { text: 'Solução em rascunho. Adicione equipamentos e marque como pronta.', color: theme.muted, icon: '✎' };
+    return { text: 'Comece montando a Solução Técnica para este cliente.', color: theme.muted, icon: '1' };
+  }, [solucao, solucaoPronta, leadOrcamentos, temOrcEscolhido, proposta, vistoria, ordem]);
+
+  /* --- step sub-labels --- */
+  const stepSublabel: Record<StepName, string> = useMemo(() => ({
+    'Solução': solucao ? (solucao.status === 'pronta' ? 'Pronta' : 'Rascunho') : 'Não iniciada',
+    'Orçamentos': leadOrcamentos.length > 0 ? `${leadOrcamentos.length} orc.${temOrcEscolhido ? ' · 1 escolhido' : ''}` : 'Nenhum',
+    'Proposta': proposta ? (proposta.status === 'aprovada' ? 'Aprovada' : proposta.status === 'enviada' ? 'Enviada' : 'Gerada') : 'Não gerada',
+    'Vistoria': vistoria ? (vistoria.status === 'concluida' ? 'Concluída' : `${vistoria.ambientes.length} amb.`) : 'Pendente',
+    'OS': ordem ? (ordem.status === 'concluida' ? 'Concluída' : ordem.status.replace('_', ' ')) : 'Aguardando',
+  }), [solucao, leadOrcamentos, temOrcEscolhido, proposta, vistoria, ordem]);
+
   return (
     <AppShell title={`Venda — ${lead.name}`}>
-      {/* Progress bar */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, alignItems: 'center', overflowX: 'auto', paddingBottom: 4 }}>
-        {['Lead', 'Solução', 'Orçamento', 'Proposta', 'OS'].map((stepLabel, i) => (
-          <div key={stepLabel} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, fontWeight: 700,
-              background: i <= progress ? theme.gold : theme.soft,
-              color: i <= progress ? '#111' : theme.muted,
-              border: `2px solid ${i <= progress ? theme.gold : theme.border}`,
-            }}>
-              {i < progress ? '✓' : i + 1}
-            </div>
-            <span style={{ fontSize: 11, color: i <= progress ? theme.gold : theme.muted, whiteSpace: 'nowrap' }}>{stepLabel}</span>
-            {i < 4 && <div style={{ width: 20, height: 2, background: i < progress ? theme.gold : theme.border }} />}
-          </div>
-        ))}
+      {/* GESTOR read-only banner */}
+      {!canEdit && canApprove && (
+        <div style={{ background: '#5B9BD5' + '15', border: `1px solid #5B9BD544`, borderRadius: 10, padding: '8px 14px', marginBottom: 10, fontSize: 12, color: '#5B9BD5', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontWeight: 700 }}>Modo Gestor</span> — Visualização somente leitura. Você pode aprovar propostas.
+        </div>
+      )}
+
+      {/* Lead info bar */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', fontSize: 13, color: theme.muted }}>
+        <strong style={{ color: theme.text, fontSize: 15 }}>{lead.name}</strong>
+        <span>·</span>
+        <span>{lead.company}</span>
+        {lead.tipoLocal && <><span>·</span><span style={{ background: theme.soft, padding: '1px 8px', borderRadius: 6, fontSize: 11 }}>{lead.tipoLocal}</span></>}
+        {lead.contato && <><span>·</span><span>{lead.contato}</span></>}
+        {lead.endereco && <><span>·</span><span style={{ fontSize: 11 }}>{lead.endereco}</span></>}
+        <span>·</span>
+        <span style={{ color: theme.gold, fontWeight: 600 }}>R$ {lead.value.toLocaleString('pt-BR')}</span>
       </div>
 
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 2, marginBottom: 16, borderBottom: `1px solid ${theme.border}`, overflowX: 'auto' }}>
-        {TAB_LABELS.map((tab) => {
-          const disabled = (tab === 'Orçamento' && !canAccessOrcamento) || (tab === 'Proposta' && !canAccessProposta);
-          const active = activeTab === tab;
+      {/* Contextual alert bar */}
+      <div style={{
+        background: alertMsg.color + '10', border: `1px solid ${alertMsg.color}33`,
+        borderRadius: 10, padding: '8px 14px', marginBottom: 12,
+        display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+      }}>
+        <span style={{ width: 22, height: 22, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: alertMsg.color + '22', color: alertMsg.color, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+          {alertMsg.icon}
+        </span>
+        <span style={{ color: alertMsg.color }}>{alertMsg.text}</span>
+      </div>
+
+      {/* Progress bar with sub-labels */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 4 }}>
+        {STEP_LABELS.map((stepLabel, i) => {
+          const done = i < progressIndex;
+          const current = i === progressIndex;
+          const isActive = activeStep === stepLabel;
           return (
-            <button
-              key={tab}
-              onClick={() => !disabled && setActiveTab(tab)}
-              disabled={disabled}
-              style={{
-                background: active ? theme.panel : 'transparent',
-                border: `1px solid ${active ? theme.border : 'transparent'}`,
-                borderBottom: active ? `2px solid ${theme.gold}` : '2px solid transparent',
-                borderRadius: '8px 8px 0 0', padding: '10px 20px',
-                color: disabled ? theme.muted + '66' : active ? theme.gold : theme.text,
-                cursor: disabled ? 'not-allowed' : 'pointer',
-                fontWeight: active ? 700 : 400, fontSize: 13,
-                opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap',
-              }}
-            >
-              {tab}
-            </button>
+            <div key={stepLabel} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button
+                onClick={() => stepEnabled[stepLabel] && setActiveStep(stepLabel)}
+                disabled={!stepEnabled[stepLabel]}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, background: 'transparent',
+                  border: 'none', cursor: stepEnabled[stepLabel] ? 'pointer' : 'not-allowed',
+                  opacity: stepEnabled[stepLabel] ? 1 : 0.35, padding: '0 2px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{
+                    width: 26, height: 26, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700,
+                    background: done ? theme.success : current ? theme.gold : theme.soft,
+                    color: done || current ? '#111' : theme.muted,
+                    border: `2px solid ${done ? theme.success : current ? theme.gold : isActive ? theme.text : theme.border}`,
+                  }}>
+                    {done ? '✓' : i + 1}
+                  </div>
+                  <span style={{
+                    fontSize: 12, whiteSpace: 'nowrap', fontWeight: isActive ? 700 : 400,
+                    color: done ? theme.success : current ? theme.gold : isActive ? theme.text : theme.muted,
+                  }}>
+                    {stepLabel}
+                  </span>
+                </div>
+                <span style={{ fontSize: 9, color: theme.muted, whiteSpace: 'nowrap' }}>
+                  {stepSublabel[stepLabel]}
+                </span>
+              </button>
+              {i < STEP_LABELS.length - 1 && <div style={{ width: 20, height: 2, background: done ? theme.success : theme.border, marginTop: -10 }} />}
+            </div>
           );
         })}
         <div style={{ flex: 1 }} />
-        <button
-          onClick={() => { window.location.href = '/kanban'; }}
-          style={{ ...btnSoft, fontSize: 12, padding: '6px 12px', alignSelf: 'center', whiteSpace: 'nowrap' }}
-        >
+        <button onClick={() => { window.location.href = '/kanban'; }} style={{ ...btnSoft, fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' }}>
           ← Pipeline
         </button>
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'Cliente' && (
-        <TabCliente
-          lead={lead}
-          onUpdateFotos={(fotos) => setLeads((cur) => cur.map((l) => l.id === leadId ? { ...l, fotos } : l))}
-        />
-      )}
-
-      {activeTab === 'Solução' && solDraft && (
+      {/* Step content */}
+      {activeStep === 'Solução' && solDraft && (
         <TabSolucao
           draft={solDraft} setDraft={setSolDraft}
           step={wizStep} setStep={setWizStep}
           equipments={equipments}
           solucaoExistente={solucao}
           onSave={handleSaveSolucao}
-          onAprovar={handleAprovarSolucao}
-          canApprove={role === 'ADMIN' || role === 'VENDEDOR'}
+          onMarcarPronta={handleMarcarPronta}
+          onVoltarRascunho={handleVoltarRascunho}
+          canEdit={canEdit}
         />
       )}
 
-      {activeTab === 'Orçamento' && orcamento && (
-        <TabOrcamento
-          orcamento={orcamento}
-          zonas={orcZonas} setZonas={setOrcZonas}
-          desconto={orcDesconto} setDesconto={setOrcDesconto}
-          observacoes={orcObs} setObservacoes={setOrcObs}
+      {activeStep === 'Orçamentos' && (
+        <StepOrcamentos
+          orcamentos={leadOrcamentos}
+          editingId={editingOrcId}
+          setEditingId={setEditingOrcId}
+          onCriar={handleCriarOrcamento}
+          onDuplicar={handleDuplicarOrcamento}
+          onExcluir={handleExcluirOrcamento}
+          onEscolher={handleEscolherOrcamento}
           onSave={handleSaveOrcamento}
           onGerarProposta={handleGerarProposta}
+          temEscolhido={temOrcEscolhido}
+          canEdit={canEdit}
         />
       )}
 
-      {activeTab === 'Proposta' && proposta && (
-        <TabProposta proposta={proposta} onEnviar={handleEnviarProposta} onAprovar={handleAprovarProposta} canApprove={role === 'ADMIN' || role === 'VENDEDOR'} />
+      {activeStep === 'Proposta' && proposta && (
+        <TabProposta proposta={proposta} onEnviar={handleEnviarProposta} onAprovar={handleAprovarProposta} canEdit={canEdit} canApprove={canApprove} />
+      )}
+      {activeStep === 'Proposta' && !proposta && temOrcEscolhido && (
+        <div style={{ textAlign: 'center', padding: 40, color: theme.muted }}>
+          <p>Nenhuma proposta gerada ainda.</p>
+          {canEdit && <button onClick={handleGerarProposta} style={btnGold}>Gerar Proposta do Orçamento Escolhido</button>}
+        </div>
+      )}
+
+      {activeStep === 'Vistoria' && vistoria && (
+        <StepVistoria
+          vistoria={vistoria}
+          onAddAmbiente={handleAddAmbiente}
+          onUpdateAmbiente={handleUpdateAmbiente}
+          onRemoveAmbiente={handleRemoveAmbiente}
+          onConcluir={handleConcluirVistoria}
+          canEdit={canEdit}
+        />
+      )}
+
+      {activeStep === 'OS' && ordem && (
+        <StepOSResumo ordem={ordem} />
       )}
     </AppShell>
   );
 }
 
 /* ================================================================
-   Tab: Cliente
+   Step: Solução (kit + wizard) — mostly unchanged
    ================================================================ */
 
-function TabCliente({ lead, onUpdateFotos }: { lead: Lead; onUpdateFotos: (fotos: string[]) => void }) {
-  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
-  const fotos = lead.fotos ?? [];
-
-  function handleAddPhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    compressImage(file).then((base64) => {
-      onUpdateFotos([...fotos, base64]);
-    });
-    e.target.value = '';
-  }
-
-  function handleRemovePhoto(idx: number) {
-    onUpdateFotos(fotos.filter((_, i) => i !== idx));
-  }
-
-  return (
-    <div style={{ maxWidth: 600 }}>
-      {/* Photo lightbox */}
-      {expandedPhoto && (
-        <>
-          <div onClick={() => setExpandedPhoto(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 60, cursor: 'pointer' }} />
-          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 61, maxWidth: '90vw', maxHeight: '90vh' }}>
-            <img src={expandedPhoto} alt="Foto ampliada" style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 10, objectFit: 'contain' }} />
-            <button onClick={() => setExpandedPhoto(null)} style={{ position: 'absolute', top: -12, right: -12, background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: '50%', width: 28, height: 28, color: theme.text, cursor: 'pointer', fontSize: 14 }}>x</button>
-          </div>
-        </>
-      )}
-
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
-        <h3 style={{ margin: '0 0 12px', color: theme.gold, fontSize: 16 }}>{lead.name}</h3>
-        <div style={{ display: 'grid', gap: 8 }}>
-          <InfoRow label="Empresa" value={lead.company} />
-          <InfoRow label="Origem" value={lead.origin} />
-          <InfoRow label="Etapa" value={lead.stage} />
-          <InfoRow label="Responsável" value={lead.responsible} />
-          <InfoRow label="Valor" value={`R$ ${lead.value.toLocaleString('pt-BR')}`} />
-          <InfoRow label="Semana" value={lead.week} />
-          <InfoRow label="Status" value={lead.status} />
-        </div>
-      </div>
-
-      {/* Site photos / blueprints */}
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <h4 style={{ margin: 0, color: theme.gold, fontSize: 14 }}>Fotos e Planta do Local</h4>
-          <span style={{ fontSize: 12, color: theme.muted }}>{fotos.length} foto(s)</span>
-        </div>
-        <div style={{ fontSize: 12, color: theme.muted, marginBottom: 10 }}>
-          Anexe fotos da fachada, ambientes internos e planta do imóvel para referência na montagem da solução.
-        </div>
-
-        <label style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8,
-          padding: '8px 14px', fontSize: 13, cursor: 'pointer', color: theme.text, marginBottom: 10,
-        }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <path d="M21 15l-5-5L5 21" />
-          </svg>
-          Adicionar foto / planta
-          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAddPhoto} />
-        </label>
-
-        {fotos.length > 0 && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {fotos.map((foto, i) => (
-              <div key={i} style={{ position: 'relative' }}>
-                <img
-                  src={foto}
-                  width={120}
-                  height={90}
-                  alt={`Foto ${i + 1}`}
-                  onClick={() => setExpandedPhoto(foto)}
-                  style={{ borderRadius: 8, objectFit: 'cover', border: `1px solid ${theme.border}`, cursor: 'pointer', display: 'block' }}
-                />
-                <button
-                  onClick={() => handleRemovePhoto(i)}
-                  style={{
-                    position: 'absolute', top: -6, right: -6,
-                    background: theme.danger, border: 'none', borderRadius: '50%',
-                    width: 20, height: 20, color: '#fff', cursor: 'pointer',
-                    fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >
-                  x
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {fotos.length === 0 && (
-          <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 10, padding: 16, textAlign: 'center', color: theme.muted, fontSize: 12 }}>
-            Nenhuma foto adicionada. Tire fotos do local durante a visita técnica.
-          </div>
-        )}
-      </div>
-
-      {lead.timeline.length > 0 && (
-        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
-          <h4 style={{ margin: '0 0 12px', color: theme.gold, fontSize: 14 }}>Timeline</h4>
-          <div style={{ position: 'relative', paddingLeft: 20 }}>
-            {lead.timeline.map((item, i) => (
-              <div key={item.id} style={{ position: 'relative', paddingBottom: i < lead.timeline.length - 1 ? 16 : 0 }}>
-                <div style={{ position: 'absolute', left: -16, top: 4, width: 10, height: 10, borderRadius: '50%', background: theme.gold }} />
-                {i < lead.timeline.length - 1 && (
-                  <div style={{ position: 'absolute', left: -12, top: 16, bottom: 0, borderLeft: `2px solid ${theme.border}` }} />
-                )}
-                <div style={{ fontSize: 12, color: theme.muted }}>{formatDate(item.date)}</div>
-                <div style={{ fontSize: 13 }}>{item.text}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {lead.notes.length > 0 && (
-        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16 }}>
-          <h4 style={{ margin: '0 0 8px', color: theme.gold, fontSize: 14 }}>Notas</h4>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-            {lead.notes.map((note, i) => <li key={i} style={{ marginBottom: 4 }}>{note}</li>)}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      <span style={{ fontSize: 12, color: theme.muted, minWidth: 90 }}>{label}</span>
-      <span style={{ fontSize: 13, color: theme.text }}>{value}</span>
-    </div>
-  );
-}
-
-/* ================================================================
-   Tab: Solução (kit + wizard)
-   ================================================================ */
-
-function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExistente, onSave, onAprovar, canApprove }: {
+function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExistente, onSave, onMarcarPronta, onVoltarRascunho, canEdit: canEditProp }: {
   draft: SolucaoTecnica;
   setDraft: (d: SolucaoTecnica) => void;
   step: number;
@@ -612,19 +630,18 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
   equipments: Equipment[];
   solucaoExistente: SolucaoTecnica | null;
   onSave: () => void;
-  onAprovar: () => void;
-  canApprove: boolean;
+  onMarcarPronta: () => void;
+  onVoltarRascunho: () => void;
+  canEdit: boolean;
 }) {
   const [kitMode, setKitMode] = useState(true);
   const [selectedKitId, setSelectedKitId] = useState<string | null>(null);
 
   const kitsForMarca = useMemo(() => getPresetsForMarca(draft.marca), [draft.marca]);
-  const isApproved = solucaoExistente?.status === 'aprovada' || solucaoExistente?.status === 'orcamento_gerado';
+  const isPronta = solucaoExistente?.status === 'pronta';
 
-  // Reset kit selection when brand changes
   useEffect(() => { setSelectedKitId(null); }, [draft.marca]);
 
-  // Flatten all bloco items for the adjustment view
   const flatItems = useMemo(() => {
     const result: Array<{ equipmentId: string; nome: string; preco: number; quantidade: number; subtotal: number; blocoLabel: string }> = [];
     for (const bloco of draft.blocos) {
@@ -650,9 +667,7 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
       const eq = equipments.find((e) => e.id === kitItem.equipmentId);
       if (!eq) continue;
       const bloco = blocos.find((b) => b.categoria === eq.bloco);
-      if (bloco) {
-        bloco.itens.push({ equipmentId: kitItem.equipmentId, quantidade: kitItem.quantidade, observacao: '' });
-      }
+      if (bloco) bloco.itens.push({ equipmentId: kitItem.equipmentId, quantidade: kitItem.quantidade, observacao: '' });
     }
     setDraft({ ...draft, blocos });
     setSelectedKitId(kit.id);
@@ -663,26 +678,25 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
       ...draft,
       blocos: draft.blocos.map((b) => ({
         ...b,
-        itens: b.itens
-          .map((i) => (i.equipmentId === equipmentId ? { ...i, quantidade: Math.max(0, newQty) } : i))
-          .filter((i) => i.quantidade > 0),
+        itens: b.itens.map((i) => (i.equipmentId === equipmentId ? { ...i, quantidade: Math.max(0, newQty) } : i)).filter((i) => i.quantidade > 0),
       })),
     });
   }
 
-  /* --- Approved: read-only --- */
-  if (isApproved) {
+  /* Pronta: read-only with option to go back */
+  if (isPronta) {
     return (
       <div>
-        <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: theme.success }}>
-          Solução aprovada. O orçamento já foi gerado na aba "Orçamento".
+        <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: theme.success, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <span>Solução marcada como pronta. Prossiga para criar orçamentos.</span>
+          {canEditProp && <button onClick={onVoltarRascunho} style={{ ...btnSoft, fontSize: 12, padding: '4px 10px' }}>Voltar para rascunho</button>}
         </div>
         <StepResumo draft={draft} equipments={equipments} />
       </div>
     );
   }
 
-  /* --- Advanced mode: full wizard --- */
+  /* Wizard mode */
   if (!kitMode) {
     const currentStep = wizardSteps[step];
     const isLast = step === wizardSteps.length - 1;
@@ -701,29 +715,21 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
           <button onClick={() => setKitMode(true)} style={{ ...btnSoft, fontSize: 12, padding: '5px 12px' }}>← Modo Kit</button>
         </div>
-
-        {/* Wizard step indicators */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
           {wizardSteps.map((ws, i) => {
             const isCurrent = i === step;
             const hasBlocos = ws.blocos.length > 0;
             const hasStepItems = hasBlocos && ws.blocos.some((bc) => getBloco(bc).itens.length > 0);
             return (
-              <button
-                key={i}
-                onClick={() => setStep(i)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  background: isCurrent ? 'rgba(200,169,81,0.12)' : 'transparent',
-                  border: `1px solid ${isCurrent ? theme.gold : theme.border}`,
-                  borderRadius: 8, padding: '6px 12px', cursor: 'pointer',
-                  color: isCurrent ? theme.gold : theme.text,
-                  fontWeight: isCurrent ? 700 : 400, fontSize: 12, whiteSpace: 'nowrap',
-                }}
-              >
+              <button key={i} onClick={() => setStep(i)} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: isCurrent ? 'rgba(200,169,81,0.12)' : 'transparent',
+                border: `1px solid ${isCurrent ? theme.gold : theme.border}`,
+                borderRadius: 8, padding: '6px 12px', cursor: 'pointer',
+                color: isCurrent ? theme.gold : theme.text, fontWeight: isCurrent ? 700 : 400, fontSize: 12, whiteSpace: 'nowrap',
+              }}>
                 <span style={{
-                  width: 20, height: 20, borderRadius: '50%', display: 'inline-flex',
-                  alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
+                  width: 20, height: 20, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
                   background: isCurrent ? theme.gold : hasStepItems ? theme.success + '33' : theme.soft,
                   color: isCurrent ? '#111' : hasStepItems ? theme.success : theme.muted,
                   border: `1px solid ${isCurrent ? theme.gold : hasStepItems ? theme.success + '66' : theme.border}`,
@@ -737,27 +743,15 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
         </div>
 
         {step === 0 && <StepMarca draft={draft} setDraft={setDraft} />}
-
         {step >= 1 && step <= 5 && currentStep.blocos.map((cat) => (
-          <BlockEditor
-            key={cat} categoria={cat} label={blocoLabels[cat]}
-            marca={draft.marca} equipments={equipments}
-            items={getBloco(cat).itens}
-            onChange={(itens) => updateBloco(cat, itens)}
-          />
+          <BlockEditor key={cat} categoria={cat} label={blocoLabels[cat]} marca={draft.marca} equipments={equipments} items={getBloco(cat).itens} onChange={(itens) => updateBloco(cat, itens)} />
         ))}
-
         {step === 6 && (
           <>
             <StepResumo draft={draft} equipments={equipments} />
             <div style={{ marginTop: 16 }}>
               <label style={labelStyle}>Observação geral</label>
-              <textarea
-                value={draft.observacaoGeral}
-                onChange={(e) => setDraft({ ...draft, observacaoGeral: e.target.value })}
-                rows={3} style={{ ...inputStyle, resize: 'vertical' }}
-                placeholder="Notas livres sobre esta solução..."
-              />
+              <textarea value={draft.observacaoGeral} onChange={(e) => setDraft({ ...draft, observacaoGeral: e.target.value })} rows={3} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Notas livres sobre esta solução..." />
             </div>
           </>
         )}
@@ -770,11 +764,7 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
           ) : (
             <>
               <button onClick={onSave} style={btnSoft}>Salvar rascunho</button>
-              {canApprove && (
-                <button onClick={onAprovar} style={{ ...btnGold, background: theme.success }}>
-                  Aprovar e gerar orçamento →
-                </button>
-              )}
+              {canEditProp && <button onClick={onMarcarPronta} style={{ ...btnGold, background: theme.success }}>Marcar como Pronta →</button>}
             </>
           )}
         </div>
@@ -782,85 +772,53 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
     );
   }
 
-  /* --- Kit mode --- */
+  /* Kit mode */
   return (
     <div>
-      {/* Header + mode toggle */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Montar Solução</h3>
-        <button onClick={() => { setKitMode(false); setStep(0); }} style={{ ...btnSoft, fontSize: 12, padding: '5px 12px' }}>
-          Modo avançado →
-        </button>
+        <button onClick={() => { setKitMode(false); setStep(0); }} style={{ ...btnSoft, fontSize: 12, padding: '5px 12px' }}>Modo avançado →</button>
       </div>
+      <div style={{ fontSize: 13, color: theme.muted, marginBottom: 10 }}>Cliente: <strong style={{ color: theme.text }}>{draft.clienteNome}</strong></div>
 
-      {/* Client info */}
-      <div style={{ fontSize: 13, color: theme.muted, marginBottom: 10 }}>
-        Cliente: <strong style={{ color: theme.text }}>{draft.clienteNome}</strong>
-      </div>
-
-      {/* Brand selector */}
       <label style={labelStyle}>Marca Principal</label>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
         {marcas.map((m) => (
-          <button
-            key={m}
-            onClick={() => { if (m !== draft.marca) setDraft({ ...draft, marca: m, blocos: emptyBlocos() }); }}
-            style={{
-              padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              background: draft.marca === m ? theme.gold + '22' : theme.soft,
-              border: `2px solid ${draft.marca === m ? theme.gold : theme.border}`,
-              color: draft.marca === m ? theme.gold : theme.text,
-            }}
-          >
+          <button key={m} onClick={() => { if (m !== draft.marca) setDraft({ ...draft, marca: m, blocos: emptyBlocos() }); }} style={{
+            padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            background: draft.marca === m ? theme.gold + '22' : theme.soft,
+            border: `2px solid ${draft.marca === m ? theme.gold : theme.border}`,
+            color: draft.marca === m ? theme.gold : theme.text,
+          }}>
             {m}
           </button>
         ))}
       </div>
 
-      {/* Kit cards */}
       {kitsForMarca.length > 0 ? (
         <>
           <label style={{ ...labelStyle, marginBottom: 10, fontSize: 13 }}>Escolha um kit pré-configurado</label>
           <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', marginBottom: 20 }}>
             {kitsForMarca.map((kit) => {
-              const kitPrice = kit.itens.reduce((s, i) => {
-                const eq = equipments.find((e) => e.id === i.equipmentId);
-                return s + (eq?.price ?? 0) * i.quantidade;
-              }, 0);
+              const kitPrice = kit.itens.reduce((s, i) => { const eq = equipments.find((e) => e.id === i.equipmentId); return s + (eq?.price ?? 0) * i.quantidade; }, 0);
               const itemCount = kit.itens.reduce((s, i) => s + i.quantidade, 0);
               const isSelected = selectedKitId === kit.id;
-
               return (
-                <button
-                  key={kit.id}
-                  onClick={() => applyKit(kit)}
-                  style={{
-                    display: 'block', textAlign: 'left', cursor: 'pointer',
-                    background: isSelected ? 'rgba(200,169,81,0.10)' : theme.panel,
-                    border: `2px solid ${isSelected ? theme.gold : theme.border}`,
-                    borderRadius: 12, padding: 14, color: theme.text,
-                    transition: 'border-color 150ms, background 150ms',
-                  }}
-                >
+                <button key={kit.id} onClick={() => applyKit(kit)} style={{
+                  display: 'block', textAlign: 'left', cursor: 'pointer',
+                  background: isSelected ? 'rgba(200,169,81,0.10)' : theme.panel,
+                  border: `2px solid ${isSelected ? theme.gold : theme.border}`,
+                  borderRadius: 12, padding: 14, color: theme.text,
+                }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                     <strong style={{ fontSize: 13, color: isSelected ? theme.gold : theme.text }}>{kit.nome}</strong>
-                    {isSelected && (
-                      <span style={{ fontSize: 9, color: theme.gold, fontWeight: 700, background: theme.gold + '22', padding: '2px 6px', borderRadius: 999, flexShrink: 0, marginLeft: 6 }}>
-                        SELECIONADO
-                      </span>
-                    )}
+                    {isSelected && <span style={{ fontSize: 9, color: theme.gold, fontWeight: 700, background: theme.gold + '22', padding: '2px 6px', borderRadius: 999 }}>SELECIONADO</span>}
                   </div>
-                  <div style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>
-                    {KIT_CATEGORIA_LABELS[kit.categoria]}
-                  </div>
-                  <div style={{ fontSize: 12, color: theme.muted, marginBottom: 8, lineHeight: 1.4 }}>
-                    {kit.descricao}
-                  </div>
+                  <div style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>{KIT_CATEGORIA_LABELS[kit.categoria]}</div>
+                  <div style={{ fontSize: 12, color: theme.muted, marginBottom: 8, lineHeight: 1.4 }}>{kit.descricao}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 12, color: theme.muted }}>{itemCount} itens</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: theme.gold }}>
-                      ~R$ {formatCurrency(kitPrice)}
-                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: theme.gold }}>~R$ {formatCurrency(kitPrice)}</span>
                   </div>
                 </button>
               );
@@ -868,295 +826,214 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
           </div>
         </>
       ) : (
-        <div style={{
-          border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 24, textAlign: 'center',
-          color: theme.muted, fontSize: 13, marginBottom: 16,
-        }}>
+        <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 24, textAlign: 'center', color: theme.muted, fontSize: 13, marginBottom: 16 }}>
           Nenhum kit pré-configurado para <strong>{draft.marca}</strong>.
-          <br />
-          <button onClick={() => { setKitMode(false); setStep(0); }} style={{ ...btnGold, marginTop: 10, fontSize: 12 }}>
-            Usar modo avançado
-          </button>
+          <br /><button onClick={() => { setKitMode(false); setStep(0); }} style={{ ...btnGold, marginTop: 10, fontSize: 12 }}>Usar modo avançado</button>
         </div>
       )}
 
-      {/* Quantity adjustment area */}
       {hasItems && (
         <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <h4 style={{ margin: '0 0 12px', fontSize: 14, color: theme.gold }}>Ajustar Quantidades</h4>
           <div style={{ display: 'grid', gap: 6 }}>
             {flatItems.map((item) => (
-              <div key={item.equipmentId} style={{
-                display: 'flex', alignItems: 'center', gap: 8, background: theme.soft,
-                borderRadius: 8, padding: '8px 12px', border: `1px solid ${theme.border}`,
-              }}>
+              <div key={item.equipmentId} style={{ display: 'flex', alignItems: 'center', gap: 8, background: theme.soft, borderRadius: 8, padding: '8px 12px', border: `1px solid ${theme.border}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {item.nome}
-                  </div>
-                  <div style={{ fontSize: 11, color: theme.muted }}>
-                    {item.blocoLabel} · R$ {formatCurrency(item.preco)}/un
-                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nome}</div>
+                  <div style={{ fontSize: 11, color: theme.muted }}>{item.blocoLabel} · R$ {formatCurrency(item.preco)}/un</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0 }}>
                   <button onClick={() => updateItemQty(item.equipmentId, item.quantidade - 1)} style={qtyBtnStyle}>−</button>
-                  <span style={{ display: 'inline-block', width: 32, textAlign: 'center', fontSize: 14, fontWeight: 700 }}>
-                    {item.quantidade}
-                  </span>
+                  <span style={{ display: 'inline-block', width: 32, textAlign: 'center', fontSize: 14, fontWeight: 700 }}>{item.quantidade}</span>
                   <button onClick={() => updateItemQty(item.equipmentId, item.quantidade + 1)} style={qtyBtnStyle}>+</button>
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 600, color: theme.gold, minWidth: 80, textAlign: 'right' }}>
-                  R$ {formatCurrency(item.subtotal)}
-                </span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: theme.gold, minWidth: 80, textAlign: 'right' }}>R$ {formatCurrency(item.subtotal)}</span>
               </div>
             ))}
           </div>
-
-          {/* Total */}
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.border}`,
-          }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.border}` }}>
             <span style={{ fontSize: 14, color: theme.muted }}>Total estimado (equipamentos)</span>
             <span style={{ fontSize: 20, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(totalEstimado)}</span>
           </div>
         </div>
       )}
 
-      {/* Observations */}
       {hasItems && (
         <div style={{ marginBottom: 16 }}>
           <label style={labelStyle}>Observação geral</label>
-          <textarea
-            value={draft.observacaoGeral}
-            onChange={(e) => setDraft({ ...draft, observacaoGeral: e.target.value })}
-            rows={3} style={{ ...inputStyle, resize: 'vertical' }}
-            placeholder="Notas livres sobre esta solução..."
-          />
+          <textarea value={draft.observacaoGeral} onChange={(e) => setDraft({ ...draft, observacaoGeral: e.target.value })} rows={3} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Notas livres sobre esta solução..." />
         </div>
       )}
 
-      {/* Actions */}
       {hasItems && (
         <div style={{ display: 'flex', gap: 8, borderTop: `1px solid ${theme.border}`, paddingTop: 14 }}>
           <button onClick={onSave} style={btnSoft}>Salvar rascunho</button>
-          {canApprove && (
-            <button onClick={onAprovar} style={{ ...btnGold, background: theme.success }}>
-              Aprovar e gerar orçamento →
-            </button>
-          )}
+          {canEditProp && <button onClick={onMarcarPronta} style={{ ...btnGold, background: theme.success }}>Marcar como Pronta →</button>}
         </div>
       )}
     </div>
   );
 }
 
-/* ---- Step: Marca ---- */
+/* ================================================================
+   Step: Orçamentos dinâmicos
+   ================================================================ */
 
-function StepMarca({ draft, setDraft }: { draft: SolucaoTecnica; setDraft: (d: SolucaoTecnica) => void }) {
+function StepOrcamentos({ orcamentos, editingId, setEditingId, onCriar, onDuplicar, onExcluir, onEscolher, onSave, onGerarProposta, temEscolhido, canEdit }: {
+  orcamentos: Orcamento[];
+  editingId: string | null;
+  setEditingId: (id: string | null) => void;
+  onCriar: () => void;
+  onDuplicar: (orc: Orcamento) => void;
+  onExcluir: (orc: Orcamento) => void;
+  onEscolher: (orc: Orcamento) => void;
+  onSave: (orc: Orcamento) => void;
+  onGerarProposta: () => void;
+  temEscolhido: boolean;
+  canEdit: boolean;
+}) {
   return (
-    <div style={{ maxWidth: 520 }}>
-      <h3 style={{ color: theme.gold, margin: '0 0 6px', fontSize: 16 }}>Dados da Solução</h3>
-      <div style={{ fontSize: 13, color: theme.muted, marginBottom: 16 }}>
-        Cliente: <strong style={{ color: theme.text }}>{draft.clienteNome}</strong>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Orçamentos ({orcamentos.length})</h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canEdit && <button onClick={onCriar} style={btnGold}>+ Novo Orçamento</button>}
+          {temEscolhido && canEdit && <button onClick={onGerarProposta} style={{ ...btnGold, background: theme.success }}>Gerar Proposta →</button>}
+        </div>
       </div>
 
-      <label style={labelStyle}>Marca Principal *</label>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+      {orcamentos.length === 0 && (
+        <div style={{ border: `2px dashed ${theme.border}`, borderRadius: 12, padding: 40, textAlign: 'center', color: theme.muted }}>
+          <p style={{ fontSize: 14, marginBottom: 12 }}>Nenhum orçamento criado ainda.</p>
+          {canEdit && <button onClick={onCriar} style={btnGold}>Criar primeiro orçamento</button>}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+        {orcamentos.map((orc) => {
+          const isEditing = editingId === orc.id;
+          const isEscolhido = orc.status === 'escolhido';
+
+          if (isEditing) {
+            return <OrcamentoEditor key={orc.id} orcamento={orc} onSave={onSave} onCancel={() => setEditingId(null)} />;
+          }
+
+          return (
+            <div key={orc.id} style={{
+              background: theme.panel, border: `2px solid ${isEscolhido ? theme.gold : theme.border}`,
+              borderRadius: 12, padding: 16, position: 'relative',
+            }}>
+              {isEscolhido && (
+                <div style={{ position: 'absolute', top: -10, right: 12, background: theme.gold, color: '#111', fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 999 }}>
+                  ESCOLHIDO
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <h4 style={{ margin: 0, fontSize: 15, color: theme.text }}>Orçamento {orc.numero}</h4>
+                <MarcaBadge marca={orc.marca} />
+              </div>
+              <div style={{ fontSize: 13, color: theme.muted, marginBottom: 4 }}>{orc.itens.length} itens · {orc.zonas} zonas</div>
+              <div style={{ fontSize: 13, color: theme.muted, marginBottom: 4 }}>Desconto: {orc.desconto}%</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: theme.gold, marginBottom: 12 }}>R$ {formatCurrency(orc.totalFinal)}</div>
+              <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>Mensalidade: R$ {formatCurrency(orc.mensalidade)}/mês</div>
+
+              {canEdit && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {!isEscolhido && <button onClick={() => onEscolher(orc)} style={{ ...btnGold, fontSize: 12, padding: '5px 10px' }}>Escolher</button>}
+                  <button onClick={() => setEditingId(orc.id)} style={{ ...btnSoft, fontSize: 12, padding: '5px 10px' }}>Editar</button>
+                  <button onClick={() => onDuplicar(orc)} style={{ ...btnSoft, fontSize: 12, padding: '5px 10px' }}>Duplicar</button>
+                  {!isEscolhido && <button onClick={() => onExcluir(orc)} style={{ ...btnSoft, fontSize: 12, padding: '5px 10px', color: theme.danger, borderColor: theme.danger }}>Excluir</button>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OrcamentoEditor({ orcamento, onSave, onCancel }: { orcamento: Orcamento; onSave: (orc: Orcamento) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState(orcamento);
+
+  const subtotalEquip = draft.itens.reduce((s, i) => s + i.subtotal, 0);
+  const calc = calcularOrcamento(draft.zonas, subtotalEquip, draft.desconto);
+
+  function updateItemQty(eqId: string, qty: number) {
+    setDraft((d) => ({
+      ...d,
+      itens: d.itens.map((i) => i.equipmentId === eqId ? { ...i, quantidade: Math.max(1, qty), subtotal: Math.max(1, qty) * i.precoUnitario } : i),
+    }));
+  }
+
+  return (
+    <div style={{ background: theme.panel, border: `2px solid ${theme.gold}`, borderRadius: 12, padding: 16 }}>
+      <h4 style={{ margin: '0 0 12px', fontSize: 15, color: theme.gold }}>Editando Orçamento {draft.numero}</h4>
+
+      <label style={labelStyle}>Marca</label>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
         {marcas.map((m) => (
-          <button
-            key={m}
-            onClick={() => setDraft({ ...draft, marca: m })}
-            style={{
-              padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              background: draft.marca === m ? theme.gold + '22' : theme.soft,
-              border: `2px solid ${draft.marca === m ? theme.gold : theme.border}`,
-              color: draft.marca === m ? theme.gold : theme.text,
-            }}
-          >
+          <button key={m} onClick={() => setDraft({ ...draft, marca: m })} style={{
+            padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+            background: draft.marca === m ? theme.gold + '22' : theme.soft,
+            border: `1px solid ${draft.marca === m ? theme.gold : theme.border}`,
+            color: draft.marca === m ? theme.gold : theme.text,
+          }}>
             {m}
           </button>
         ))}
       </div>
 
-      <div style={{ background: theme.soft, borderRadius: 10, padding: 12, border: `1px solid ${theme.border}` }}>
-        <div style={{ fontSize: 12, color: theme.muted, marginBottom: 4 }}>Configuração</div>
-        <div style={{ fontSize: 14 }}>
-          <strong>{draft.clienteNome}</strong>
-          <span style={{ color: theme.muted }}> · Marca: </span>
-          <MarcaBadge marca={draft.marca} />
+      <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+        <div>
+          <label style={labelStyle}>Zonas</label>
+          <input type="number" min={1} max={50} value={draft.zonas} onChange={(e) => setDraft({ ...draft, zonas: Math.max(1, Math.min(50, Number(e.target.value))) })} style={{ ...inputStyle, width: 80, textAlign: 'center' }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Desconto (%)</label>
+          <input type="number" min={0} max={30} value={draft.desconto} onChange={(e) => setDraft({ ...draft, desconto: Math.max(0, Math.min(30, Number(e.target.value))) })} style={{ ...inputStyle, width: 80, textAlign: 'center' }} />
         </div>
       </div>
-    </div>
-  );
-}
 
-/* ================================================================
-   Tab: Orçamento
-   ================================================================ */
-
-function TabOrcamento({ orcamento, zonas, setZonas, desconto, setDesconto, observacoes, setObservacoes, onSave, onGerarProposta }: {
-  orcamento: Orcamento;
-  zonas: number; setZonas: (z: number) => void;
-  desconto: number; setDesconto: (d: number) => void;
-  observacoes: string; setObservacoes: (o: string) => void;
-  onSave: () => void;
-  onGerarProposta: () => void;
-}) {
-  const subtotalEquip = orcamento.subtotalEquipamentos;
-  const calc = calcularOrcamento(zonas, subtotalEquip, desconto);
-  const faixa = calc.faixa;
-  const isProposta = orcamento.status === 'proposta_criada';
-
-  const markupEquip = subtotalEquip * (calc.fator - 1);
-  const subtotalGeral = calc.totalEquip + calc.maoDeObra;
-  const descontoValor = subtotalGeral * (desconto / 100);
-
-  const blocoGroups: { bloco: BlocoCategoria; items: OrcamentoItem[] }[] = [];
-  for (const item of orcamento.itens) {
-    const g = blocoGroups.find((x) => x.bloco === item.bloco);
-    if (g) g.items.push(item);
-    else blocoGroups.push({ bloco: item.bloco, items: [item] });
-  }
-
-  return (
-    <div style={{ maxWidth: 760 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <MarcaBadge marca={orcamento.marca} />
-        <OrcamentoStatusBadge status={orcamento.status} />
-      </div>
-
-      {/* Zonas */}
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 4 }}>Número de Zonas</label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input
-                type="number" min={1} max={50} value={zonas}
-                onChange={(e) => setZonas(Math.max(1, Math.min(50, Number(e.target.value))))}
-                disabled={isProposta}
-                style={{ ...inputStyle, width: 80, marginBottom: 0, textAlign: 'center', fontSize: 18, fontWeight: 700 }}
-              />
-              <span style={{ fontSize: 13, color: theme.muted }}>ambientes monitorados</span>
-            </div>
+      <label style={labelStyle}>Equipamentos</label>
+      <div style={{ display: 'grid', gap: 4, marginBottom: 10 }}>
+        {draft.itens.map((item) => (
+          <div key={item.equipmentId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</span>
+            <input type="number" min={1} value={item.quantidade} onChange={(e) => updateItemQty(item.equipmentId, Number(e.target.value))} style={{ ...inputStyle, width: 50, padding: '4px', textAlign: 'center', marginBottom: 0 }} />
+            <span style={{ color: theme.muted, minWidth: 75, textAlign: 'right' }}>R$ {formatCurrency(item.quantidade * item.precoUnitario)}</span>
           </div>
-          <FaixaBadge label={faixa.label} large />
-        </div>
-        <div style={{ marginTop: 8, fontSize: 12, color: theme.muted }}>
-          Faixa {faixa.label} ({faixa.min}–{faixa.max === Infinity ? '∞' : faixa.max} zonas) — Fator {faixa.fator}x · Mão de obra R$ {formatCurrency(faixa.maoDeObra)} · Mensalidade R$ {formatCurrency(faixa.mensalidade)}
-        </div>
+        ))}
       </div>
 
-      {/* Equipment table */}
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <h4 style={{ margin: '0 0 10px', fontSize: 14, color: theme.gold }}>Equipamentos</h4>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              {['Bloco', 'Equipamento', 'Qtd', 'Unit.', 'Subtotal'].map((h) => (
-                <th key={h} style={thStyle}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {blocoGroups.map((group) =>
-              group.items.map((item, idx) => (
-                <tr key={item.equipmentId}>
-                  {idx === 0 && (
-                    <td style={{ ...tdStyle, fontSize: 11, color: theme.muted }} rowSpan={group.items.length}>
-                      {blocoLabels[group.bloco]}
-                    </td>
-                  )}
-                  <td style={tdStyle}>{item.nome}</td>
-                  <td style={tdStyle}>{item.quantidade}</td>
-                  <td style={tdStyle}>R$ {formatCurrency(item.precoUnitario)}</td>
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>R$ {formatCurrency(item.subtotal)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontSize: 13 }}>Subtotal equipamentos</td>
-              <td style={{ ...tdStyle, fontWeight: 700 }}>R$ {formatCurrency(subtotalEquip)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      {/* Costs panel */}
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))',
-        border: `2px solid ${theme.gold}44`, borderRadius: 12, padding: 16, marginBottom: 14,
-      }}>
-        <h4 style={{ margin: '0 0 12px', fontSize: 14, color: theme.gold }}>Painel de Custos</h4>
-        <CostLine label="Subtotal equipamentos" value={subtotalEquip} />
-        <CostLine label={`Fator complexidade (${calc.fator}x)`} value={markupEquip} prefix="+" />
-        <CostLine label={`Mão de obra (Faixa ${faixa.label})`} value={calc.maoDeObra} />
-        <div style={{ borderTop: `1px solid ${theme.border}`, margin: '8px 0' }} />
-        <CostLine label="Subtotal" value={subtotalGeral} bold />
-        {desconto > 0 && <CostLine label={`Desconto (${desconto}%)`} value={-descontoValor} prefix="" danger />}
-        <div style={{ borderTop: `2px solid ${theme.gold}`, margin: '8px 0' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold }}>TOTAL FINAL</span>
-          <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(calc.totalFinal)}</span>
+      <div style={{ background: theme.soft, borderRadius: 8, padding: 10, marginBottom: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+          <span style={{ color: theme.muted }}>Total final</span>
+          <span style={{ fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(calc.totalFinal)}</span>
         </div>
-        <div style={{ borderTop: `1px solid ${theme.border}`, margin: '8px 0' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: theme.muted }}>Mensalidade mensal</span>
-          <span style={{ fontSize: 16, fontWeight: 600, color: theme.text }}>R$ {formatCurrency(calc.mensalidade)}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+          <span style={{ color: theme.muted }}>Mensalidade</span>
+          <span>R$ {formatCurrency(calc.mensalidade)}/mês</span>
         </div>
       </div>
 
-      {/* Discount */}
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 6 }}>Desconto (0–30%)</label>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <input type="range" min={0} max={30} value={desconto} onChange={(e) => setDesconto(Number(e.target.value))} disabled={isProposta} style={{ flex: 1 }} />
-          <span style={{ fontSize: 18, fontWeight: 700, color: desconto > 0 ? theme.gold : theme.muted, minWidth: 50, textAlign: 'right' }}>
-            {desconto}%
-          </span>
-        </div>
-      </div>
+      <label style={labelStyle}>Observações</label>
+      <textarea value={draft.observacoes} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
 
-      {/* Observations */}
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 4 }}>Observações</label>
-        <textarea
-          value={observacoes} onChange={(e) => setObservacoes(e.target.value)}
-          rows={3} disabled={isProposta}
-          style={{ ...inputStyle, resize: 'vertical', marginBottom: 0, width: '100%' }}
-          placeholder="Notas sobre o orçamento..."
-        />
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {!isProposta && (
-          <>
-            <button onClick={onSave} style={btnSoft}>Salvar ajustes</button>
-            <button onClick={onGerarProposta} style={{ ...btnGold, background: theme.success }}>Gerar Proposta →</button>
-          </>
-        )}
-        {isProposta && (
-          <span style={{ fontSize: 13, color: theme.success, alignSelf: 'center' }}>Proposta já gerada na aba "Proposta".</span>
-        )}
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button onClick={() => onSave(draft)} style={btnGold}>Salvar</button>
+        <button onClick={onCancel} style={btnSoft}>Cancelar</button>
       </div>
     </div>
   );
 }
 
 /* ================================================================
-   Tab: Proposta
+   Step: Proposta
    ================================================================ */
 
-function TabProposta({ proposta, onEnviar, onAprovar, canApprove }: {
-  proposta: Proposta;
-  onEnviar: () => void;
-  onAprovar: () => void;
-  canApprove: boolean;
+function TabProposta({ proposta, onEnviar, onAprovar, canEdit, canApprove }: {
+  proposta: Proposta; onEnviar: () => void; onAprovar: () => void; canEdit: boolean; canApprove: boolean;
 }) {
   return (
     <div style={{ maxWidth: 700 }}>
@@ -1165,7 +1042,6 @@ function TabProposta({ proposta, onEnviar, onAprovar, canApprove }: {
         <StatusBadge value={proposta.status} />
       </div>
 
-      {/* Items */}
       <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
         <h4 style={{ margin: '0 0 10px', fontSize: 14, color: theme.gold }}>Equipamentos</h4>
         {proposta.itens.map((item, i) => (
@@ -1176,52 +1052,29 @@ function TabProposta({ proposta, onEnviar, onAprovar, canApprove }: {
         ))}
       </div>
 
-      {/* Services */}
       <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
         <h4 style={{ margin: '0 0 10px', fontSize: 14, color: theme.gold }}>Serviços</h4>
         {proposta.servicos.map((s, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-            <span>
-              {s.descricao}
-              <span style={{ fontSize: 11, color: theme.muted, marginLeft: 6 }}>({s.tipo === 'mensalidade' ? 'mensal' : 'único'})</span>
-            </span>
+            <span>{s.descricao} <span style={{ fontSize: 11, color: theme.muted }}>({s.tipo === 'mensalidade' ? 'mensal' : 'único'})</span></span>
             <span style={{ color: theme.muted }}>R$ {formatCurrency(s.valor)}</span>
           </div>
         ))}
       </div>
 
-      {proposta.observacoes && (
-        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-          <h4 style={{ margin: '0 0 6px', fontSize: 14, color: theme.gold }}>Observações</h4>
-          <div style={{ fontSize: 13, color: theme.muted }}>{proposta.observacoes}</div>
-        </div>
-      )}
-
-      {/* Total */}
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))',
-        border: `2px solid ${theme.gold}44`, borderRadius: 12, padding: 16, marginBottom: 14,
-      }}>
+      <div style={{ background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))', border: `2px solid ${theme.gold}44`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold }}>Total da Proposta</span>
           <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(proposta.total)}</span>
         </div>
       </div>
 
-      {/* Actions */}
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        {proposta.status === 'rascunho' && (
-          <button onClick={onEnviar} style={btnGold}>Enviar ao cliente</button>
-        )}
-        {proposta.status === 'enviado' && canApprove && (
-          <button onClick={onAprovar} style={{ ...btnGold, background: theme.success }}>Aprovar Proposta</button>
-        )}
-        {proposta.status === 'aprovado' && (
-          <div style={{
-            background: theme.success + '15', border: `1px solid ${theme.success}44`,
-            borderRadius: 10, padding: 12, fontSize: 13, color: theme.success,
-          }}>
-            Proposta aprovada! Ordem de Serviço criada automaticamente. Acesse "Ordens de Serviço" para acompanhar.
+        {proposta.status === 'gerada' && canEdit && <button onClick={onEnviar} style={btnGold}>Enviar ao cliente</button>}
+        {proposta.status === 'enviada' && canApprove && <button onClick={onAprovar} style={{ ...btnGold, background: theme.success }}>Aprovar Proposta</button>}
+        {proposta.status === 'aprovada' && (
+          <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: 12, fontSize: 13, color: theme.success }}>
+            Proposta aprovada! Prossiga para a Vistoria do local.
           </div>
         )}
       </div>
@@ -1230,10 +1083,240 @@ function TabProposta({ proposta, onEnviar, onAprovar, canApprove }: {
 }
 
 /* ================================================================
-   Shared Components
+   Step: Vistoria (Fotos/Pontos)
    ================================================================ */
 
-/* ---- BlockEditor ---- */
+function StepVistoria({ vistoria, onAddAmbiente, onUpdateAmbiente, onRemoveAmbiente, onConcluir, canEdit }: {
+  vistoria: Vistoria;
+  onAddAmbiente: (nome: string) => void;
+  onUpdateAmbiente: (ambId: string, amb: AmbienteVistoria) => void;
+  onRemoveAmbiente: (ambId: string) => void;
+  onConcluir: () => void;
+  canEdit: boolean;
+}) {
+  const [novoAmbiente, setNovoAmbiente] = useState('');
+  const [expandedAmbId, setExpandedAmbId] = useState<string | null>(null);
+  const isConcluida = vistoria.status === 'concluida';
+  const totalPhotos = vistoria.ambientes.reduce((s, a) => s + a.pontos.reduce((ss, p) => ss + p.photos.length, 0), 0);
+  const totalPontos = vistoria.ambientes.reduce((s, a) => s + a.pontos.length, 0);
+
+  function handleAddAmbiente() {
+    if (!novoAmbiente.trim()) return;
+    onAddAmbiente(novoAmbiente.trim());
+    setNovoAmbiente('');
+  }
+
+  function handleAddPonto(ambId: string) {
+    const amb = vistoria.ambientes.find((a) => a.id === ambId);
+    if (!amb) return;
+    const newPonto: InstallationPoint = {
+      id: 'PT' + Date.now(), environment: amb.nome, type: '', note: '',
+      status: 'Pendente', photos: [],
+    };
+    onUpdateAmbiente(ambId, { ...amb, pontos: [...amb.pontos, newPonto] });
+  }
+
+  function handleUpdatePonto(ambId: string, pontoId: string, updated: InstallationPoint) {
+    const amb = vistoria.ambientes.find((a) => a.id === ambId);
+    if (!amb) return;
+    onUpdateAmbiente(ambId, { ...amb, pontos: amb.pontos.map((p) => p.id === pontoId ? updated : p) });
+  }
+
+  function handleRemovePonto(ambId: string, pontoId: string) {
+    const amb = vistoria.ambientes.find((a) => a.id === ambId);
+    if (!amb) return;
+    onUpdateAmbiente(ambId, { ...amb, pontos: amb.pontos.filter((p) => p.id !== pontoId) });
+  }
+
+  async function handleAddPhoto(ambId: string, pontoId: string, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const base64 = await compressImage(file);
+    const amb = vistoria.ambientes.find((a) => a.id === ambId);
+    if (!amb) return;
+    const ponto = amb.pontos.find((p) => p.id === pontoId);
+    if (!ponto) return;
+    handleUpdatePonto(ambId, pontoId, { ...ponto, photos: [...ponto.photos, base64] });
+    e.target.value = '';
+  }
+
+  return (
+    <div style={{ maxWidth: 800 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Vistoria do Local</h3>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <StatusBadge value={vistoria.status} />
+          <span style={{ fontSize: 12, color: theme.muted }}>{vistoria.ambientes.length} ambientes · {totalPontos} pontos · {totalPhotos} fotos</span>
+        </div>
+      </div>
+
+      {isConcluida && (
+        <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: theme.success }}>
+          Vistoria concluída. OS liberada para agendamento.
+        </div>
+      )}
+
+      {/* Add ambiente */}
+      {canEdit && !isConcluida && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <input value={novoAmbiente} onChange={(e) => setNovoAmbiente(e.target.value)} placeholder="Nome do ambiente (ex: Fachada, Recepção, Estoque...)" style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddAmbiente(); }}
+          />
+          <button onClick={handleAddAmbiente} style={btnGold}>+ Ambiente</button>
+        </div>
+      )}
+
+      {/* Ambientes list */}
+      <div style={{ display: 'grid', gap: 10 }}>
+        {vistoria.ambientes.map((amb) => {
+          const isExpanded = expandedAmbId === amb.id;
+          const ambPhotos = amb.pontos.reduce((s, p) => s + p.photos.length, 0);
+
+          return (
+            <div key={amb.id} style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              {/* Ambiente header */}
+              <div
+                onClick={() => setExpandedAmbId(isExpanded ? null : amb.id)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{amb.nome}</span>
+                  <span style={{ fontSize: 12, color: theme.muted }}>{amb.pontos.length} pontos · {ambPhotos} fotos</span>
+                </div>
+                <span style={{ color: theme.muted, fontSize: 18 }}>{isExpanded ? '▲' : '▼'}</span>
+              </div>
+
+              {/* Expanded: pontos + photos */}
+              {isExpanded && (
+                <div style={{ padding: '0 16px 16px', borderTop: `1px solid ${theme.border}` }}>
+                  {amb.pontos.map((ponto) => (
+                    <div key={ponto.id} style={{ background: theme.soft, borderRadius: 8, padding: 10, marginTop: 10, border: `1px solid ${theme.border}` }}>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                        <input placeholder="Tipo (ex: Câmera Dome, Sensor PIR)" value={ponto.type} onChange={(e) => handleUpdatePonto(amb.id, ponto.id, { ...ponto, type: e.target.value })} disabled={isConcluida} style={{ ...inputStyle, flex: 1, marginBottom: 0, fontSize: 12 }} />
+                        {canEdit && !isConcluida && <button onClick={() => handleRemovePonto(amb.id, ponto.id)} style={{ background: 'transparent', border: `1px solid ${theme.danger}`, borderRadius: 6, color: theme.danger, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}>x</button>}
+                      </div>
+                      <input placeholder="Observação (ex: altura 3m, parede lateral)" value={ponto.note} onChange={(e) => handleUpdatePonto(amb.id, ponto.id, { ...ponto, note: e.target.value })} disabled={isConcluida} style={{ ...inputStyle, marginBottom: 6, fontSize: 12 }} />
+
+                      {/* Photos */}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {ponto.photos.map((photo, pi) => (
+                          <img key={pi} src={photo} width={70} height={52} alt={`Foto ${pi + 1}`} style={{ borderRadius: 6, objectFit: 'cover', border: `1px solid ${theme.border}` }} />
+                        ))}
+                        {canEdit && !isConcluida && (
+                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: theme.muted }}>
+                            + Foto
+                            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleAddPhoto(amb.id, ponto.id, e)} />
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {canEdit && !isConcluida && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <button onClick={() => handleAddPonto(amb.id)} style={{ ...btnSoft, fontSize: 12 }}>+ Ponto</button>
+                      <button onClick={() => onRemoveAmbiente(amb.id)} style={{ ...btnSoft, fontSize: 12, color: theme.danger, borderColor: theme.danger }}>Remover ambiente</button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Concluir */}
+      {canEdit && !isConcluida && vistoria.ambientes.length > 0 && (
+        <div style={{ marginTop: 20, borderTop: `1px solid ${theme.border}`, paddingTop: 14 }}>
+          <button onClick={onConcluir} style={{ ...btnGold, background: theme.success }}>Concluir Vistoria →</button>
+          <span style={{ fontSize: 12, color: theme.muted, marginLeft: 12 }}>Requer pelo menos 1 ambiente com 1 foto</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================
+   Step: OS Resumo (read-only for vendedor)
+   ================================================================ */
+
+function StepOSResumo({ ordem }: { ordem: OrdemDeServico }) {
+  const pontosFinalizados = ordem.pontos.filter((p) => p.status === 'Finalizado').length;
+  const totalPontos = ordem.pontos.length;
+  const checkDone = ordem.checklist.filter((c) => c.done).length;
+  const progressPct = totalPontos > 0 ? Math.round((pontosFinalizados / totalPontos) * 100) : 0;
+
+  const statusLabels: Record<string, string> = {
+    bloqueada: 'Bloqueada', pendente: 'Pendente', agendada: 'Agendada',
+    em_andamento: 'Em andamento', concluida: 'Concluída',
+  };
+  const statusColors: Record<string, string> = {
+    bloqueada: theme.danger, pendente: theme.warning, agendada: '#5B9BD5',
+    em_andamento: theme.gold, concluida: theme.success,
+  };
+  const statusColor = statusColors[ordem.status] ?? theme.muted;
+  const statusLabel = statusLabels[ordem.status] ?? ordem.status;
+  const isConcluida = ordem.status === 'concluida';
+
+  return (
+    <div style={{ maxWidth: 600 }}>
+      {/* Status banner */}
+      <div style={{
+        background: statusColor + '15', border: `1px solid ${statusColor}44`,
+        borderRadius: 12, padding: 20, textAlign: 'center', marginBottom: 20,
+      }}>
+        <div style={{ fontSize: 36, marginBottom: 8 }}>{isConcluida ? '✓' : '⚙'}</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: statusColor }}>
+          OS {ordem.id} — {statusLabel}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      {totalPontos > 0 && (
+        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: theme.muted, marginBottom: 6 }}>
+            <span>Progresso da instalação</span>
+            <span style={{ fontWeight: 600, color: progressPct === 100 ? theme.success : theme.gold }}>{pontosFinalizados}/{totalPontos} pontos · {progressPct}%</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 4, background: theme.soft }}>
+            <div style={{
+              height: '100%', borderRadius: 4, width: `${progressPct}%`,
+              background: progressPct === 100 ? theme.success : `linear-gradient(90deg, ${theme.gold}, ${theme.warning})`,
+              transition: 'width 300ms ease',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Info card */}
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16 }}>
+        <InfoRow label="Cliente" value={ordem.cliente} />
+        <InfoRow label="Pontos mapeados" value={String(totalPontos)} />
+        {totalPontos > 0 && <InfoRow label="Pontos finalizados" value={`${pontosFinalizados}/${totalPontos}`} />}
+        {ordem.checklist.length > 0 && <InfoRow label="Checklist" value={`${checkDone}/${ordem.checklist.length}`} />}
+        <InfoRow label="Técnico" value={ordem.tecnicoId || '— (aguardando agendamento)'} />
+        <InfoRow label="Data agendada" value={ordem.dataAgendada ? formatDate(ordem.dataAgendada) : '— (aguardando agendamento)'} />
+        <InfoRow label="Status" value={statusLabel} />
+        {ordem.observacoes && <InfoRow label="Observações" value={ordem.observacoes} />}
+      </div>
+
+      <div style={{ marginTop: 16, textAlign: 'center' }}>
+        <button onClick={() => { window.location.href = '/instalacoes'; }} style={btnGold}>Ver OS completa em Instalações →</button>
+      </div>
+    </div>
+  );
+}
+
+function formatDate(iso: string): string {
+  if (!iso) return '';
+  const parts = iso.split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return iso;
+}
+
+/* ================================================================
+   Shared Components
+   ================================================================ */
 
 function BlockEditor({ categoria, label, marca, equipments, items, onChange }: {
   categoria: BlocoCategoria; label: string; marca: Marca;
@@ -1244,13 +1327,8 @@ function BlockEditor({ categoria, label, marca, equipments, items, onChange }: {
   const [selQtd, setSelQtd] = useState(1);
   const [selObs, setSelObs] = useState('');
 
-  const filteredEquipments = useMemo(() =>
-    equipments.filter((e) => e.bloco === categoria && (e.marca === marca || e.marca === 'Genérico')),
-  [equipments, categoria, marca]);
-
-  const allBlockEquipments = useMemo(() =>
-    equipments.filter((e) => e.bloco === categoria),
-  [equipments, categoria]);
+  const filteredEquipments = useMemo(() => equipments.filter((e) => e.bloco === categoria && (e.marca === marca || e.marca === 'Genérico')), [equipments, categoria, marca]);
+  const allBlockEquipments = useMemo(() => equipments.filter((e) => e.bloco === categoria), [equipments, categoria]);
 
   function addItem() {
     if (!selEquip || selQtd < 1) return;
@@ -1264,89 +1342,51 @@ function BlockEditor({ categoria, label, marca, equipments, items, onChange }: {
   }
 
   function removeItem(eqId: string) { onChange(items.filter((i) => i.equipmentId !== eqId)); }
-
-  function updateObs(eqId: string, obs: string) {
-    onChange(items.map((i) => i.equipmentId === eqId ? { ...i, observacao: obs } : i));
-  }
-
-  const mixedBrandItems = items.filter((item) => {
-    const eq = equipments.find((e) => e.id === item.equipmentId);
-    return eq && eq.marca !== marca && eq.marca !== 'Genérico';
-  });
+  function updateObs(eqId: string, obs: string) { onChange(items.map((i) => i.equipmentId === eqId ? { ...i, observacao: obs } : i)); }
 
   return (
     <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <h4 style={{ margin: 0, fontSize: 14, color: theme.gold }}>{label}</h4>
-        {items.length > 0 && (
-          <span style={{ fontSize: 12, color: theme.success, fontWeight: 600 }}>
-            {items.reduce((s, i) => s + i.quantidade, 0)} item(ns)
-          </span>
-        )}
+        {items.length > 0 && <span style={{ fontSize: 12, color: theme.success, fontWeight: 600 }}>{items.reduce((s, i) => s + i.quantidade, 0)} item(ns)</span>}
       </div>
-
       <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         <select value={selEquip} onChange={(e) => setSelEquip(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 200, marginBottom: 0 }}>
           <option value="">Selecionar produto...</option>
           <optgroup label={marca}>
-            {filteredEquipments.filter((e) => e.marca === marca).map((eq) => (
-              <option key={eq.id} value={eq.id}>{eq.name} — R$ {eq.price}</option>
-            ))}
+            {filteredEquipments.filter((e) => e.marca === marca).map((eq) => <option key={eq.id} value={eq.id}>{eq.name} — R$ {eq.price}</option>)}
           </optgroup>
           {filteredEquipments.some((e) => e.marca === 'Genérico') && (
             <optgroup label="Genérico">
-              {filteredEquipments.filter((e) => e.marca === 'Genérico').map((eq) => (
-                <option key={eq.id} value={eq.id}>{eq.name} — R$ {eq.price}</option>
-              ))}
+              {filteredEquipments.filter((e) => e.marca === 'Genérico').map((eq) => <option key={eq.id} value={eq.id}>{eq.name} — R$ {eq.price}</option>)}
             </optgroup>
           )}
           {allBlockEquipments.filter((e) => e.marca !== marca && e.marca !== 'Genérico').length > 0 && (
             <optgroup label="Outras marcas">
-              {allBlockEquipments.filter((e) => e.marca !== marca && e.marca !== 'Genérico').map((eq) => (
-                <option key={eq.id} value={eq.id}>{eq.name} ({eq.marca}) — R$ {eq.price}</option>
-              ))}
+              {allBlockEquipments.filter((e) => e.marca !== marca && e.marca !== 'Genérico').map((eq) => <option key={eq.id} value={eq.id}>{eq.name} ({eq.marca}) — R$ {eq.price}</option>)}
             </optgroup>
           )}
         </select>
         <input type="number" min={1} value={selQtd} onChange={(e) => setSelQtd(Number(e.target.value))} style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
         <button onClick={addItem} disabled={!selEquip} style={{ ...btnGold, opacity: selEquip ? 1 : 0.4 }}>+</button>
       </div>
-
-      {mixedBrandItems.length > 0 && (
-        <div style={{ background: theme.warning + '15', border: `1px solid ${theme.warning}44`, borderRadius: 8, padding: '8px 12px', marginBottom: 8, fontSize: 12, color: theme.warning }}>
-          {mixedBrandItems.length} item(ns) de marca diferente ({marca}). Misturar marcas pode causar incompatibilidade.
-        </div>
-      )}
-
       {items.length === 0 ? (
         <div style={{ fontSize: 12, color: theme.muted, textAlign: 'center', padding: 12 }}>Nenhum produto adicionado.</div>
       ) : (
         <div style={{ display: 'grid', gap: 6 }}>
           {items.map((item) => {
             const eq = equipments.find((e) => e.id === item.equipmentId);
-            const isMixed = eq && eq.marca !== marca && eq.marca !== 'Genérico';
             return (
-              <div key={item.equipmentId} style={{
-                background: theme.soft, borderRadius: 8, padding: '8px 10px',
-                border: `1px solid ${isMixed ? theme.warning + '44' : theme.border}`,
-              }}>
+              <div key={item.equipmentId} style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px', border: `1px solid ${theme.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{item.quantidade}x</span>
                     <span style={{ fontSize: 13, marginLeft: 6 }}>{eq?.name ?? item.equipmentId}</span>
-                    {isMixed && <span style={{ fontSize: 11, color: theme.warning, marginLeft: 6 }}>({eq?.marca})</span>}
-                    <span style={{ fontSize: 12, color: theme.muted, marginLeft: 8 }}>
-                      R$ {((eq?.price ?? 0) * item.quantidade).toLocaleString('pt-BR')}
-                    </span>
+                    <span style={{ fontSize: 12, color: theme.muted, marginLeft: 8 }}>R$ {((eq?.price ?? 0) * item.quantidade).toLocaleString('pt-BR')}</span>
                   </div>
                   <button onClick={() => removeItem(item.equipmentId)} style={{ background: 'transparent', border: `1px solid ${theme.danger}`, borderRadius: 6, color: theme.danger, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}>x</button>
                 </div>
-                <input
-                  placeholder="Observação técnica (ex: instalar a 3m, cobrir estacionamento)"
-                  value={item.observacao}
-                  onChange={(e) => updateObs(item.equipmentId, e.target.value)}
-                  style={{ ...inputStyle, marginTop: 6, marginBottom: 0, fontSize: 12, padding: '4px 8px' }}
-                />
+                <input placeholder="Observação técnica" value={item.observacao} onChange={(e) => updateObs(item.equipmentId, e.target.value)} style={{ ...inputStyle, marginTop: 6, marginBottom: 0, fontSize: 12, padding: '4px 8px' }} />
               </div>
             );
           })}
@@ -1356,16 +1396,10 @@ function BlockEditor({ categoria, label, marca, equipments, items, onChange }: {
   );
 }
 
-/* ---- StepResumo ---- */
-
 function StepResumo({ draft, equipments }: { draft: SolucaoTecnica; equipments: Equipment[] }) {
   const totalItens = draft.blocos.reduce((s, b) => s + b.itens.reduce((ss, i) => ss + i.quantidade, 0), 0);
   const blocosPreenchidos = draft.blocos.filter((b) => b.itens.length > 0).length;
-  const valorTotal = draft.blocos.reduce((s, b) => s + b.itens.reduce((ss, i) => {
-    const eq = equipments.find((e) => e.id === i.equipmentId);
-    return ss + (eq?.price ?? 0) * i.quantidade;
-  }, 0), 0);
-
+  const valorTotal = draft.blocos.reduce((s, b) => s + b.itens.reduce((ss, i) => { const eq = equipments.find((e) => e.id === i.equipmentId); return ss + (eq?.price ?? 0) * i.quantidade; }, 0), 0);
   const stepGroups = wizardSteps.slice(1, -1);
 
   return (
@@ -1376,44 +1410,27 @@ function StepResumo({ draft, equipments }: { draft: SolucaoTecnica; equipments: 
         <MarcaBadge marca={draft.marca} />
         <span style={{ fontSize: 13, color: theme.muted }}>{totalItens} itens · {blocosPreenchidos}/{allBlocos.length} blocos</span>
       </div>
-
       {stepGroups.map((sg) => {
         const blocos = sg.blocos.map((bc) => draft.blocos.find((b) => b.categoria === bc)!);
         const groupItems = blocos.reduce((s, b) => s + b.itens.reduce((ss, i) => ss + i.quantidade, 0), 0);
-
         return (
           <div key={sg.label} style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <h4 style={{ margin: 0, fontSize: 13, color: groupItems > 0 ? theme.text : theme.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                {sg.label}
-              </h4>
-              <span style={{ fontSize: 12, color: groupItems > 0 ? theme.success : theme.muted }}>
-                {groupItems > 0 ? `${groupItems} itens` : 'vazio'}
-              </span>
+              <h4 style={{ margin: 0, fontSize: 13, color: groupItems > 0 ? theme.text : theme.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{sg.label}</h4>
+              <span style={{ fontSize: 12, color: groupItems > 0 ? theme.success : theme.muted }}>{groupItems > 0 ? `${groupItems} itens` : 'vazio'}</span>
             </div>
             {blocos.map((bloco) => (
               <div key={bloco.categoria} style={{ paddingLeft: 12, borderLeft: `2px solid ${bloco.itens.length > 0 ? theme.gold + '44' : theme.border}`, marginBottom: 4 }}>
                 <span style={{ fontSize: 12, color: theme.muted }}>{blocoLabels[bloco.categoria]}: </span>
-                {bloco.itens.length === 0 ? (
-                  <span style={{ fontSize: 12, color: theme.muted, fontStyle: 'italic' }}>(vazio)</span>
-                ) : (
-                  bloco.itens.map((item, idx) => {
-                    const eq = equipments.find((e) => e.id === item.equipmentId);
-                    return (
-                      <span key={item.equipmentId} style={{ fontSize: 12 }}>
-                        {idx > 0 && ', '}
-                        <strong>{item.quantidade}x</strong> {eq?.name ?? item.equipmentId}
-                        {item.observacao && <span style={{ color: theme.muted }}> ({item.observacao})</span>}
-                      </span>
-                    );
-                  })
-                )}
+                {bloco.itens.length === 0 ? <span style={{ fontSize: 12, color: theme.muted, fontStyle: 'italic' }}>(vazio)</span> : bloco.itens.map((item, idx) => {
+                  const eq = equipments.find((e) => e.id === item.equipmentId);
+                  return <span key={item.equipmentId} style={{ fontSize: 12 }}>{idx > 0 && ', '}<strong>{item.quantidade}x</strong> {eq?.name ?? item.equipmentId}{item.observacao && <span style={{ color: theme.muted }}> ({item.observacao})</span>}</span>;
+                })}
               </div>
             ))}
           </div>
         );
       })}
-
       <div style={{ marginTop: 16, padding: 12, background: theme.soft, borderRadius: 10, border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: 14, color: theme.muted }}>Valor estimado (equipamentos)</span>
         <span style={{ fontSize: 20, fontWeight: 700, color: theme.gold }}>R$ {valorTotal.toLocaleString('pt-BR')}</span>
@@ -1422,83 +1439,53 @@ function StepResumo({ draft, equipments }: { draft: SolucaoTecnica; equipments: 
   );
 }
 
+function StepMarca({ draft, setDraft }: { draft: SolucaoTecnica; setDraft: (d: SolucaoTecnica) => void }) {
+  return (
+    <div style={{ maxWidth: 520 }}>
+      <h3 style={{ color: theme.gold, margin: '0 0 6px', fontSize: 16 }}>Dados da Solução</h3>
+      <div style={{ fontSize: 13, color: theme.muted, marginBottom: 16 }}>Cliente: <strong style={{ color: theme.text }}>{draft.clienteNome}</strong></div>
+      <label style={labelStyle}>Marca Principal *</label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {marcas.map((m) => (
+          <button key={m} onClick={() => setDraft({ ...draft, marca: m })} style={{
+            padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            background: draft.marca === m ? theme.gold + '22' : theme.soft,
+            border: `2px solid ${draft.marca === m ? theme.gold : theme.border}`,
+            color: draft.marca === m ? theme.gold : theme.text,
+          }}>
+            {m}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---- Small helpers ---- */
 
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}>
+      <span style={{ fontSize: 12, color: theme.muted, minWidth: 120 }}>{label}</span>
+      <span style={{ fontSize: 13, color: theme.text }}>{value}</span>
+    </div>
+  );
+}
+
 function MarcaBadge({ marca }: { marca: Marca }) {
-  const colorMap: Record<Marca, string> = {
-    Intelbras: '#43C17B', Hikvision: '#E55B5B', DSC: '#5B9BD5',
-    Viaweb: '#E3B341', Vetti: '#C077DB', 'Genérico': '#B5B5B5',
-  };
+  const colorMap: Record<Marca, string> = { Intelbras: '#43C17B', Hikvision: '#E55B5B', DSC: '#5B9BD5', Viaweb: '#E3B341', Vetti: '#C077DB', 'Genérico': '#B5B5B5' };
   const color = colorMap[marca];
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
-      background: color + '22', color, border: `1px solid ${color}44`,
-    }}>
-      {marca}
-    </span>
-  );
-}
-
-function FaixaBadge({ label, large }: { label: string; large?: boolean }) {
-  const colorMap: Record<string, string> = { P: '#43C17B', M: '#5B9BD5', G: '#E3B341', GG: '#E5855B', E: '#E55B5B' };
-  const color = colorMap[label] ?? theme.muted;
-  return (
-    <span style={{
-      fontSize: large ? 14 : 11, fontWeight: 700, padding: large ? '4px 14px' : '2px 8px',
-      borderRadius: 999, background: color + '22', color, border: `1px solid ${color}44`, letterSpacing: 0.5,
-    }}>
-      Faixa {label}
-    </span>
-  );
-}
-
-function OrcamentoStatusBadge({ status }: { status: Orcamento['status'] }) {
-  const map: Record<Orcamento['status'], { label: string; color: string }> = {
-    gerado: { label: 'Gerado', color: theme.muted },
-    ajustado: { label: 'Ajustado', color: theme.warning },
-    proposta_criada: { label: 'Proposta criada', color: theme.success },
-  };
-  const { label, color } = map[status];
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999,
-      background: color + '22', color, border: `1px solid ${color}44`,
-      textTransform: 'uppercase', letterSpacing: 0.5,
-    }}>
-      {label}
-    </span>
-  );
+  return <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: color + '22', color, border: `1px solid ${color}44` }}>{marca}</span>;
 }
 
 function StatusBadge({ value }: { value: string }) {
   const colorMap: Record<string, string> = {
-    rascunho: theme.muted, enviado: theme.warning, aprovado: theme.success,
+    rascunho: theme.muted, gerada: theme.muted, enviada: theme.warning, aprovada: theme.success,
+    pendente: theme.muted, em_andamento: theme.warning, concluida: theme.success,
+    pronta: theme.success, escolhido: theme.gold, finalizado: theme.muted,
   };
   const color = colorMap[value] ?? theme.muted;
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5,
-      padding: '3px 10px', borderRadius: 999,
-      background: color + '22', color, border: `1px solid ${color}44`,
-    }}>
-      {value}
-    </span>
-  );
-}
-
-function CostLine({ label, value, prefix, bold, danger }: {
-  label: string; value: number; prefix?: string; bold?: boolean; danger?: boolean;
-}) {
-  const displayVal = value < 0 ? `-R$ ${formatCurrency(Math.abs(value))}` : `${prefix ?? ''}R$ ${formatCurrency(value)}`;
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
-      <span style={{ fontSize: 13, color: theme.muted }}>{label}</span>
-      <span style={{ fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: danger ? theme.danger : theme.text }}>
-        {displayVal}
-      </span>
-    </div>
-  );
+  return <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, padding: '3px 10px', borderRadius: 999, background: color + '22', color, border: `1px solid ${color}44` }}>{value.replace('_', ' ')}</span>;
 }
 
 /* ---- Styles ---- */
@@ -1508,5 +1495,3 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, color:
 const btnGold: React.CSSProperties = { background: theme.gold, border: 'none', borderRadius: 8, color: '#111', padding: '8px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 13 };
 const btnSoft: React.CSSProperties = { background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8, color: theme.text, padding: '8px 14px', cursor: 'pointer', fontSize: 13 };
 const qtyBtnStyle: React.CSSProperties = { width: 28, height: 28, borderRadius: 6, background: theme.soft, border: `1px solid ${theme.border}`, color: theme.text, cursor: 'pointer', fontSize: 16, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' };
-const thStyle: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', borderBottom: `1px solid ${theme.border}`, fontSize: 12, color: theme.muted };
-const tdStyle: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${theme.border}`, fontSize: 13 };

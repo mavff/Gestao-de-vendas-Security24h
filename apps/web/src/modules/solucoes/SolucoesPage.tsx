@@ -5,11 +5,11 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
-import { mockEquipments, mockLeads, mockOportunidades, mockSolucoes, mockUsers } from '../../mocks/data';
+import { mockEquipments, mockLeads, mockSolucoes, mockUsers } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
   BlocoCategoria, BlocoTecnico, Equipment, ItemSolucao, Lead, Marca,
-  Oportunidade, SolucaoTecnica, User,
+  SolucaoTecnica, User,
 } from '../../types';
 
 /* ---- Constants ---- */
@@ -62,7 +62,7 @@ function emptyBlocos(): BlocoTecnico[] {
 
 function emptySolucao(): SolucaoTecnica {
   return {
-    id: '', oportunidadeId: '', leadId: '', clienteNome: '',
+    id: '', leadId: '', clienteNome: '',
     marca: 'Intelbras', blocos: emptyBlocos(), observacaoGeral: '',
     status: 'rascunho', criadoPor: '', createdAt: '', updatedAt: '',
   };
@@ -78,7 +78,6 @@ export function SolucoesPage() {
 
   const [solucoes, setSolucoes] = useState<SolucaoTecnica[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
-  const [oportunidades, setOportunidades] = useState<Oportunidade[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
@@ -89,7 +88,6 @@ export function SolucoesPage() {
   useEffect(() => {
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
     setEquipments(loadMock('mock_equipments', mockEquipments));
-    setOportunidades(loadMock('mock_oportunidades', mockOportunidades));
     setLeads(loadMock('mock_leads', mockLeads));
     setUsers(loadMock('mock_users', mockUsers));
   }, []);
@@ -135,8 +133,8 @@ export function SolucoesPage() {
   }
 
   function handleAprovar(id: string) {
-    setSolucoes((cur) => cur.map((s) => s.id === id ? { ...s, status: 'aprovada' as const, updatedAt: new Date().toISOString().slice(0, 10) } : s));
-    showToast('Solução aprovada.', 'success');
+    setSolucoes((cur) => cur.map((s) => s.id === id ? { ...s, status: 'pronta' as const, updatedAt: new Date().toISOString().slice(0, 10) } : s));
+    showToast('Solução marcada como pronta.', 'success');
   }
 
   if (view === 'wizard') {
@@ -148,7 +146,6 @@ export function SolucoesPage() {
           step={step}
           setStep={setStep}
           equipments={equipments}
-          oportunidades={oportunidades}
           leads={leads}
           onSave={handleSave}
           onCancel={() => setView('list')}
@@ -194,11 +191,11 @@ export function SolucoesPage() {
               {sol.status === 'rascunho' && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
                   {canWrite && <button onClick={() => openEdit(sol)} style={btnSmall}>Editar</button>}
-                  {canApprove && <button onClick={() => handleAprovar(sol.id)} style={{ ...btnSmall, borderColor: theme.success, color: theme.success }}>Aprovar</button>}
+                  {canApprove && <button onClick={() => handleAprovar(sol.id)} style={{ ...btnSmall, borderColor: theme.success, color: theme.success }}>Marcar Pronta</button>}
                   {canWrite && <button onClick={() => handleDelete(sol.id)} style={{ ...btnSmall, borderColor: theme.danger, color: theme.danger }}>Excluir</button>}
                 </div>
               )}
-              {sol.status === 'aprovada' && (
+              {sol.status === 'pronta' && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
                   <button onClick={() => openEdit(sol)} style={btnSmall}>Visualizar</button>
                   <button onClick={() => { window.location.href = '/orcamentos?solucaoId=' + sol.id; }} style={{ ...btnSmall, borderColor: theme.gold, color: theme.gold }}>Gerar Orçamento</button>
@@ -214,13 +211,12 @@ export function SolucoesPage() {
 
 /* ---- Wizard ---- */
 
-function SolucaoWizard({ draft, setDraft, step, setStep, equipments, oportunidades, leads, onSave, onCancel }: {
+function SolucaoWizard({ draft, setDraft, step, setStep, equipments, leads, onSave, onCancel }: {
   draft: SolucaoTecnica;
   setDraft: (d: SolucaoTecnica) => void;
   step: number;
   setStep: (s: number) => void;
   equipments: Equipment[];
-  oportunidades: Oportunidade[];
   leads: Lead[];
   onSave: (s: SolucaoTecnica) => void;
   onCancel: () => void;
@@ -283,7 +279,7 @@ function SolucaoWizard({ draft, setDraft, step, setStep, equipments, oportunidad
 
       {/* Step content */}
       {step === 0 && (
-        <StepDadosGerais draft={draft} setDraft={setDraft} oportunidades={oportunidades} leads={leads} />
+        <StepDadosGerais draft={draft} setDraft={setDraft} leads={leads} />
       )}
 
       {step >= 1 && step <= 3 && (
@@ -331,7 +327,7 @@ function SolucaoWizard({ draft, setDraft, step, setStep, equipments, oportunidad
         )}
         <div style={{ flex: 1 }} />
         {!isLast ? (
-          <button type="button" onClick={() => setStep(step + 1)} disabled={step === 0 && !draft.oportunidadeId} style={{ ...btnGold, opacity: step === 0 && !draft.oportunidadeId ? 0.4 : 1 }}>
+          <button type="button" onClick={() => setStep(step + 1)} disabled={step === 0 && !draft.leadId} style={{ ...btnGold, opacity: step === 0 && !draft.leadId ? 0.4 : 1 }}>
             Próximo →
           </button>
         ) : (
@@ -357,19 +353,16 @@ function SolucaoWizard({ draft, setDraft, step, setStep, equipments, oportunidad
 
 /* ---- Step: Dados Gerais ---- */
 
-function StepDadosGerais({ draft, setDraft, oportunidades, leads }: {
+function StepDadosGerais({ draft, setDraft, leads }: {
   draft: SolucaoTecnica;
   setDraft: (d: SolucaoTecnica) => void;
-  oportunidades: Oportunidade[];
   leads: Lead[];
 }) {
-  function handleOportunidadeChange(opId: string) {
-    const op = oportunidades.find((o) => o.id === opId);
-    const lead = op ? leads.find((l) => l.id === op.leadId) : null;
+  function handleLeadChange(leadId: string) {
+    const lead = leads.find((l) => l.id === leadId);
     setDraft({
       ...draft,
-      oportunidadeId: opId,
-      leadId: op?.leadId ?? '',
+      leadId,
       clienteNome: lead ? `${lead.name} — ${lead.company}` : '',
     });
   }
@@ -378,17 +371,14 @@ function StepDadosGerais({ draft, setDraft, oportunidades, leads }: {
     <div style={{ maxWidth: 520 }}>
       <h3 style={{ color: theme.gold, margin: '0 0 16px', fontSize: 16 }}>Dados Gerais</h3>
 
-      <label style={labelStyle}>Oportunidade *</label>
-      <select value={draft.oportunidadeId} onChange={(e) => handleOportunidadeChange(e.target.value)} style={inputStyle}>
-        <option value="">Selecione uma oportunidade</option>
-        {oportunidades.filter((o) => o.status === 'aberta').map((op) => {
-          const lead = leads.find((l) => l.id === op.leadId);
-          return (
-            <option key={op.id} value={op.id}>
-              {lead ? `${lead.name} — ${lead.company}` : op.id} (R$ {op.valorEstimado.toLocaleString('pt-BR')})
-            </option>
-          );
-        })}
+      <label style={labelStyle}>Lead / Cliente *</label>
+      <select value={draft.leadId} onChange={(e) => handleLeadChange(e.target.value)} style={inputStyle}>
+        <option value="">Selecione um lead</option>
+        {leads.filter((l) => l.status === 'ativo').map((lead) => (
+          <option key={lead.id} value={lead.id}>
+            {lead.name} — {lead.company} (R$ {lead.value.toLocaleString('pt-BR')})
+          </option>
+        ))}
       </select>
 
       {draft.clienteNome && (
@@ -418,7 +408,7 @@ function StepDadosGerais({ draft, setDraft, oportunidades, leads }: {
         ))}
       </div>
 
-      {draft.oportunidadeId && (
+      {draft.leadId && (
         <div style={{ background: theme.soft, borderRadius: 10, padding: 12, border: `1px solid ${theme.border}` }}>
           <div style={{ fontSize: 12, color: theme.muted, marginBottom: 4 }}>Resumo</div>
           <div style={{ fontSize: 14 }}>
@@ -687,8 +677,7 @@ function MarcaBadge({ marca }: { marca: Marca }) {
 function SolucaoStatusBadge({ status }: { status: SolucaoTecnica['status'] }) {
   const map: Record<SolucaoTecnica['status'], { label: string; color: string }> = {
     rascunho: { label: 'Rascunho', color: theme.muted },
-    aprovada: { label: 'Aprovada', color: theme.success },
-    orcamento_gerado: { label: 'Orçamento gerado', color: theme.gold },
+    pronta: { label: 'Pronta', color: theme.success },
   };
   const { label, color } = map[status];
   return (

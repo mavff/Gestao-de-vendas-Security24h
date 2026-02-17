@@ -69,13 +69,13 @@ export function VendasListPage() {
       let status: VendaStatus = 'solucao';
       if (os && os.status === 'concluida') {
         status = 'concluida';
-      } else if (os && os.status === 'em andamento') {
+      } else if (os && os.status === 'em_andamento') {
         status = 'em_instalacao';
-      } else if (prop && prop.status === 'aprovado') {
+      } else if (prop && prop.status === 'aprovada') {
         status = 'aprovada';
-      } else if (prop && prop.status === 'enviado') {
+      } else if (prop && prop.status === 'enviada') {
         status = 'proposta_enviada';
-      } else if (prop && prop.status === 'rascunho') {
+      } else if (prop && prop.status === 'gerada') {
         status = 'proposta_rascunho';
       } else if (orc) {
         status = 'orcamento';

@@ -1,5 +1,12 @@
 export type LeadStage = 'Novo' | 'Contato' | 'Proposta' | 'Negociação' | 'Fechado';
 
+export type VendaStep =
+  | 'solucao'
+  | 'orcamentos'
+  | 'proposta'
+  | 'vistoria'
+  | 'os_criada';
+
 export type Lead = {
   id: string;
   name: string;
@@ -13,7 +20,11 @@ export type Lead = {
   notes: string[];
   timeline: { id: string; date: string; text: string }[];
   attachments: { id: string; name: string; url?: string }[];
-  fotos: string[];
+  contato?: string;
+  email?: string;
+  endereco?: string;
+  tipoLocal?: 'Residencial' | 'Comercial' | 'Condomínio' | 'Industrial';
+  vendaStep?: VendaStep;
 };
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'SDR' | 'VENDEDOR' | 'TECNICO' | 'INFRA' | 'MONITOR';
@@ -98,18 +109,7 @@ export type Equipment = {
 
 export type Kit = { id: string; name: string; items: { equipmentId: string; quantity: number }[]; linkedLeadId?: string };
 
-// --- Etapa 3: Oportunidade, Proposta, OS ---
-
-export type Oportunidade = {
-  id: string;
-  leadId: string;
-  valorEstimado: number;
-  probabilidade: number; // 0-100
-  proximaAcao: string;
-  status: 'aberta' | 'ganha' | 'perdida';
-  vendedorId: string;
-  createdAt: string;
-};
+// --- Proposta ---
 
 export type PropostaItem = {
   equipamentoId: string;
@@ -124,23 +124,29 @@ export type PropostaServico = {
   tipo: 'instalacao' | 'mensalidade';
 };
 
+export type PropostaStatus = 'gerada' | 'enviada' | 'aprovada';
+
 export type Proposta = {
   id: string;
-  oportunidadeId: string;
+  orcamentoId: string;
   leadId: string;
   leadNome: string;
   itens: PropostaItem[];
   servicos: PropostaServico[];
   total: number;
   observacoes: string;
-  status: 'rascunho' | 'enviado' | 'aprovado';
+  status: PropostaStatus;
   createdAt: string;
 };
+
+// --- Ordem de Serviço ---
+
+export type OSStatus = 'bloqueada' | 'pendente' | 'agendada' | 'em_andamento' | 'concluida';
 
 export type OrdemDeServico = {
   id: string;
   propostaId: string;
-  oportunidadeId: string;
+  vistoriaId: string;
   leadId: string;
   cliente: string;
   dataAgendada: string;
@@ -148,11 +154,11 @@ export type OrdemDeServico = {
   checklist: ChecklistItem[];
   pontos: InstallationPoint[];
   observacoes: string;
-  status: 'pendente' | 'agendado' | 'em andamento' | 'concluida';
+  status: OSStatus;
   createdAt: string;
 };
 
-// --- Etapa 9: Orçamento Automático ---
+// --- Orçamento ---
 
 export type OrcamentoItem = {
   equipmentId: string;
@@ -164,9 +170,9 @@ export type OrcamentoItem = {
 };
 
 export type FaixaZona = {
-  label: string;      // 'P', 'M', 'G', 'GG', 'E'
+  label: string;
   min: number;
-  max: number;        // Infinity para última faixa
+  max: number;
   fator: number;
   maoDeObra: number;
   mensalidade: number;
@@ -180,10 +186,12 @@ export const FAIXAS_ZONA: FaixaZona[] = [
   { label: 'E',  min: 17, max: Infinity, fator: 1.75, maoDeObra: 3500, mensalidade: 799 },
 ];
 
+export type OrcamentoStatus = 'rascunho' | 'finalizado' | 'escolhido';
+
 export type Orcamento = {
   id: string;
+  numero: number;
   solucaoId: string;
-  oportunidadeId: string;
   leadId: string;
   clienteNome: string;
   marca: Marca;
@@ -194,14 +202,14 @@ export type Orcamento = {
   totalEquipamentos: number;
   maoDeObra: number;
   mensalidade: number;
-  desconto: number;       // 0-30 (percentual)
+  desconto: number;
   totalFinal: number;
   observacoes: string;
-  status: 'gerado' | 'ajustado' | 'proposta_criada';
+  status: OrcamentoStatus;
   createdAt: string;
 };
 
-// --- Etapa 8: Solução Técnica ---
+// --- Solução Técnica ---
 
 export type ItemSolucao = {
   equipmentId: string;
@@ -214,15 +222,40 @@ export type BlocoTecnico = {
   itens: ItemSolucao[];
 };
 
+export type SolucaoStatus = 'rascunho' | 'pronta';
+
 export type SolucaoTecnica = {
   id: string;
-  oportunidadeId: string;
   leadId: string;
   clienteNome: string;
   marca: Marca;
   blocos: BlocoTecnico[];
   observacaoGeral: string;
-  status: 'rascunho' | 'aprovada' | 'orcamento_gerado';
+  status: SolucaoStatus;
+  criadoPor: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// --- Vistoria ---
+
+export type VistoriaStatus = 'pendente' | 'em_andamento' | 'concluida';
+
+export type AmbienteVistoria = {
+  id: string;
+  nome: string;
+  pontos: InstallationPoint[];
+  status: 'pendente' | 'concluido';
+};
+
+export type Vistoria = {
+  id: string;
+  leadId: string;
+  propostaId: string;
+  ambientes: AmbienteVistoria[];
+  plantaUrl?: string;
+  observacoes: string;
+  status: VistoriaStatus;
   criadoPor: string;
   createdAt: string;
   updatedAt: string;

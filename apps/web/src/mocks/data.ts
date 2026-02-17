@@ -1,4 +1,4 @@
-import { Equipment, Installation, Kit, Lead, Mission, Oportunidade, Orcamento, OrdemDeServico, Proposta, SolucaoTecnica, User } from '../types';
+import { Equipment, Installation, Kit, Lead, Mission, Orcamento, OrdemDeServico, Proposta, SolucaoTecnica, User, Vistoria } from '../types';
 
 export const mockLeads: Lead[] = [
   {
@@ -10,7 +10,7 @@ export const mockLeads: Lead[] = [
       { id: 't1c', date: '2026-01-05', text: 'Ligação agendada' },
     ],
     attachments: [],
-    fotos: [],
+    contato: '(11) 99888-7766', endereco: 'Rua das Flores 123, SP', tipoLocal: 'Comercial',
   },
   {
     id: 'L2', name: 'Fernanda Gomes', company: 'Condomínio Sol', value: 28300, stage: 'Contato', responsible: 'Marcos', origin: 'Indicação', week: 'Sem 2', status: 'ativo',
@@ -21,7 +21,7 @@ export const mockLeads: Lead[] = [
       { id: 't2c', date: '2026-01-08', text: 'Visita técnica agendada' },
     ],
     attachments: [],
-    fotos: [],
+    contato: '(21) 97654-3210', tipoLocal: 'Condomínio',
   },
   {
     id: 'L3', name: 'Ricardo Moraes', company: 'Loja Beta', value: 18400, stage: 'Proposta', responsible: 'João', origin: 'Campanha', week: 'Sem 3', status: 'ativo',
@@ -32,7 +32,8 @@ export const mockLeads: Lead[] = [
       { id: 't3c', date: '2026-01-09', text: 'Proposta enviada' },
     ],
     attachments: [],
-    fotos: [],
+    contato: '(11) 91234-5678', endereco: 'Av. Paulista 900, SP', tipoLocal: 'Comercial',
+    vendaStep: 'proposta',
   },
   {
     id: 'L4', name: 'Ana Beatriz', company: 'Residencial Vita', value: 9800, stage: 'Negociação', responsible: 'Nina', origin: 'WhatsApp', week: 'Sem 4', status: 'ativo',
@@ -43,7 +44,7 @@ export const mockLeads: Lead[] = [
       { id: 't4c', date: '2026-01-12', text: 'Contraproposta recebida' },
     ],
     attachments: [],
-    fotos: [],
+    tipoLocal: 'Residencial',
   },
   {
     id: 'L5', name: 'Luan Costa', company: 'Auto Center X', value: 32200, stage: 'Fechado', responsible: 'Paula', origin: 'Site', week: 'Sem 5', status: 'ativo',
@@ -54,7 +55,8 @@ export const mockLeads: Lead[] = [
       { id: 't5c', date: '2026-01-14', text: 'Venda fechada — contrato assinado' },
     ],
     attachments: [],
-    fotos: [],
+    endereco: 'Rod. Raposo Tavares km 30, SP', tipoLocal: 'Comercial',
+    vendaStep: 'os_criada',
   },
 ];
 
@@ -96,7 +98,6 @@ export const mockEquipments: Equipment[] = [
   { id: 'E6', name: 'Sensor XAS 4010 Smart', sku: 'INT-XAS4010', category: 'Sensor', marca: 'Intelbras', bloco: 'sensor_porta_janela', price: 45, estoque: 100, descricao: 'Sensor magnético para portas e janelas' },
   { id: 'E7', name: 'DVR MHDX 1008-C', sku: 'INT-MHDX1008', category: 'Central', marca: 'Intelbras', bloco: 'dvr_nvr', price: 1200, estoque: 8, descricao: 'DVR 8 canais, H.265, acesso remoto' },
   { id: 'E8', name: 'Cabo coaxial RG59 100m', sku: 'GEN-CX100', category: 'Acessório', marca: 'Genérico', bloco: 'acessorio', price: 120, estoque: 40, descricao: 'Cabo coaxial RG59 com alimentação, rolo 100m' },
-  // Intelbras — Mais produtos
   { id: 'E9', name: 'IVP 5002 PET', sku: 'INT-IVP5002', category: 'Sensor', marca: 'Intelbras', bloco: 'sensor_externo', price: 210, estoque: 30, descricao: 'Sensor externo duplo PET, alcance 15m' },
   { id: 'E10', name: 'Sensor IVP 2000', sku: 'INT-IVP2000', category: 'Sensor', marca: 'Intelbras', bloco: 'sensor_interno', price: 65, estoque: 80, descricao: 'Sensor PIR interno passivo, alcance 12m' },
   { id: 'E11', name: 'VHD 1120 D', sku: 'INT-VHD1120', category: 'Câmera', marca: 'Intelbras', bloco: 'camera_analogica', price: 320, estoque: 25, descricao: 'Câmera dome analógica HD 720p, IR 20m' },
@@ -129,14 +130,9 @@ export const mockKits: Kit[] = [
   { id: 'K1', name: 'Kit Loja Pequena', items: [{ equipmentId: 'E1', quantity: 4 }, { equipmentId: 'E2', quantity: 2 }] },
 ];
 
-export const mockOportunidades: Oportunidade[] = [
-  { id: 'OP1', leadId: 'L3', valorEstimado: 18400, probabilidade: 70, proximaAcao: 'Enviar proposta revisada', status: 'aberta', vendedorId: 'U2', createdAt: '2026-01-09' },
-  { id: 'OP2', leadId: 'L5', valorEstimado: 32200, probabilidade: 100, proximaAcao: '', status: 'ganha', vendedorId: 'U2', createdAt: '2026-01-11' },
-];
-
 export const mockPropostas: Proposta[] = [
   {
-    id: 'PR1', oportunidadeId: 'OP1', leadId: 'L3', leadNome: 'Ricardo Moraes — Loja Beta',
+    id: 'PR1', orcamentoId: 'ORC-SEED1', leadId: 'L3', leadNome: 'Ricardo Moraes — Loja Beta',
     itens: [
       { equipamentoId: 'E1', nome: 'Câmera Dome 2MP', quantidade: 4, precoUnitario: 420 },
       { equipamentoId: 'E2', nome: 'Sensor IVP', quantidade: 2, precoUnitario: 180 },
@@ -147,14 +143,14 @@ export const mockPropostas: Proposta[] = [
     ],
     total: 3690,
     observacoes: 'Proposta válida por 15 dias.',
-    status: 'enviado',
+    status: 'enviada',
     createdAt: '2026-01-10',
   },
 ];
 
 export const mockOrdens: OrdemDeServico[] = [
   {
-    id: 'OS1', propostaId: 'PR-SEED1', oportunidadeId: 'OP2', leadId: 'L5',
+    id: 'OS1', propostaId: 'PR-SEED1', vistoriaId: 'VIS-SEED1', leadId: 'L5',
     cliente: 'Luan Costa — Auto Center X',
     dataAgendada: '2026-02-20', tecnicoId: 'U4',
     checklist: [
@@ -168,11 +164,11 @@ export const mockOrdens: OrdemDeServico[] = [
       { id: 'OSP3', environment: 'Escritório', type: 'Central de Alarme X', note: '', status: 'Pendente', photos: [], locationTag: 'Central alarme' },
     ],
     observacoes: 'Cliente pede instalação fora do horário comercial.',
-    status: 'em andamento',
+    status: 'em_andamento',
     createdAt: '2026-01-15',
   },
   {
-    id: 'OS2', propostaId: 'PR-SEED2', oportunidadeId: 'OP1', leadId: 'L3',
+    id: 'OS2', propostaId: 'PR-SEED2', vistoriaId: 'VIS-SEED2', leadId: 'L3',
     cliente: 'Ricardo Moraes — Loja Beta',
     dataAgendada: '2026-02-25', tecnicoId: '',
     checklist: [
@@ -191,7 +187,6 @@ export const mockOrcamentos: Orcamento[] = [];
 export const mockSolucoes: SolucaoTecnica[] = [
   {
     id: 'SOL1',
-    oportunidadeId: 'OP1',
     leadId: 'L3',
     clienteNome: 'Ricardo Moraes — Loja Beta',
     marca: 'Intelbras',
@@ -208,9 +203,11 @@ export const mockSolucoes: SolucaoTecnica[] = [
       { categoria: 'acessorio', itens: [{ equipmentId: 'E15', quantidade: 1, observacao: '' }, { equipmentId: 'E30', quantidade: 2, observacao: '' }] },
     ],
     observacaoGeral: 'Cliente quer câmeras com boa visão noturna. Priorizar fachada e estoque.',
-    status: 'rascunho',
+    status: 'pronta',
     criadoPor: 'U2',
     createdAt: '2026-02-05',
     updatedAt: '2026-02-05',
   },
 ];
+
+export const mockVistorias: Vistoria[] = [];

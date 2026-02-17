@@ -24,7 +24,7 @@ export function KanbanPage() {
   const [responsible, setResponsible] = useState('todos');
   const [origin, setOrigin] = useState('todos');
   const [showInlineForm, setShowInlineForm] = useState(false);
-  const canCreateProposta = role === 'ADMIN' || role === 'VENDEDOR';
+  const canCreateProposta = role === 'ADMIN' || role === 'GESTOR' || role === 'VENDEDOR';
   const canDrag = role !== 'INFRA' && role !== 'MONITOR';
 
   useEffect(() => {
@@ -162,7 +162,14 @@ function DraggableLead({ lead, onClick, disabled }: { lead: Lead; onClick: () =>
       <strong>{lead.name}</strong>
       <div style={{ fontSize: 13, color: theme.muted }}>{lead.company}</div>
       <div style={{ fontSize: 13 }}>R$ {lead.value.toLocaleString('pt-BR')}</div>
-      <div style={{ fontSize: 12, color: theme.gold }}>{lead.responsible} · {lead.origin}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+        <span style={{ fontSize: 12, color: theme.gold }}>{lead.responsible} · {lead.origin}</span>
+        {lead.vendaStep && (
+          <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: theme.gold + '22', color: theme.gold, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+            {lead.vendaStep === 'solucao' ? 'Sol.' : lead.vendaStep === 'orcamentos' ? 'Orç.' : lead.vendaStep === 'proposta' ? 'Prop.' : lead.vendaStep === 'vistoria' ? 'Vist.' : 'OS'}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -190,7 +197,6 @@ function InlineLeadForm({ onCreate, onCancel }: { onCreate: (lead: Lead) => void
       notes: [],
       timeline: [{ id: 't' + Date.now(), date: dateStr, text: 'Lead cadastrado' }],
       attachments: [],
-      fotos: [],
     };
     onCreate(newLead);
   }

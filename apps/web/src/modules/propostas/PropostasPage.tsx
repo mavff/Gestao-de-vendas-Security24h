@@ -5,9 +5,9 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
-import { mockEquipments, mockLeads, mockOportunidades, mockOrdens, mockPropostas } from '../../mocks/data';
+import { mockEquipments, mockLeads, mockOrdens, mockPropostas } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
-import { Equipment, Lead, Oportunidade, OrdemDeServico, Proposta, PropostaItem, PropostaServico } from '../../types';
+import { Equipment, Lead, OrdemDeServico, Proposta, PropostaItem, PropostaServico } from '../../types';
 
 type View = 'list' | 'form';
 
@@ -19,7 +19,6 @@ export function PropostasPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([]);
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [oportunidades, setOportunidades] = useState<Oportunidade[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [view, setView] = useState<View>('list');
   const [editId, setEditId] = useState<string | null>(null);
@@ -31,7 +30,6 @@ export function PropostasPage() {
     setPropostas(loadMock('mock_propostas', mockPropostas));
     setOrdens(loadMock('mock_ordens', mockOrdens));
     setLeads(loadMock('mock_leads', mockLeads));
-    setOportunidades(loadMock('mock_oportunidades', mockOportunidades));
     setEquipments(loadMock('mock_equipments', mockEquipments));
 
     const params = new URLSearchParams(window.location.search);
@@ -44,28 +42,11 @@ export function PropostasPage() {
 
   useEffect(() => { if (propostas.length) saveMock('mock_propostas', propostas); }, [propostas]);
   useEffect(() => { saveMock('mock_ordens', ordens); }, [ordens]);
-  useEffect(() => { if (oportunidades.length) saveMock('mock_oportunidades', oportunidades); }, [oportunidades]);
 
   function handleSave(proposta: Proposta) {
     setPropostas((cur) => {
       const exists = cur.find((p) => p.id === proposta.id);
       return exists ? cur.map((p) => p.id === proposta.id ? proposta : p) : [...cur, proposta];
-    });
-    // Also ensure an Oportunidade exists for this lead
-    setOportunidades((cur) => {
-      if (cur.find((o) => o.id === proposta.oportunidadeId)) return cur;
-      const lead = leads.find((l) => l.id === proposta.leadId);
-      const newOp: Oportunidade = {
-        id: proposta.oportunidadeId,
-        leadId: proposta.leadId,
-        valorEstimado: proposta.total,
-        probabilidade: 50,
-        proximaAcao: 'Aguardando aprovação da proposta',
-        status: 'aberta',
-        vendedorId: 'U2',
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-      return [...cur, newOp];
     });
     setView('list');
     setEditId(null);
@@ -74,18 +55,15 @@ export function PropostasPage() {
   }
 
   function handleAprovar(proposta: Proposta) {
-    const updated: Proposta = { ...proposta, status: 'aprovado' };
+    const updated: Proposta = { ...proposta, status: 'aprovada' };
     setPropostas((cur) => cur.map((p) => p.id === proposta.id ? updated : p));
-
-    // Update oportunidade to ganha
-    setOportunidades((cur) => cur.map((o) => o.id === proposta.oportunidadeId ? { ...o, status: 'ganha' as const } : o));
 
     // Create OS automatically
     const lead = leads.find((l) => l.id === proposta.leadId);
     const newOS: OrdemDeServico = {
       id: 'OS' + Date.now(),
       propostaId: proposta.id,
-      oportunidadeId: proposta.oportunidadeId,
+      vistoriaId: '',
       leadId: proposta.leadId,
       cliente: lead ? `${lead.name} — ${lead.company}` : proposta.leadNome,
       dataAgendada: '',
@@ -93,7 +71,7 @@ export function PropostasPage() {
       checklist: proposta.itens.map((i, idx) => ({ id: 'CK' + Date.now() + idx, text: `Instalar ${i.quantidade}x ${i.nome}`, done: false })),
       pontos: [],
       observacoes: '',
-      status: 'pendente',
+      status: 'bloqueada',
       createdAt: new Date().toISOString().split('T')[0],
     };
     setOrdens((cur) => [...cur, newOS]);
@@ -106,7 +84,7 @@ export function PropostasPage() {
   }
 
   function handleEnviar(proposta: Proposta) {
-    const updated: Proposta = { ...proposta, status: 'enviado' };
+    const updated: Proposta = { ...proposta, status: 'enviada' };
     setPropostas((cur) => cur.map((p) => p.id === proposta.id ? updated : p));
     showToast('Proposta marcada como enviada.', 'success');
   }
@@ -208,18 +186,18 @@ function PropostaCard({ proposta, onEdit, onAprovar, onEnviar, canApprove, canCr
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        {proposta.status === 'rascunho' && (
+        {proposta.status === 'gerada' && (
           <>
             {canCreate && <button onClick={() => onEdit(proposta.id)} style={btnSoft}>Editar</button>}
             {canCreate && <button onClick={() => onEnviar(proposta)} style={btnGold}>Enviar</button>}
           </>
         )}
-        {proposta.status === 'enviado' && (
+        {proposta.status === 'enviada' && (
           <>
             {canApprove && <button onClick={() => onAprovar(proposta)} style={{ ...btnGold, background: theme.success }}>Aprovar</button>}
           </>
         )}
-        {proposta.status === 'aprovado' && (
+        {proposta.status === 'aprovada' && (
           <span style={{ fontSize: 12, color: theme.success }}>OS gerada automaticamente</span>
         )}
       </div>
@@ -293,14 +271,14 @@ function PropostaForm({ leads, equipments, existing, prefilledLeadId, onSave, on
     const lead = leads.find((l) => l.id === leadId);
     const proposta: Proposta = {
       id: existing?.id ?? 'PR' + Date.now(),
-      oportunidadeId: existing?.oportunidadeId ?? 'OP' + Date.now(),
+      orcamentoId: existing?.orcamentoId ?? '',
       leadId,
       leadNome: lead ? `${lead.name} — ${lead.company}` : leadId,
       itens,
       servicos,
       total,
       observacoes,
-      status: existing?.status ?? 'rascunho',
+      status: existing?.status ?? 'gerada',
       createdAt: existing?.createdAt ?? new Date().toISOString().split('T')[0],
     };
     onSave(proposta);
@@ -402,11 +380,13 @@ function PropostaForm({ leads, equipments, existing, prefilledLeadId, onSave, on
 
 function StatusBadge({ value }: { value: string }) {
   const colorMap: Record<string, string> = {
-    rascunho: theme.muted,
-    enviado: theme.warning,
-    aprovado: theme.success,
+    gerada: theme.muted,
+    enviada: theme.warning,
+    aprovada: theme.success,
+    bloqueada: theme.danger,
     pendente: theme.warning,
-    'em andamento': theme.gold,
+    agendada: '#5B9BD5',
+    em_andamento: theme.gold,
     concluida: theme.success,
   };
   const color = colorMap[value] ?? theme.muted;

@@ -11,7 +11,7 @@ import { loadMock, saveMock } from '../../services/mockStorage';
 import { Equipment, InstallationPoint, OrdemDeServico, Proposta, User } from '../../types';
 
 type OSStatus = OrdemDeServico['status'];
-const statuses: OSStatus[] = ['pendente', 'agendado', 'em andamento', 'concluida'];
+const statuses: OSStatus[] = ['bloqueada', 'pendente', 'agendada', 'em_andamento', 'concluida'];
 
 type ViewMode = 'lista' | 'backlog';
 
@@ -234,7 +234,7 @@ function BacklogCard({ os, tecnicos, canSchedule, onUpdate, onToast }: {
       onToast('Preencha data e técnico para agendar.', 'warning');
       return;
     }
-    onUpdate({ ...os, dataAgendada: schedDate, tecnicoId: schedTecnico, status: 'agendado' });
+    onUpdate({ ...os, dataAgendada: schedDate, tecnicoId: schedTecnico, status: 'agendada' });
     setShowSchedule(false);
     onToast('OS agendada com sucesso!', 'success');
   }
@@ -831,9 +831,10 @@ function AddPontoForm({ equipments, onAdd, onCancel }: {
 /* ---- Helpers ---- */
 
 const statusColorMap: Record<string, string> = {
+  bloqueada: theme.danger,
   pendente: theme.warning,
-  agendado: '#5B9BD5',
-  'em andamento': theme.gold,
+  agendada: '#5B9BD5',
+  em_andamento: theme.gold,
   concluida: theme.success,
 };
 
@@ -852,9 +853,10 @@ function StatusBadge({ value }: { value: string }) {
 
 function statusLabel(s: OSStatus): string {
   const map: Record<OSStatus, string> = {
+    bloqueada: 'Bloqueada',
     pendente: 'Pendente',
-    agendado: 'Agendado',
-    'em andamento': 'Em andamento',
+    agendada: 'Agendada',
+    em_andamento: 'Em andamento',
     concluida: 'Concluída',
   };
   return map[s] ?? s;
