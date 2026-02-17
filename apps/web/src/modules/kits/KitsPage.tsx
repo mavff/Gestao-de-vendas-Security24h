@@ -7,7 +7,22 @@ import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
 import { mockEquipments, mockKits } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
-import { Equipment, Kit } from '../../types';
+import { Equipment, Kit, KitCategoria, Marca } from '../../types';
+
+const marcas: Marca[] = ['Intelbras', 'Hikvision', 'DSC', 'Viaweb', 'Vetti'];
+
+const KIT_CATEGORIA_LABELS: Record<KitCategoria, string> = {
+  alarme_residencial: 'Alarme Residencial',
+  alarme_comercial: 'Alarme Comercial',
+  alarme_cftv: 'Alarme + CFTV',
+  cftv_analogico: 'CFTV Analógico',
+  cftv_ip: 'CFTV IP',
+  cftv_inteligente: 'CFTV Inteligente',
+};
+
+const marcaColors: Record<Marca, string> = {
+  Intelbras: '#43C17B', Hikvision: '#E55B5B', DSC: '#5B9BD5', Viaweb: '#E3B341', Vetti: '#C077DB', 'Genérico': '#B5B5B5',
+};
 
 export function KitsPage() {
   const { showToast } = useToast();
@@ -18,6 +33,7 @@ export function KitsPage() {
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [filterMarca, setFilterMarca] = useState<Marca | 'todas'>('todas');
 
   useEffect(() => {
     setKits(loadMock('mock_kits', mockKits));
@@ -54,41 +70,70 @@ export function KitsPage() {
     showToast('Kit excluído.', 'warning');
   }
 
+  const filtered = useMemo(() => {
+    if (filterMarca === 'todas') return kits;
+    return kits.filter((k) => k.marca === filterMarca);
+  }, [kits, filterMarca]);
+
   return (
     <AppShell title={canWrite ? 'Kits' : 'Catálogo de Kits'}>
-      {canWrite && (
-        <button onClick={() => { setEditId(null); setModalOpen(true); }} style={btnGold}>+ Novo Kit</button>
-      )}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Marca filter */}
+        <button onClick={() => setFilterMarca('todas')} style={{ ...filterBtnStyle, ...(filterMarca === 'todas' ? filterBtnActive : {}) }}>Todas</button>
+        {marcas.map((m) => (
+          <button key={m} onClick={() => setFilterMarca(m)} style={{ ...filterBtnStyle, ...(filterMarca === m ? { background: marcaColors[m] + '22', borderColor: marcaColors[m], color: marcaColors[m], fontWeight: 700 } : {}) }}>
+            {m}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        {canWrite && (
+          <button onClick={() => { setEditId(null); setModalOpen(true); }} style={btnGold}>+ Novo Kit</button>
+        )}
+      </div>
 
-      {kits.length === 0 && (
-        <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 32, textAlign: 'center', color: theme.muted, marginTop: 16 }}>
-          Nenhum kit cadastrado.
+      {filtered.length === 0 && (
+        <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 32, textAlign: 'center', color: theme.muted }}>
+          Nenhum kit {filterMarca !== 'todas' ? `para ${filterMarca}` : 'cadastrado'}.
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
-        {kits.map((kit) => (
-          <div key={kit.id} style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong style={{ fontSize: 15 }}>{kit.name}</strong>
-              <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold }}>R$ {kitTotal(kit).toLocaleString('pt-BR')}</span>
-            </div>
-            <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
-              {kit.items.map((item) => (
-                <div key={item.equipmentId} style={{ fontSize: 13, color: theme.text }}>
-                  {item.quantity}x {eqName(item.equipmentId)}
-                  <span style={{ color: theme.muted }}> — R$ {(eqPrice(item.equipmentId) * item.quantity).toLocaleString('pt-BR')}</span>
+      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+        {filtered.map((kit) => {
+          const mColor = kit.marca ? marcaColors[kit.marca] : theme.muted;
+          return (
+            <div key={kit.id} style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                <div>
+                  <strong style={{ fontSize: 15 }}>{kit.name}</strong>
+                  {kit.marca && (
+                    <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: mColor + '22', color: mColor, border: `1px solid ${mColor}44` }}>{kit.marca}</span>
+                  )}
                 </div>
-              ))}
-            </div>
-            {canWrite && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                <button onClick={() => { setEditId(kit.id); setModalOpen(true); }} style={btnSmall}>Editar</button>
-                <button onClick={() => handleDelete(kit.id)} style={{ ...btnSmall, borderColor: theme.danger, color: theme.danger }}>Excluir</button>
+                <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold, whiteSpace: 'nowrap' }}>R$ {kitTotal(kit).toLocaleString('pt-BR')}</span>
               </div>
-            )}
-          </div>
-        ))}
+              {kit.categoria && (
+                <div style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>{KIT_CATEGORIA_LABELS[kit.categoria]}</div>
+              )}
+              {kit.descricao && (
+                <div style={{ fontSize: 12, color: theme.muted, marginBottom: 8, lineHeight: 1.4 }}>{kit.descricao}</div>
+              )}
+              <div style={{ display: 'grid', gap: 4 }}>
+                {kit.items.map((item) => (
+                  <div key={item.equipmentId} style={{ fontSize: 13, color: theme.text }}>
+                    {item.quantity}x {eqName(item.equipmentId)}
+                    <span style={{ color: theme.muted }}> — R$ {(eqPrice(item.equipmentId) * item.quantity).toLocaleString('pt-BR')}</span>
+                  </div>
+                ))}
+              </div>
+              {canWrite && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                  <button onClick={() => { setEditId(kit.id); setModalOpen(true); }} style={btnSmall}>Editar</button>
+                  <button onClick={() => handleDelete(kit.id)} style={{ ...btnSmall, borderColor: theme.danger, color: theme.danger }}>Excluir</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Modal */}
@@ -113,9 +158,16 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   const [name, setName] = useState(existing?.name ?? '');
+  const [marca, setMarca] = useState<Marca>(existing?.marca ?? 'Intelbras');
+  const [categoria, setCategoria] = useState<KitCategoria>(existing?.categoria ?? 'alarme_residencial');
+  const [descricao, setDescricao] = useState(existing?.descricao ?? '');
   const [items, setItems] = useState(existing?.items ?? []);
-  const [selEquip, setSelEquip] = useState(equipments[0]?.id ?? '');
+  const [selEquip, setSelEquip] = useState('');
   const [selQtd, setSelQtd] = useState(1);
+
+  const filteredEquipments = useMemo(() =>
+    equipments.filter((e) => e.marca === marca || e.marca === 'Genérico'),
+  [equipments, marca]);
 
   const total = useMemo(() =>
     items.reduce((s, i) => {
@@ -145,25 +197,52 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
       id: existing?.id ?? 'K' + Date.now(),
       name: name.trim(),
       items,
-      linkedLeadId: existing?.linkedLeadId,
+      marca,
+      categoria,
+      descricao: descricao.trim(),
     });
   }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000a', display: 'grid', placeItems: 'center', zIndex: 50 }}>
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 20, width: 480, maxWidth: '90vw' }}>
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 20, width: 520, maxWidth: '90vw', maxHeight: '85vh', overflowY: 'auto' }}>
         <h3 style={{ margin: '0 0 12px', color: theme.gold }}>{existing ? 'Editar Kit' : 'Novo Kit'}</h3>
 
         <label style={labelStyle}>Nome do Kit *</label>
         <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} placeholder="Ex: Kit Loja Pequena" />
 
+        <label style={labelStyle}>Marca *</label>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+          {marcas.map((m) => (
+            <button key={m} onClick={() => setMarca(m)} style={{
+              padding: '5px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+              background: marca === m ? marcaColors[m] + '22' : theme.soft,
+              border: `1px solid ${marca === m ? marcaColors[m] : theme.border}`,
+              color: marca === m ? marcaColors[m] : theme.text, fontWeight: marca === m ? 700 : 400,
+            }}>
+              {m}
+            </button>
+          ))}
+        </div>
+
+        <label style={labelStyle}>Categoria *</label>
+        <select value={categoria} onChange={(e) => setCategoria(e.target.value as KitCategoria)} style={inputStyle}>
+          {(Object.keys(KIT_CATEGORIA_LABELS) as KitCategoria[]).map((k) => (
+            <option key={k} value={k}>{KIT_CATEGORIA_LABELS[k]}</option>
+          ))}
+        </select>
+
+        <label style={labelStyle}>Descrição</label>
+        <textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Breve descrição do kit..." />
+
         <h4 style={{ color: theme.gold, margin: '12px 0 8px', fontSize: 14 }}>Itens</h4>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <select value={selEquip} onChange={(e) => setSelEquip(e.target.value)} style={{ ...inputStyle, flex: 1, marginBottom: 0 }}>
-            {equipments.map((eq) => <option key={eq.id} value={eq.id}>{eq.name} — R$ {eq.price}</option>)}
+            <option value="">Selecionar equipamento...</option>
+            {filteredEquipments.map((eq) => <option key={eq.id} value={eq.id}>{eq.name} — R$ {eq.price}</option>)}
           </select>
           <input type="number" min={1} value={selQtd} onChange={(e) => setSelQtd(Number(e.target.value))} style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
-          <button type="button" onClick={addItem} style={btnGold}>+</button>
+          <button type="button" onClick={addItem} disabled={!selEquip} style={{ ...btnGold, opacity: selEquip ? 1 : 0.4 }}>+</button>
         </div>
 
         {items.length === 0 ? (
@@ -217,3 +296,5 @@ const btnSoft: React.CSSProperties = { background: theme.soft, border: `1px soli
 const btnSmall: React.CSSProperties = { background: 'transparent', border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, padding: '3px 10px', cursor: 'pointer', fontSize: 12 };
 const thStyle: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', borderBottom: `1px solid ${theme.border}`, fontSize: 12, color: theme.muted };
 const tdStyle: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${theme.border}`, fontSize: 13 };
+const filterBtnStyle: React.CSSProperties = { padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, background: theme.soft, border: `1px solid ${theme.border}`, color: theme.text };
+const filterBtnActive: React.CSSProperties = { background: 'rgba(200,169,81,0.12)', borderColor: theme.gold, color: theme.gold, fontWeight: 700 };

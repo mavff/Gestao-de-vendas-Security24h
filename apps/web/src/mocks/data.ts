@@ -127,7 +127,21 @@ export const mockEquipments: Equipment[] = [
 ];
 
 export const mockKits: Kit[] = [
-  { id: 'K1', name: 'Kit Loja Pequena', items: [{ equipmentId: 'E1', quantity: 4 }, { equipmentId: 'E2', quantity: 2 }] },
+  // ── Intelbras ──
+  { id: 'KP-INT-01', name: 'Alarme Residencial', marca: 'Intelbras', categoria: 'alarme_residencial', descricao: 'Sensores internos, externos e magnéticos com central e comunicador.', items: [{ equipmentId: 'E9', quantity: 2 }, { equipmentId: 'E2', quantity: 3 }, { equipmentId: 'E6', quantity: 2 }, { equipmentId: 'E3', quantity: 1 }, { equipmentId: 'E14', quantity: 1 }] },
+  { id: 'KP-INT-02', name: 'Alarme + CFTV Loja', marca: 'Intelbras', categoria: 'alarme_cftv', descricao: 'Alarme completo com 4 câmeras dome e DVR para comércios.', items: [{ equipmentId: 'E9', quantity: 2 }, { equipmentId: 'E2', quantity: 2 }, { equipmentId: 'E6', quantity: 2 }, { equipmentId: 'E1', quantity: 4 }, { equipmentId: 'E7', quantity: 1 }, { equipmentId: 'E3', quantity: 1 }, { equipmentId: 'E14', quantity: 1 }, { equipmentId: 'E15', quantity: 1 }, { equipmentId: 'E8', quantity: 1 }] },
+  { id: 'KP-INT-03', name: 'CFTV Analógico 4 Câmeras', marca: 'Intelbras', categoria: 'cftv_analogico', descricao: 'DVR 8 canais com 4 câmeras dome Full HD e acessórios.', items: [{ equipmentId: 'E1', quantity: 4 }, { equipmentId: 'E7', quantity: 1 }, { equipmentId: 'E15', quantity: 1 }, { equipmentId: 'E8', quantity: 1 }] },
+  { id: 'KP-INT-04', name: 'CFTV IP 4 Câmeras', marca: 'Intelbras', categoria: 'cftv_ip', descricao: 'NVR com 4 câmeras IP bullet 2MP via rede PoE.', items: [{ equipmentId: 'E5', quantity: 4 }, { equipmentId: 'E13', quantity: 1 }, { equipmentId: 'E30', quantity: 1 }] },
+  { id: 'KP-INT-05', name: 'CFTV Inteligente (IA)', marca: 'Intelbras', categoria: 'cftv_inteligente', descricao: '2 câmeras com IA + 2 câmeras IP auxiliares e NVR.', items: [{ equipmentId: 'E12', quantity: 2 }, { equipmentId: 'E5', quantity: 2 }, { equipmentId: 'E13', quantity: 1 }, { equipmentId: 'E30', quantity: 1 }] },
+  // ── Hikvision ──
+  { id: 'KP-HIK-01', name: 'Alarme Residencial', marca: 'Hikvision', categoria: 'alarme_residencial', descricao: 'Hub AX PRO wireless com sensores PIR e magnéticos.', items: [{ equipmentId: 'E20', quantity: 2 }, { equipmentId: 'E21', quantity: 3 }, { equipmentId: 'E22', quantity: 2 }, { equipmentId: 'E23', quantity: 1 }] },
+  { id: 'KP-HIK-02', name: 'Alarme + CFTV', marca: 'Hikvision', categoria: 'alarme_cftv', descricao: 'Alarme wireless + 4 câmeras Turbo HD com DVR.', items: [{ equipmentId: 'E20', quantity: 2 }, { equipmentId: 'E21', quantity: 2 }, { equipmentId: 'E22', quantity: 2 }, { equipmentId: 'E16', quantity: 4 }, { equipmentId: 'E19', quantity: 1 }, { equipmentId: 'E23', quantity: 1 }] },
+  { id: 'KP-HIK-03', name: 'CFTV Turbo HD 4 Câmeras', marca: 'Hikvision', categoria: 'cftv_analogico', descricao: 'DVR 5MP com 4 câmeras bullet Turbo HD.', items: [{ equipmentId: 'E16', quantity: 4 }, { equipmentId: 'E19', quantity: 1 }] },
+  { id: 'KP-HIK-04', name: 'CFTV IP ColorVu', marca: 'Hikvision', categoria: 'cftv_ip', descricao: '4 câmeras IP ColorVu com mic integrado e DVR.', items: [{ equipmentId: 'E17', quantity: 4 }, { equipmentId: 'E19', quantity: 1 }, { equipmentId: 'E30', quantity: 1 }] },
+  { id: 'KP-HIK-05', name: 'CFTV Inteligente AcuSense', marca: 'Hikvision', categoria: 'cftv_inteligente', descricao: '2 câmeras AcuSense panorâmicas + 2 câmeras IP e DVR.', items: [{ equipmentId: 'E18', quantity: 2 }, { equipmentId: 'E17', quantity: 2 }, { equipmentId: 'E19', quantity: 1 }, { equipmentId: 'E30', quantity: 1 }] },
+  // ── DSC ──
+  { id: 'KP-DSC-01', name: 'Alarme Residencial', marca: 'DSC', categoria: 'alarme_residencial', descricao: 'Central PowerSeries Neo com sensores wireless e comunicador 4G.', items: [{ equipmentId: 'E24', quantity: 2 }, { equipmentId: 'E25', quantity: 3 }, { equipmentId: 'E26', quantity: 2 }, { equipmentId: 'E27', quantity: 1 }, { equipmentId: 'E28', quantity: 1 }] },
+  { id: 'KP-DSC-02', name: 'Alarme Comercial', marca: 'DSC', categoria: 'alarme_comercial', descricao: 'Cobertura ampliada para comércios com 12 sensores e central Neo.', items: [{ equipmentId: 'E24', quantity: 4 }, { equipmentId: 'E25', quantity: 4 }, { equipmentId: 'E26', quantity: 4 }, { equipmentId: 'E27', quantity: 1 }, { equipmentId: 'E28', quantity: 1 }] },
 ];
 
 export const mockPropostas: Proposta[] = [

@@ -5,17 +5,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
-import { getPresetsForMarca, KIT_CATEGORIA_LABELS } from '../../config/kitPresets';
+import { KIT_CATEGORIA_LABELS } from '../../config/kitPresets';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  mockEquipments, mockLeads, mockOrcamentos,
+  mockEquipments, mockKits, mockLeads, mockOrcamentos,
   mockOrdens, mockPropostas, mockSolucoes, mockUsers, mockVistorias,
 } from '../../mocks/data';
 import { compressImage } from '../../services/imageUtils';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
   AmbienteVistoria, BlocoCategoria, BlocoTecnico, Equipment, FAIXAS_ZONA, FaixaZona,
-  InstallationPoint, ItemSolucao, Lead, Marca, Orcamento, OrcamentoItem,
+  InstallationPoint, ItemSolucao, Kit, Lead, Marca, Orcamento, OrcamentoItem,
   OrdemDeServico, Proposta, SolucaoTecnica, User, VendaStep, Vistoria,
 } from '../../types';
 
@@ -103,6 +103,7 @@ export function VendaPage() {
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
   const [vistorias, setVistorias] = useState<Vistoria[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [kits, setKits] = useState<Kit[]>([]);
 
   /* --- UI state --- */
   const [activeStep, setActiveStep] = useState<StepName>('Solução');
@@ -120,6 +121,7 @@ export function VendaPage() {
     setOrdens(loadMock('mock_ordens', mockOrdens));
     setVistorias(loadMock('mock_vistorias', mockVistorias));
     setUsers(loadMock('mock_users', mockUsers));
+    setKits(loadMock('mock_kits', mockKits));
   }, []);
 
   /* --- persist --- */
@@ -566,6 +568,7 @@ export function VendaPage() {
           draft={solDraft} setDraft={setSolDraft}
           step={wizStep} setStep={setWizStep}
           equipments={equipments}
+          kits={kits}
           solucaoExistente={solucao}
           onSave={handleSaveSolucao}
           onMarcarPronta={handleMarcarPronta}
@@ -622,12 +625,13 @@ export function VendaPage() {
    Step: Solução (kit + wizard) — mostly unchanged
    ================================================================ */
 
-function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExistente, onSave, onMarcarPronta, onVoltarRascunho, canEdit: canEditProp }: {
+function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoExistente, onSave, onMarcarPronta, onVoltarRascunho, canEdit: canEditProp }: {
   draft: SolucaoTecnica;
   setDraft: (d: SolucaoTecnica) => void;
   step: number;
   setStep: (s: number) => void;
   equipments: Equipment[];
+  kits: Kit[];
   solucaoExistente: SolucaoTecnica | null;
   onSave: () => void;
   onMarcarPronta: () => void;
@@ -637,7 +641,7 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
   const [kitMode, setKitMode] = useState(true);
   const [selectedKitId, setSelectedKitId] = useState<string | null>(null);
 
-  const kitsForMarca = useMemo(() => getPresetsForMarca(draft.marca), [draft.marca]);
+  const kitsForMarca = useMemo(() => kits.filter((k) => k.marca === draft.marca), [kits, draft.marca]);
   const isPronta = solucaoExistente?.status === 'pronta';
 
   useEffect(() => { setSelectedKitId(null); }, [draft.marca]);
@@ -661,13 +665,13 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
   const totalEstimado = flatItems.reduce((s, i) => s + i.subtotal, 0);
   const hasItems = flatItems.length > 0;
 
-  function applyKit(kit: { id: string; itens: { equipmentId: string; quantidade: number }[] }) {
+  function applyKit(kit: Kit) {
     const blocos = emptyBlocos();
-    for (const kitItem of kit.itens) {
+    for (const kitItem of kit.items) {
       const eq = equipments.find((e) => e.id === kitItem.equipmentId);
       if (!eq) continue;
       const bloco = blocos.find((b) => b.categoria === eq.bloco);
-      if (bloco) bloco.itens.push({ equipmentId: kitItem.equipmentId, quantidade: kitItem.quantidade, observacao: '' });
+      if (bloco) bloco.itens.push({ equipmentId: kitItem.equipmentId, quantidade: kitItem.quantity, observacao: '' });
     }
     setDraft({ ...draft, blocos });
     setSelectedKitId(kit.id);
@@ -800,8 +804,8 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
           <label style={{ ...labelStyle, marginBottom: 10, fontSize: 13 }}>Escolha um kit pré-configurado</label>
           <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', marginBottom: 20 }}>
             {kitsForMarca.map((kit) => {
-              const kitPrice = kit.itens.reduce((s, i) => { const eq = equipments.find((e) => e.id === i.equipmentId); return s + (eq?.price ?? 0) * i.quantidade; }, 0);
-              const itemCount = kit.itens.reduce((s, i) => s + i.quantidade, 0);
+              const kitPrice = kit.items.reduce((s, i) => { const eq = equipments.find((e) => e.id === i.equipmentId); return s + (eq?.price ?? 0) * i.quantity; }, 0);
+              const itemCount = kit.items.reduce((s, i) => s + i.quantity, 0);
               const isSelected = selectedKitId === kit.id;
               return (
                 <button key={kit.id} onClick={() => applyKit(kit)} style={{
@@ -811,11 +815,11 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
                   borderRadius: 12, padding: 14, color: theme.text,
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                    <strong style={{ fontSize: 13, color: isSelected ? theme.gold : theme.text }}>{kit.nome}</strong>
+                    <strong style={{ fontSize: 13, color: isSelected ? theme.gold : theme.text }}>{kit.name}</strong>
                     {isSelected && <span style={{ fontSize: 9, color: theme.gold, fontWeight: 700, background: theme.gold + '22', padding: '2px 6px', borderRadius: 999 }}>SELECIONADO</span>}
                   </div>
-                  <div style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>{KIT_CATEGORIA_LABELS[kit.categoria]}</div>
-                  <div style={{ fontSize: 12, color: theme.muted, marginBottom: 8, lineHeight: 1.4 }}>{kit.descricao}</div>
+                  {kit.categoria && <div style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>{KIT_CATEGORIA_LABELS[kit.categoria]}</div>}
+                  {kit.descricao && <div style={{ fontSize: 12, color: theme.muted, marginBottom: 8, lineHeight: 1.4 }}>{kit.descricao}</div>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 12, color: theme.muted }}>{itemCount} itens</span>
                     <span style={{ fontSize: 14, fontWeight: 700, color: theme.gold }}>~R$ {formatCurrency(kitPrice)}</span>
@@ -834,7 +838,12 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, solucaoExisten
 
       {hasItems && (
         <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <h4 style={{ margin: '0 0 12px', fontSize: 14, color: theme.gold }}>Ajustar Quantidades</h4>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h4 style={{ margin: 0, fontSize: 14, color: theme.gold }}>Ajustar Quantidades</h4>
+            {selectedKitId && (
+              <button onClick={() => { setSelectedKitId(null); setDraft({ ...draft, blocos: emptyBlocos() }); }} style={{ ...btnSoft, fontSize: 11, padding: '4px 10px' }}>Trocar Kit</button>
+            )}
+          </div>
           <div style={{ display: 'grid', gap: 6 }}>
             {flatItems.map((item) => (
               <div key={item.equipmentId} style={{ display: 'flex', alignItems: 'center', gap: 8, background: theme.soft, borderRadius: 8, padding: '8px 12px', border: `1px solid ${theme.border}` }}>

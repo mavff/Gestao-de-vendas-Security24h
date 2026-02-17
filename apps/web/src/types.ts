@@ -107,7 +107,15 @@ export type Equipment = {
   descricao: string;
 };
 
-export type Kit = { id: string; name: string; items: { equipmentId: string; quantity: number }[]; linkedLeadId?: string };
+export type Kit = {
+  id: string;
+  name: string;
+  items: { equipmentId: string; quantity: number }[];
+  linkedLeadId?: string;
+  marca?: Marca;
+  categoria?: KitCategoria;
+  descricao?: string;
+};
 
 // --- Proposta ---
 
