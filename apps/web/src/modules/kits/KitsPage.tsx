@@ -12,7 +12,7 @@ import { Equipment, Kit } from '../../types';
 export function KitsPage() {
   const { showToast } = useToast();
   const { role } = useAuth();
-  const canWrite = role === 'ADMIN' || role === 'INFRA';
+  const canWrite = role === 'ADMIN';
 
   const [kits, setKits] = useState<Kit[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
@@ -55,7 +55,7 @@ export function KitsPage() {
   }
 
   return (
-    <AppShell title="Kits">
+    <AppShell title={canWrite ? 'Kits' : 'Catálogo de Kits'}>
       {canWrite && (
         <button onClick={() => { setEditId(null); setModalOpen(true); }} style={btnGold}>+ Novo Kit</button>
       )}
