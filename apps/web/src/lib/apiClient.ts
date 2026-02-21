@@ -45,7 +45,7 @@ export class ApiClientError extends Error {
 }
 
 const DEFAULT_API_BASE_URL = 'http://localhost:3001';
-const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_TIMEOUT_MS = 5000;
 
 function resolveBaseUrl(): string {
   const value = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();

@@ -6,9 +6,6 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { getFallbackRouteForRole } from '../../src/config/rbac';
 
 const gold = '#C8A951';
-const bg = '#0B0B0B';
-const panel = '#141414';
-const soft = '#1D1D1D';
 const border = '#3A3A3A';
 const muted = '#B5B5B5';
 const danger = '#E55B5B';
@@ -23,10 +20,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [logoError, setLogoError] = useState(false);
   const usernameRef = useRef<HTMLInputElement>(null);
 
-  // Já autenticado → redireciona
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       router.replace(getFallbackRouteForRole(role));
@@ -47,7 +42,6 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username.trim(), password);
-      // AuthContext atualiza → useEffect acima redireciona
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao conectar. Verifique a rede.');
     } finally {
@@ -58,61 +52,86 @@ export default function LoginPage() {
   if (isLoading) return null;
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: bg,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 24,
-      backgroundImage: 'radial-gradient(ellipse at 70% 20%, rgba(200,169,81,0.07) 0%, transparent 60%)',
-    }}>
+    <div style={{ position: 'relative', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+
+      {/* ── Fundo: foto da empresa esfumaçada ── */}
       <div style={{
+        position: 'absolute',
+        inset: 0,
+        backgroundImage: 'url("/pessoas_empresa.png")',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        filter: 'blur(6px)',
+        transform: 'scale(1.06)', // evita bordas brancas do blur
+        zIndex: 0,
+      }} />
+
+      {/* ── Overlay escuro / fumaça ── */}
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        background: 'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(11,11,11,0.70) 50%, rgba(0,0,0,0.88) 100%)',
+        zIndex: 1,
+      }} />
+
+      {/* ── Reflexo dourado sutil no topo ── */}
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        background: 'radial-gradient(ellipse at 60% 0%, rgba(200,169,81,0.12) 0%, transparent 55%)',
+        zIndex: 2,
+      }} />
+
+      {/* ── Conteúdo central ── */}
+      <div style={{
+        position: 'relative',
+        zIndex: 10,
         width: '100%',
-        maxWidth: 380,
+        maxWidth: 400,
+        padding: '0 20px',
         display: 'grid',
-        gap: 24,
+        gap: 28,
       }}>
-        {/* Logo / Marca */}
+
+        {/* Logo */}
         <div style={{ textAlign: 'center' }}>
-          {!logoError ? (
-            <img
-              src="/logo.png"
-              alt="Logo"
-              onError={() => setLogoError(true)}
-              style={{ maxHeight: 72, maxWidth: 220, objectFit: 'contain', marginBottom: 8 }}
-            />
-          ) : (
-            <div style={{ marginBottom: 8 }}>
-              <span style={{
-                fontSize: 26,
-                fontWeight: 800,
-                color: gold,
-                letterSpacing: 0.5,
-              }}>Security24h</span>
-            </div>
-          )}
-          <p style={{ margin: 0, fontSize: 13, color: muted }}>
-            Acesse com seu usuário do sistema
-          </p>
+          <img
+            src="/LOGO SECURITY 24H.png"
+            alt="Security24h"
+            style={{
+              maxHeight: 90,
+              maxWidth: 260,
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 4px 16px rgba(200,169,81,0.35))',
+            }}
+          />
         </div>
 
-        {/* Card de login */}
+        {/* Card glassmorphism */}
         <form
           onSubmit={handleSubmit}
           style={{
-            background: panel,
-            border: `1px solid ${border}`,
-            borderRadius: 16,
-            padding: '28px 24px',
+            background: 'rgba(14, 14, 14, 0.78)',
+            border: `1px solid rgba(200,169,81,0.22)`,
+            borderRadius: 20,
+            padding: '32px 28px',
             display: 'grid',
-            gap: 16,
-            boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
+            gap: 18,
+            boxShadow: '0 24px 64px rgba(0,0,0,0.6), inset 0 1px 0 rgba(200,169,81,0.08)',
+            backdropFilter: 'blur(18px)',
+            WebkitBackdropFilter: 'blur(18px)',
           }}
         >
+          {/* Título do card */}
+          <div style={{ textAlign: 'center', marginBottom: 4 }}>
+            <p style={{ margin: 0, fontSize: 13, color: `${muted}CC`, letterSpacing: 0.3 }}>
+              Acesse com seu usuário do sistema
+            </p>
+          </div>
+
           {/* Campo usuário */}
-          <div style={{ display: 'grid', gap: 6 }}>
-            <label style={{ fontSize: 12, color: muted, fontWeight: 600, letterSpacing: 0.3 }}>
+          <div style={{ display: 'grid', gap: 7 }}>
+            <label style={{ fontSize: 11, color: `${gold}CC`, fontWeight: 700, letterSpacing: 0.8 }}>
               USUÁRIO
             </label>
             <input
@@ -124,22 +143,25 @@ export default function LoginPage() {
               spellCheck={false}
               placeholder="seu.usuario"
               style={{
-                background: soft,
+                background: 'rgba(255,255,255,0.05)',
                 border: `1px solid ${border}`,
-                borderRadius: 8,
-                padding: '10px 12px',
+                borderRadius: 10,
+                padding: '11px 14px',
                 fontSize: 14,
                 color: text,
                 outline: 'none',
                 width: '100%',
                 boxSizing: 'border-box',
+                transition: 'border-color 150ms ease',
               }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = `${gold}88`; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = border; }}
             />
           </div>
 
           {/* Campo senha */}
-          <div style={{ display: 'grid', gap: 6 }}>
-            <label style={{ fontSize: 12, color: muted, fontWeight: 600, letterSpacing: 0.3 }}>
+          <div style={{ display: 'grid', gap: 7 }}>
+            <label style={{ fontSize: 11, color: `${gold}CC`, fontWeight: 700, letterSpacing: 0.8 }}>
               SENHA
             </label>
             <div style={{ position: 'relative' }}>
@@ -150,23 +172,26 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 placeholder="••••••"
                 style={{
-                  background: soft,
+                  background: 'rgba(255,255,255,0.05)',
                   border: `1px solid ${border}`,
-                  borderRadius: 8,
-                  padding: '10px 40px 10px 12px',
+                  borderRadius: 10,
+                  padding: '11px 44px 11px 14px',
                   fontSize: 14,
                   color: text,
                   outline: 'none',
                   width: '100%',
                   boxSizing: 'border-box',
+                  transition: 'border-color 150ms ease',
                 }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = `${gold}88`; }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = border; }}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((p) => !p)}
                 style={{
                   position: 'absolute',
-                  right: 10,
+                  right: 12,
                   top: '50%',
                   transform: 'translateY(-50%)',
                   background: 'none',
@@ -175,6 +200,7 @@ export default function LoginPage() {
                   color: muted,
                   fontSize: 11,
                   padding: 0,
+                  letterSpacing: 0.2,
                 }}
               >
                 {showPassword ? 'ocultar' : 'ver'}
@@ -182,13 +208,13 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Mensagem de erro */}
+          {/* Erro */}
           {error && (
             <div style={{
-              background: `${danger}18`,
-              border: `1px solid ${danger}55`,
-              borderRadius: 8,
-              padding: '8px 12px',
+              background: `${danger}15`,
+              border: `1px solid ${danger}44`,
+              borderRadius: 10,
+              padding: '9px 13px',
               fontSize: 13,
               color: danger,
             }}>
@@ -196,21 +222,25 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Botão entrar */}
+          {/* Botão */}
           <button
             type="submit"
             disabled={loading}
             style={{
-              background: loading ? `${gold}55` : gold,
+              background: loading
+                ? 'rgba(200,169,81,0.35)'
+                : 'linear-gradient(135deg, #C8A951, #a8892f)',
               border: 'none',
-              borderRadius: 8,
-              padding: '12px',
+              borderRadius: 10,
+              padding: '13px',
               fontSize: 14,
-              fontWeight: 700,
+              fontWeight: 800,
               color: loading ? muted : '#0B0B0B',
               cursor: loading ? 'not-allowed' : 'pointer',
-              letterSpacing: 0.5,
-              transition: 'background 200ms ease',
+              letterSpacing: 0.6,
+              boxShadow: loading ? 'none' : '0 4px 16px rgba(200,169,81,0.3)',
+              transition: 'all 200ms ease',
+              marginTop: 4,
             }}
           >
             {loading ? 'Entrando…' : 'Entrar'}
@@ -218,7 +248,7 @@ export default function LoginPage() {
         </form>
 
         {/* Rodapé */}
-        <p style={{ textAlign: 'center', fontSize: 11, color: `${muted}88`, margin: 0 }}>
+        <p style={{ textAlign: 'center', fontSize: 11, color: `${muted}66`, margin: 0 }}>
           Use o mesmo usuário e senha do Service
         </p>
       </div>

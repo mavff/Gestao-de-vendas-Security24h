@@ -36,6 +36,7 @@ function buildTypeOrmModule(): DynamicModule[] {
       options: {
         encrypt: process.env.SQL_SERVER_ENCRYPT === 'true',
         trustServerCertificate: true,
+        connectTimeout: 5000,   // desiste em 5s se o BD não responder
       },
       synchronize: false,
     }),

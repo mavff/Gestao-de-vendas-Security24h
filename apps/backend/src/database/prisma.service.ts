@@ -25,7 +25,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     }
 
     try {
-      await this.$connect();
+      // Timeout de 6s para não travar o boot quando o BD está inacessível
+      await Promise.race([
+        this.$connect(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Connection timeout after 6s')), 6000),
+        ),
+      ]);
       this.connected = true;
       this.logger.log('Prisma connected to SQL Server');
     } catch (err) {
