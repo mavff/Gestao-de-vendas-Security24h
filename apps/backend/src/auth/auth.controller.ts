@@ -22,4 +22,11 @@ export class AuthController {
   me(@Req() req: { user: unknown }) {
     return req.user;
   }
+
+  /** Lista usuários da tabela Senhas — apenas para ADMIN. */
+  @UseGuards(JwtGuard)
+  @Get('users')
+  listUsers() {
+    return this.authService.listUsers();
+  }
 }

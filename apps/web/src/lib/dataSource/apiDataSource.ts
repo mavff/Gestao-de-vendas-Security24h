@@ -1,14 +1,18 @@
 import { apiClient, ApiClientError, ApiMeta } from '../apiClient';
 import { Equipment, Kit } from '../../types';
-import { DataSourceRegistry, IEquipmentDataSource, IKitsDataSource, IProspectsDataSource } from './interfaces';
+import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IProspectsDataSource } from './interfaces';
 import {
+  DashboardStats,
   DataSourceEntity,
   DataSourceError,
   DataSourceOperation,
   EquipmentQuery,
   KitApiDto,
   KitsQuery,
+  OrcamentoApiDto,
+  OrcamentosQuery,
   PaginatedResult,
+  PeriodKey,
   ProductApiDto,
   ProspectApiDto,
   ProspectsQuery,
@@ -164,12 +168,33 @@ class ApiProspectsDataSource implements IProspectsDataSource {
   }
 }
 
+class ApiDashboardDataSource implements IDashboardDataSource {
+  async getStats(period: PeriodKey): Promise<DashboardStats> {
+    const response = await apiClient.get<DashboardStats>('/dashboard/stats', { query: { period } });
+    return response.data;
+  }
+}
+
+class ApiOrcamentosDataSource implements IOrcamentosDataSource {
+  async list(query: OrcamentosQuery = {}): Promise<PaginatedResult<OrcamentoApiDto>> {
+    try {
+      const response = await apiClient.get<OrcamentoApiDto[]>('/orcamentos', { query });
+      const meta = normalizeMeta(response.meta, query.page, query.pageSize, response.data.length);
+      return { data: response.data, meta };
+    } catch (error) {
+      throw createApiDataSourceError({ entity: 'orcamentos', operation: 'list', cause: error });
+    }
+  }
+}
+
 export function createApiDataSource(): DataSourceRegistry {
   return {
     mode: 'api',
     equipment: new ApiEquipmentDataSource(),
     kits: new ApiKitsDataSource(),
     prospects: new ApiProspectsDataSource(),
+    dashboard: new ApiDashboardDataSource(),
+    orcamentos: new ApiOrcamentosDataSource(),
   };
 }
 

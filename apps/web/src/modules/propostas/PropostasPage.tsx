@@ -5,6 +5,8 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
+import { createDataSource } from '../../lib/dataSource/factory';
+import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockEquipments, mockLeads, mockOrdens, mockPropostas } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import { Equipment, Lead, OrdemDeServico, Proposta, PropostaItem, PropostaServico } from '../../types';
@@ -27,17 +29,29 @@ export function PropostasPage() {
   const [prefilledLeadId, setPrefilledLeadId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Itens sem API: sempre do localStorage
     setPropostas(loadMock('mock_propostas', mockPropostas));
     setOrdens(loadMock('mock_ordens', mockOrdens));
-    setLeads(loadMock('mock_leads', mockLeads));
-    setEquipments(loadMock('mock_equipments', mockEquipments));
 
     const params = new URLSearchParams(window.location.search);
     const lid = params.get('leadId');
-    if (lid) {
-      setPrefilledLeadId(lid);
-      setView('form');
+    if (lid) { setPrefilledLeadId(lid); setView('form'); }
+
+    let cancelled = false;
+    async function load() {
+      const ds = createDataSource();
+      const [eqRes, prospRes] = await Promise.allSettled([
+        ds.equipment.list({ pageSize: 500 }),
+        ds.prospects.list({ pageSize: 200 }),
+      ]);
+      if (cancelled) return;
+      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
+      setLeads(prospRes.status === 'fulfilled'
+        ? prospRes.value.data.map((p) => prospectToLead(p))
+        : loadMock('mock_leads', mockLeads));
     }
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => { if (propostas.length) saveMock('mock_propostas', propostas); }, [propostas]);

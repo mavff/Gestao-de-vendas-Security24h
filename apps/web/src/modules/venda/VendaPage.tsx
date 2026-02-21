@@ -7,6 +7,8 @@ import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { KIT_CATEGORIA_LABELS } from '../../config/kitPresets';
 import { useAuth } from '../../contexts/AuthContext';
+import { createDataSource } from '../../lib/dataSource/factory';
+import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import {
   mockEquipments, mockKits, mockLeads,
   mockOrdens, mockSolucoes, mockUsers, mockVistorias,
@@ -23,7 +25,7 @@ import {
    Constants
    ================================================================ */
 
-const marcas: Marca[] = ['Intelbras', 'Hikvision', 'DSC', 'Viaweb', 'Vetti'];
+const marcas: Marca[] = ['Intelbras', 'Hikvision', 'Hilook', 'Ezviz', 'DSC', 'JFL', 'PPA', 'Viaweb', 'Genérico'];
 
 const allBlocos: BlocoCategoria[] = [
   'sensor_externo', 'sensor_interno', 'sensor_porta_janela',
@@ -96,13 +98,29 @@ export function VendaPage() {
 
   /* --- load --- */
   useEffect(() => {
-    setLeads(loadMock('mock_leads', mockLeads));
+    // Sem API: solucoes, ordens, vistorias, users sempre do localStorage
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
-    setEquipments(loadMock('mock_equipments', mockEquipments));
     setOrdens(loadMock('mock_ordens', mockOrdens));
     setVistorias(loadMock('mock_vistorias', mockVistorias));
     setUsers(loadMock('mock_users', mockUsers));
-    setKits(loadMock('mock_kits', mockKits));
+
+    let cancelled = false;
+    async function load() {
+      const ds = createDataSource();
+      const [leadRes, eqRes, kitsRes] = await Promise.allSettled([
+        ds.prospects.list({ pageSize: 200 }),
+        ds.equipment.list({ pageSize: 500 }),
+        ds.kits.list({ pageSize: 200 }),
+      ]);
+      if (cancelled) return;
+      setLeads(leadRes.status === 'fulfilled'
+        ? leadRes.value.data.map((p) => prospectToLead(p))
+        : loadMock('mock_leads', mockLeads));
+      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
+      setKits(kitsRes.status === 'fulfilled' ? kitsRes.value.data : loadMock('mock_kits', mockKits));
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   /* --- persist --- */
@@ -1122,7 +1140,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function MarcaBadge({ marca }: { marca: Marca }) {
-  const colorMap: Record<Marca, string> = { Intelbras: '#43C17B', Hikvision: '#E55B5B', DSC: '#5B9BD5', Viaweb: '#E3B341', Vetti: '#C077DB', 'Genérico': '#B5B5B5' };
+  const colorMap: Record<Marca, string> = { Intelbras: '#43C17B', Hikvision: '#E55B5B', Hilook: '#FF7043', Ezviz: '#26C6DA', DSC: '#5B9BD5', JFL: '#AB47BC', PPA: '#FFA726', Viaweb: '#E3B341', 'Genérico': '#B5B5B5' };
   const color = colorMap[marca];
   return <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: color + '22', color, border: `1px solid ${color}44` }}>{marca}</span>;
 }

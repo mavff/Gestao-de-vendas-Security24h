@@ -5,12 +5,13 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
+import { createDataSource } from '../../lib/dataSource/factory';
 import { mockEquipments } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import { BlocoCategoria, Equipment, EquipmentCategory, Marca } from '../../types';
 
 const categories: EquipmentCategory[] = ['Câmera', 'Sensor', 'Central', 'Acessório'];
-const allMarcas: Marca[] = ['Intelbras', 'Hikvision', 'DSC', 'Viaweb', 'Vetti', 'Genérico'];
+const allMarcas: Marca[] = ['Intelbras', 'Hikvision', 'Hilook', 'Ezviz', 'DSC', 'JFL', 'PPA', 'Viaweb', 'Genérico'];
 
 const blocosByCategory: Record<EquipmentCategory, BlocoCategoria[]> = {
   'Câmera': ['camera_analogica', 'camera_ip', 'camera_ia'],
@@ -40,7 +41,27 @@ export function EquipmentPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<Equipment>(emptyDraft);
 
-  useEffect(() => setEquipments(loadMock('mock_equipments', mockEquipments)), []);
+  useEffect(() => {
+    async function loadAll() {
+      try {
+        const ds = createDataSource();
+        let page = 1;
+        let all: Equipment[] = [];
+        while (true) {
+          const result = await ds.equipment.list({ page, pageSize: 500 });
+          all = all.concat(result.data);
+          if (page >= result.meta.totalPages) break;
+          page++;
+        }
+        setEquipments(all);
+      } catch {
+        setEquipments(loadMock('mock_equipments', mockEquipments));
+      }
+    }
+    loadAll();
+  }, []);
+
+  // Persiste apenas itens criados/editados localmente (backend é read-only)
   useEffect(() => { if (equipments.length) saveMock('mock_equipments', equipments); }, [equipments]);
 
   const filtered = useMemo(() =>
@@ -217,8 +238,15 @@ export function EquipmentPage() {
 /* ---- Helpers ---- */
 
 const marcaColors: Record<Marca, string> = {
-  Intelbras: '#4CAF50', Hikvision: '#E53935', DSC: '#1E88E5',
-  Viaweb: '#AB47BC', Vetti: '#FF7043', 'Genérico': '#9E9E9E',
+  Intelbras: '#4CAF50',
+  Hikvision: '#E53935',
+  Hilook:    '#FF7043',
+  Ezviz:     '#26C6DA',
+  DSC:       '#1E88E5',
+  JFL:       '#AB47BC',
+  PPA:       '#FFA726',
+  Viaweb:    '#8D6E63',
+  'Genérico':'#9E9E9E',
 };
 
 function MarcaBadge({ marca }: { marca: Marca }) {

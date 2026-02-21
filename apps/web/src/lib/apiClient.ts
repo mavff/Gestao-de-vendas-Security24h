@@ -145,6 +145,12 @@ async function request<T>(method: string, path: string, options: ApiRequestOptio
     headers.set('Content-Type', 'application/json');
   }
 
+  // Injeta token JWT em todas as chamadas
+  if (typeof window !== 'undefined' && !headers.has('Authorization')) {
+    const token = localStorage.getItem('sec24h_token');
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+
   try {
     const response = await fetch(url, {
       ...options,

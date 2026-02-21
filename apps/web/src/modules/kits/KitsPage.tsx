@@ -5,11 +5,12 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
+import { createDataSource } from '../../lib/dataSource/factory';
 import { mockEquipments, mockKits } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import { Equipment, Kit, KitCategoria, Marca } from '../../types';
 
-const marcas: Marca[] = ['Intelbras', 'Hikvision', 'DSC', 'Viaweb', 'Vetti'];
+const marcas: Marca[] = ['Intelbras', 'Hikvision', 'Hilook', 'Ezviz', 'DSC', 'JFL', 'PPA', 'Viaweb', 'Genérico'];
 
 const KIT_CATEGORIA_LABELS: Record<KitCategoria, string> = {
   alarme_residencial: 'Alarme Residencial',
@@ -21,7 +22,8 @@ const KIT_CATEGORIA_LABELS: Record<KitCategoria, string> = {
 };
 
 const marcaColors: Record<Marca, string> = {
-  Intelbras: '#43C17B', Hikvision: '#E55B5B', DSC: '#5B9BD5', Viaweb: '#E3B341', Vetti: '#C077DB', 'Genérico': '#B5B5B5',
+  Intelbras: '#43C17B', Hikvision: '#E55B5B', Hilook: '#FF7043', Ezviz: '#26C6DA',
+  DSC: '#5B9BD5', JFL: '#AB47BC', PPA: '#FFA726', Viaweb: '#E3B341', 'Genérico': '#B5B5B5',
 };
 
 export function KitsPage() {
@@ -36,8 +38,19 @@ export function KitsPage() {
   const [filterMarca, setFilterMarca] = useState<Marca | 'todas'>('todas');
 
   useEffect(() => {
-    setKits(loadMock('mock_kits', mockKits));
-    setEquipments(loadMock('mock_equipments', mockEquipments));
+    let cancelled = false;
+    async function load() {
+      const ds = createDataSource();
+      const [kitsRes, eqRes] = await Promise.allSettled([
+        ds.kits.list({ pageSize: 200 }),
+        ds.equipment.list({ pageSize: 500 }),
+      ]);
+      if (cancelled) return;
+      setKits(kitsRes.status === 'fulfilled' ? kitsRes.value.data : loadMock('mock_kits', mockKits));
+      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
   useEffect(() => { if (kits.length) saveMock('mock_kits', kits); }, [kits]);
 

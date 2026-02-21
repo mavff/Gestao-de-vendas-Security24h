@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { AppShell } from '../../components/layout/AppShell';
+import { createDataSource } from '../../lib/dataSource/factory';
+import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockLeads, mockOrdens, mockSolucoes, mockVistorias } from '../../mocks/data';
 import { loadMock } from '../../services/mockStorage';
 import { Lead, OrdemDeServico, SolucaoTecnica, Vistoria } from '../../types';
@@ -44,10 +46,23 @@ export function VendasListPage() {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    setLeads(loadMock('mock_leads', mockLeads));
+    // Sem API: sempre do localStorage
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
     setVistorias(loadMock('mock_vistorias', mockVistorias));
     setOrdens(loadMock('mock_ordens', mockOrdens));
+
+    let cancelled = false;
+    async function load() {
+      const ds = createDataSource();
+      try {
+        const res = await ds.prospects.list({ pageSize: 200 });
+        if (!cancelled) setLeads(res.data.map((p) => prospectToLead(p)));
+      } catch {
+        if (!cancelled) setLeads(loadMock('mock_leads', mockLeads));
+      }
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   const vendas = useMemo<VendaResumo[]>(() => {

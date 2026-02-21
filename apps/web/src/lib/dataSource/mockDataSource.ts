@@ -1,11 +1,16 @@
 import { Equipment, Kit, Lead } from '../../types';
 import { mockEquipments, mockKits, mockLeads } from '../../mocks/data';
+import { dashboardDataByPeriod } from '../../mocks/dashboard';
 import { loadMock } from '../../services/mockStorage';
-import { DataSourceRegistry, IEquipmentDataSource, IKitsDataSource, IProspectsDataSource } from './interfaces';
+import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IProspectsDataSource } from './interfaces';
 import {
+  DashboardStats,
   EquipmentQuery,
   KitsQuery,
+  OrcamentoApiDto,
+  OrcamentosQuery,
   PaginatedResult,
+  PeriodKey,
   ProspectApiDto,
   ProspectsQuery,
   paginateArray,
@@ -85,12 +90,26 @@ class MockProspectsDataSource implements IProspectsDataSource {
   }
 }
 
+class MockDashboardDataSource implements IDashboardDataSource {
+  async getStats(period: PeriodKey): Promise<DashboardStats> {
+    return dashboardDataByPeriod[period] ?? dashboardDataByPeriod.all;
+  }
+}
+
+class MockOrcamentosDataSource implements IOrcamentosDataSource {
+  async list(query: OrcamentosQuery = {}): Promise<PaginatedResult<OrcamentoApiDto>> {
+    return paginateArray([], query.page, query.pageSize);
+  }
+}
+
 export function createMockDataSource(): DataSourceRegistry {
   return {
     mode: 'mock',
     equipment: new MockEquipmentDataSource(),
     kits: new MockKitsDataSource(),
     prospects: new MockProspectsDataSource(),
+    dashboard: new MockDashboardDataSource(),
+    orcamentos: new MockOrcamentosDataSource(),
   };
 }
 

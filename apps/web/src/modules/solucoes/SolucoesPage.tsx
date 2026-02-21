@@ -5,6 +5,8 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
+import { createDataSource } from '../../lib/dataSource/factory';
+import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockEquipments, mockLeads, mockSolucoes, mockUsers } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
@@ -14,7 +16,7 @@ import {
 
 /* ---- Constants ---- */
 
-const marcas: Marca[] = ['Intelbras', 'Hikvision', 'DSC', 'Viaweb', 'Vetti'];
+const marcas: Marca[] = ['Intelbras', 'Hikvision', 'Hilook', 'Ezviz', 'DSC', 'JFL', 'PPA', 'Viaweb', 'Genérico'];
 
 const allBlocos: BlocoCategoria[] = [
   'sensor_externo', 'sensor_interno', 'sensor_porta_janela',
@@ -86,12 +88,28 @@ export function SolucoesPage() {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
+    // Itens sem API: sempre do localStorage
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
-    setEquipments(loadMock('mock_equipments', mockEquipments));
-    setLeads(loadMock('mock_leads', mockLeads));
     setUsers(loadMock('mock_users', mockUsers));
+    const rascunho = loadMock<SolucaoTecnica | null>('mock_solucao_draft', null);
+    if (rascunho) { setDraft(rascunho); setView('wizard'); }
+
+    let cancelled = false;
+    async function load() {
+      const ds = createDataSource();
+      const [eqRes, prospRes] = await Promise.allSettled([
+        ds.equipment.list({ pageSize: 500 }),
+        ds.prospects.list({ pageSize: 200 }),
+      ]);
+      if (cancelled) return;
+      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
+      setLeads(prospRes.status === 'fulfilled'
+        ? prospRes.value.data.map((p) => prospectToLead(p))
+        : loadMock('mock_leads', mockLeads));
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
-  useEffect(() => { if (solucoes.length) saveMock('mock_solucoes', solucoes); }, [solucoes]);
 
   function userName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
   function leadName(id: string) { const l = leads.find((x) => x.id === id); return l ? `${l.name} — ${l.company}` : id; }
@@ -114,27 +132,47 @@ export function SolucoesPage() {
     setView('wizard');
   }
 
+  // Persiste rascunho do wizard enquanto o usuário edita
+  useEffect(() => {
+    if (view === 'wizard') {
+      saveMock('mock_solucao_draft', draft);
+    }
+  }, [draft, view]);
+
   function handleSave(sol: SolucaoTecnica) {
     const now = new Date().toISOString().slice(0, 10);
     const updated = { ...sol, updatedAt: now };
+    let newList: SolucaoTecnica[];
     if (sol.id) {
-      setSolucoes((cur) => cur.map((s) => s.id === sol.id ? updated : s));
+      newList = solucoes.map((s) => s.id === sol.id ? updated : s);
       showToast('Solução atualizada.', 'success');
     } else {
-      setSolucoes((cur) => [...cur, { ...updated, id: 'SOL' + Date.now() }]);
+      newList = [...solucoes, { ...updated, id: 'SOL' + Date.now() }];
       showToast('Solução criada.', 'success');
     }
+    saveMock('mock_solucoes', newList);
+    saveMock('mock_solucao_draft', null);
+    setSolucoes(newList);
     setView('list');
   }
 
   function handleDelete(id: string) {
-    setSolucoes((cur) => cur.filter((s) => s.id !== id));
+    const newList = solucoes.filter((s) => s.id !== id);
+    saveMock('mock_solucoes', newList);
+    setSolucoes(newList);
     showToast('Solução excluída.', 'warning');
   }
 
   function handleAprovar(id: string) {
-    setSolucoes((cur) => cur.map((s) => s.id === id ? { ...s, status: 'pronta' as const, updatedAt: new Date().toISOString().slice(0, 10) } : s));
+    const newList = solucoes.map((s) => s.id === id ? { ...s, status: 'pronta' as const, updatedAt: new Date().toISOString().slice(0, 10) } : s);
+    saveMock('mock_solucoes', newList);
+    setSolucoes(newList);
     showToast('Solução marcada como pronta.', 'success');
+  }
+
+  function handleCancel() {
+    saveMock('mock_solucao_draft', null);
+    setView('list');
   }
 
   if (view === 'wizard') {
@@ -148,7 +186,7 @@ export function SolucoesPage() {
           equipments={equipments}
           leads={leads}
           onSave={handleSave}
-          onCancel={() => setView('list')}
+          onCancel={handleCancel}
         />
       </AppShell>
     );
@@ -656,12 +694,8 @@ function StepResumo({ draft, equipments }: { draft: SolucaoTecnica; equipments: 
 
 function MarcaBadge({ marca }: { marca: Marca }) {
   const colorMap: Record<Marca, string> = {
-    Intelbras: '#43C17B',
-    Hikvision: '#E55B5B',
-    DSC: '#5B9BD5',
-    Viaweb: '#E3B341',
-    Vetti: '#C077DB',
-    'Genérico': '#B5B5B5',
+    Intelbras: '#43C17B', Hikvision: '#E55B5B', Hilook: '#FF7043', Ezviz: '#26C6DA',
+    DSC: '#5B9BD5', JFL: '#AB47BC', PPA: '#FFA726', Viaweb: '#E3B341', 'Genérico': '#B5B5B5',
   };
   const color = colorMap[marca];
   return (

@@ -1,20 +1,30 @@
 import { BlocoCategoria, Equipment, EquipmentCategory, Marca } from '../../../types';
 import { ProductApiDto } from '../types';
 
+// Códigos reais da tabela DadosEntidades (codEntidade=2 = Marcas)
 const BRAND_CODE_MAP: Record<number, Marca> = {
-  1: 'Intelbras',
-  2: 'Hikvision',
-  3: 'DSC',
-  4: 'Viaweb',
-  5: 'Vetti',
+  2397: 'Intelbras',
+  12166: 'Hikvision',  // HIKIVISION no banco
+  12011: 'Hilook',
+  36629: 'Ezviz',      // EZEVIZ no banco
+  2401:  'DSC',
+  2410:  'JFL',
+  11930: 'PPA',
+  26139: 'Viaweb',
+  28:    'Genérico',   // Marca Geral
 };
 
 const BRAND_KEYWORDS: Array<{ keyword: string; brand: Marca }> = [
   { keyword: 'intelbras', brand: 'Intelbras' },
   { keyword: 'hikvision', brand: 'Hikvision' },
+  { keyword: 'hikivision', brand: 'Hikvision' },
+  { keyword: 'hilook', brand: 'Hilook' },
+  { keyword: 'ezviz', brand: 'Ezviz' },
+  { keyword: 'ezeviz', brand: 'Ezviz' },
+  { keyword: 'jfl', brand: 'JFL' },
   { keyword: 'dsc', brand: 'DSC' },
   { keyword: 'viaweb', brand: 'Viaweb' },
-  { keyword: 'vetti', brand: 'Vetti' },
+  { keyword: 'ppa', brand: 'PPA' },
 ];
 
 function toNumber(value: unknown): number {
@@ -37,9 +47,21 @@ function inferBrand(product: ProductApiDto): Marca {
 }
 
 function inferCategory(product: ProductApiDto): EquipmentCategory {
-  const text = `${product.descricao} ${product.aplicacao || ''}`.toLowerCase();
+  const grupo = (product.grupoOrcamento || '').toUpperCase().trim();
+
+  if (grupo === 'CFTV') return 'Câmera';
+
+  if (grupo === 'ALARME') {
+    const text = product.descricao.toLowerCase();
+    if (text.includes('sensor') || text.includes('ivp') || text.includes('pir') || text.includes('detector')) return 'Sensor';
+    if (text.includes('central') || text.includes('módulo') || text.includes('modulo') || text.includes('ethernet') || text.includes('gprs')) return 'Central';
+    return 'Central';
+  }
+
+  // Fallback por descrição para grupos vazios ou outros (CERCA ELÉTRICA, RASTREAMENTO, etc.)
+  const text = product.descricao.toLowerCase();
   if (text.includes('camera') || text.includes('câmera') || text.includes('dvr') || text.includes('nvr')) return 'Câmera';
-  if (text.includes('sensor') || text.includes('ivp')) return 'Sensor';
+  if (text.includes('sensor') || text.includes('detector') || text.includes('pir')) return 'Sensor';
   if (text.includes('central') || text.includes('modulo') || text.includes('módulo')) return 'Central';
   return 'Acessório';
 }
@@ -58,7 +80,7 @@ function defaultBloco(category: EquipmentCategory): BlocoCategoria {
 }
 
 function inferBloco(product: ProductApiDto, category: EquipmentCategory): BlocoCategoria {
-  const text = `${product.descricao} ${product.aplicacao || ''}`.toLowerCase();
+  const text = product.descricao.toLowerCase();
 
   if (category === 'Câmera') {
     if (text.includes('ia')) return 'camera_ia';
@@ -95,7 +117,7 @@ export function mapProductToEquipment(product: ProductApiDto): Equipment {
     bloco,
     price: toNumber(product.preco),
     estoque: 0,
-    descricao: product.aplicacao || product.descricao || '',
+    descricao: product.descricao || '',
   };
 }
 

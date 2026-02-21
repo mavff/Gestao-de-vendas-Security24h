@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
+import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
+import { OrcamentoApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockOrcamentos, mockPropostas, mockSolucoes } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
@@ -44,29 +46,47 @@ function formatCurrency(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const [y, m, d] = iso.split('-');
+  const part = iso.slice(0, 10);
+  const [y, m, d] = part.split('-');
   return `${d}/${m}/${y}`;
 }
 
+const DB_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  A: { label: 'Aberto', color: theme.warning },
+  P: { label: 'Aguard. Aprovação', color: '#5B9BD5' },
+  L: { label: 'Liberado', color: theme.success },
+  E: { label: 'Em Instalação', color: theme.gold },
+  C: { label: 'Cancelado', color: theme.danger },
+};
+
 type StatusFilter = 'todas' | Orcamento['status'];
+type ViewState = 'list' | 'local-detail' | 'db-detail';
 
 /* ---- Main Component ---- */
 
 export function OrcamentosPage() {
   const { showToast } = useToast();
 
+  // Local (generated from SolucaoTecnica flow)
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
   const [solucoes, setSolucoes] = useState<SolucaoTecnica[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [propostas, setPropostas] = useState<Proposta[]>([]);
 
-  const [view, setView] = useState<'list' | 'detail'>('list');
+  // DB orçamentos
+  const [dbOrcamentos, setDbOrcamentos] = useState<OrcamentoApiDto[]>([]);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [isRealData, setIsRealData] = useState(false);
+
+  const [view, setView] = useState<ViewState>('list');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDbOrc, setSelectedDbOrc] = useState<OrcamentoApiDto | null>(null);
   const [showSolucaoModal, setShowSolucaoModal] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>('todas');
 
+  // Load local data
   useEffect(() => {
     setOrcamentos(loadMock('mock_orcamentos', mockOrcamentos));
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
@@ -77,7 +97,6 @@ export function OrcamentosPage() {
     const params = new URLSearchParams(window.location.search);
     const solId = params.get('solucaoId');
     if (solId) {
-      // Defer to after state is loaded
       setTimeout(() => {
         const sols = loadMock('mock_solucoes', mockSolucoes);
         const eqs = loadMock('mock_equipments', mockEquipments);
@@ -90,13 +109,34 @@ export function OrcamentosPage() {
             return updated;
           });
           setSelectedId(orc.id);
-          setView('detail');
-          // Clear query param
+          setView('local-detail');
           window.history.replaceState({}, '', '/orcamentos');
         }
       }, 0);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load DB orçamentos
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setDbLoading(true);
+      try {
+        const ds = createDataSource();
+        const result = await ds.orcamentos.list({ page: 1, pageSize: 100 });
+        if (!cancelled) {
+          setDbOrcamentos(result.data);
+          setIsRealData(getDataSourceMode() === 'api');
+        }
+      } catch {
+        if (!cancelled) setDbOrcamentos([]);
+      } finally {
+        if (!cancelled) setDbLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => { saveMock('mock_orcamentos', orcamentos); }, [orcamentos]);
@@ -152,7 +192,7 @@ export function OrcamentosPage() {
     setOrcamentos((cur) => [...cur, orc]);
     setShowSolucaoModal(false);
     setSelectedId(orc.id);
-    setView('detail');
+    setView('local-detail');
     showToast('Orçamento gerado a partir da solução.', 'success');
   }
 
@@ -194,14 +234,15 @@ export function OrcamentosPage() {
     showToast('Proposta gerada! Acesse a aba Propostas.', 'success');
   }
 
-  const filtered = filter === 'todas' ? orcamentos : orcamentos.filter((o) => o.status === filter);
-  const selected = orcamentos.find((o) => o.id === selectedId) ?? null;
+  const filteredLocal = filter === 'todas' ? orcamentos : orcamentos.filter((o) => o.status === filter);
+  const selectedLocal = orcamentos.find((o) => o.id === selectedId) ?? null;
 
-  if (view === 'detail' && selected) {
+  // Detail views
+  if (view === 'local-detail' && selectedLocal) {
     return (
       <AppShell title="Detalhe do Orçamento">
         <OrcamentoDetail
-          orcamento={selected}
+          orcamento={selectedLocal}
           onSave={handleSaveOrcamento}
           onGerarProposta={handleGerarProposta}
           onBack={() => { setView('list'); setSelectedId(null); }}
@@ -209,6 +250,19 @@ export function OrcamentosPage() {
       </AppShell>
     );
   }
+
+  if (view === 'db-detail' && selectedDbOrc) {
+    return (
+      <AppShell title="Orçamento do Sistema">
+        <OrcamentoDbDetail
+          orc={selectedDbOrc}
+          onBack={() => { setView('list'); setSelectedDbOrc(null); }}
+        />
+      </AppShell>
+    );
+  }
+
+  const showDbSection = isRealData && (dbLoading || dbOrcamentos.length > 0);
 
   return (
     <AppShell title="Orçamentos">
@@ -231,19 +285,115 @@ export function OrcamentosPage() {
         ))}
       </div>
 
-      {filtered.length === 0 && (
+      {/* DB orçamentos section */}
+      {showDbSection && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 12, color: theme.gold, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+              Do Sistema
+            </span>
+            {dbLoading ? (
+              <span style={{ fontSize: 11, color: theme.muted }}>carregando...</span>
+            ) : (
+              <span style={{ fontSize: 11, color: theme.muted }}>{dbOrcamentos.length} registros</span>
+            )}
+          </div>
+
+          {!dbLoading && dbOrcamentos.length === 0 && (
+            <div style={{ fontSize: 13, color: theme.muted, padding: '8px 0' }}>Nenhum orçamento encontrado no banco.</div>
+          )}
+
+          <div style={{ display: 'grid', gap: 10 }}>
+            {dbOrcamentos.map((orc) => {
+              const total = (orc.totalProdutos ?? 0) + (orc.totalServicos ?? 0);
+              const statusInfo = DB_STATUS_MAP[orc.status ?? ''] ?? { label: orc.status ?? '?', color: theme.muted };
+              return (
+                <div
+                  key={orc.codInterno}
+                  onClick={() => { setSelectedDbOrc(orc); setView('db-detail'); }}
+                  style={{
+                    background: theme.panel,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 10,
+                    padding: 14,
+                    cursor: 'pointer',
+                    transition: 'border-color 140ms',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <strong style={{ fontSize: 15 }}>{orc.clienteNome || '—'}</strong>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+                        background: 'rgba(200,169,81,0.15)', color: theme.gold, border: `1px solid ${theme.gold}44`,
+                        letterSpacing: 0.5,
+                      }}>BD</span>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 999,
+                        background: statusInfo.color + '22', color: statusInfo.color,
+                        border: `1px solid ${statusInfo.color}44`,
+                      }}>
+                        {statusInfo.label}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                    {orc.numOrcamento && (
+                      <span style={{ fontSize: 12, color: theme.muted }}>Nº {orc.numOrcamento}</span>
+                    )}
+                    {(orc.cidade || orc.uf) && (
+                      <span style={{ fontSize: 12, color: theme.muted }}>
+                        {[orc.cidade, orc.uf].filter(Boolean).join('/')}
+                      </span>
+                    )}
+                    {orc.etapa && (
+                      <span style={{ fontSize: 12, color: theme.muted }}>Etapa: {orc.etapa}</span>
+                    )}
+                    {orc.modalidade && (
+                      <span style={{ fontSize: 12, color: theme.muted }}>{orc.modalidade}</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: theme.gold }}>
+                      R$ {formatCurrency(total)}
+                    </span>
+                    <span style={{ fontSize: 12, color: theme.muted }}>{formatDate(orc.emissao)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Local orçamentos section */}
+      {showDbSection && orcamentos.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 12, color: theme.muted, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            Gerados Localmente
+          </span>
+        </div>
+      )}
+
+      {filteredLocal.length === 0 && !showDbSection && (
         <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 32, textAlign: 'center', color: theme.muted }}>
           Nenhum orçamento {filter !== 'todas' ? `com status "${filter}"` : 'criado'}. Gere um a partir de uma Solução Técnica aprovada.
         </div>
       )}
 
+      {filteredLocal.length === 0 && showDbSection && filter !== 'todas' && (
+        <div style={{ fontSize: 13, color: theme.muted, padding: '4px 0 12px' }}>
+          Nenhum orçamento local com status "{filter}".
+        </div>
+      )}
+
       <div style={{ display: 'grid', gap: 12 }}>
-        {filtered.map((orc) => {
+        {filteredLocal.map((orc) => {
           const faixa = getFaixa(orc.zonas);
           return (
             <div
               key={orc.id}
-              onClick={() => { setSelectedId(orc.id); setView('detail'); }}
+              onClick={() => { setSelectedId(orc.id); setView('local-detail'); }}
               style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, cursor: 'pointer', transition: 'border-color 140ms' }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -274,6 +424,98 @@ export function OrcamentosPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+/* ---- DB Orçamento Detail (read-only) ---- */
+
+function OrcamentoDbDetail({ orc, onBack }: { orc: OrcamentoApiDto; onBack: () => void }) {
+  const totalEquip = orc.totalProdutos ?? 0;
+  const totalServ = orc.totalServicos ?? 0;
+  const totalGeral = totalEquip + totalServ;
+  const statusInfo = DB_STATUS_MAP[orc.status ?? ''] ?? { label: orc.status ?? '—', color: theme.muted };
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+        <strong style={{ fontSize: 16 }}>{orc.clienteNome || '—'}</strong>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+          background: 'rgba(200,169,81,0.15)', color: theme.gold, border: `1px solid ${theme.gold}44`,
+          letterSpacing: 0.5,
+        }}>BD</span>
+        <span style={{
+          fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999,
+          background: statusInfo.color + '22', color: statusInfo.color,
+          border: `1px solid ${statusInfo.color}44`, textTransform: 'uppercase', letterSpacing: 0.5,
+        }}>
+          {statusInfo.label}
+        </span>
+        <span style={{ fontSize: 12, color: theme.muted, marginLeft: 'auto' }}>
+          Nº {orc.numOrcamento || orc.codInterno}
+        </span>
+      </div>
+
+      {/* Info grid */}
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <h4 style={{ margin: '0 0 12px', fontSize: 13, color: theme.gold }}>Dados do Orçamento</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+          <InfoRow label="Cliente" value={orc.clienteNome} />
+          <InfoRow label="CPF/CNPJ" value={orc.cgcCpf} />
+          <InfoRow label="Cidade" value={[orc.cidade, orc.uf].filter(Boolean).join(' — ')} />
+          <InfoRow label="Modalidade" value={orc.modalidade} />
+          <InfoRow label="Etapa" value={orc.etapa} />
+          <InfoRow label="Probabilidade" value={orc.probabilidade != null ? `${orc.probabilidade}%` : null} />
+          <InfoRow label="Emissão" value={formatDate(orc.emissao)} />
+          <InfoRow label="Validade" value={formatDate(orc.validade)} />
+          {orc.fechamento && <InfoRow label="Fechamento" value={formatDate(orc.fechamento)} />}
+          {orc.pontos != null && <InfoRow label="Pontos" value={String(orc.pontos)} />}
+        </div>
+      </div>
+
+      {/* Totals */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))',
+        border: `2px solid ${theme.gold}44`,
+        borderRadius: 12, padding: 16, marginBottom: 14,
+      }}>
+        <h4 style={{ margin: '0 0 12px', fontSize: 13, color: theme.gold }}>Resumo Financeiro</h4>
+        <DbCostLine label="Total Produtos" value={totalEquip} />
+        <DbCostLine label="Total Serviços" value={totalServ} />
+        {orc.valorMonitoramento != null && orc.valorMonitoramento > 0 && (
+          <DbCostLine label="Monitoramento (mensal)" value={orc.valorMonitoramento} />
+        )}
+        <div style={{ borderTop: `2px solid ${theme.gold}`, margin: '10px 0 6px' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: theme.gold }}>TOTAL GERAL</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(totalGeral)}</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={onBack} style={btnSoft}>Voltar</button>
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) return null;
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: theme.muted, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 500 }}>{value}</div>
+    </div>
+  );
+}
+
+function DbCostLine({ label, value }: { label: string; value: number }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+      <span style={{ fontSize: 13, color: theme.muted }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 500 }}>R$ {formatCurrency(value)}</span>
+    </div>
   );
 }
 
@@ -328,7 +570,7 @@ function SolucaoSelectorModal({ solucoes, onSelect, onClose }: {
   );
 }
 
-/* ---- Orcamento Detail/Edit ---- */
+/* ---- Orcamento Detail/Edit (local records) ---- */
 
 function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
   orcamento: Orcamento;
@@ -570,8 +812,8 @@ function CostLine({ label, value, prefix, bold, danger }: {
 
 function MarcaBadge({ marca }: { marca: Marca }) {
   const colorMap: Record<Marca, string> = {
-    Intelbras: '#43C17B', Hikvision: '#E55B5B', DSC: '#5B9BD5',
-    Viaweb: '#E3B341', Vetti: '#C077DB', 'Genérico': '#B5B5B5',
+    Intelbras: '#43C17B', Hikvision: '#E55B5B', Hilook: '#FF7043', Ezviz: '#26C6DA',
+    DSC: '#5B9BD5', JFL: '#AB47BC', PPA: '#FFA726', Viaweb: '#E3B341', 'Genérico': '#B5B5B5',
   };
   const color = colorMap[marca];
   return (

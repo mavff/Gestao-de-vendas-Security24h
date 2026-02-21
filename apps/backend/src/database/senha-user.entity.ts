@@ -16,4 +16,10 @@ export class SenhaUser {
 
   @Column({ name: 'UsuárioInativo', type: 'bit', nullable: true })
   usuarioInativo?: boolean;
+
+  @Column({ name: 'Funcionário', type: 'int', nullable: true })
+  funcionario?: number;
+
+  @Column({ name: 'AcessoCompleto', type: 'bit', nullable: true })
+  acessoCompleto?: boolean;
 }

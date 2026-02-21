@@ -8,6 +8,9 @@ export interface ProductFilters extends PaginationQuery {
   codGrupo?: number;
   codCategoria?: number;
   cancelado?: boolean;
+  /** Filtrar apenas produtos com GrupoOrçamento preenchido (padrão: true) */
+  apenasOrcamento?: boolean;
+  grupoOrcamento?: string;
 }
 
 @Injectable()
@@ -36,6 +39,16 @@ export class ProductsRepository {
       where.cancelado = filters.cancelado;
     } else {
       where.cancelado = false;
+    }
+
+    // Por padrão retorna apenas produtos do catálogo de orçamentos (com GrupoOrçamento preenchido)
+    const apenasOrcamento = filters.apenasOrcamento !== false;
+    if (apenasOrcamento) {
+      where.grupoOrcamento = filters.grupoOrcamento
+        ? filters.grupoOrcamento
+        : { not: '' };
+    } else if (filters.grupoOrcamento) {
+      where.grupoOrcamento = filters.grupoOrcamento;
     }
 
     const [items, total] = await Promise.all([

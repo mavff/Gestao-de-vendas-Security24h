@@ -7,24 +7,34 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../common/Toast';
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { role } = useAuth();
+  const { role, isAuthenticated, isLoading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const { showToast } = useToast();
   const redirected = useRef(false);
 
-  const allowed = canAccess(role, pathname);
+  const allowed = isAuthenticated && canAccess(role, pathname);
   const fallbackPath = getFallbackRouteForRole(role);
 
   useEffect(() => {
-    if (!allowed && !redirected.current) {
+    if (isLoading) return;
+
+    if (!isAuthenticated) {
+      // Não está autenticado — vai para login
+      if (!redirected.current) {
+        redirected.current = true;
+        router.replace('/login');
+      }
+      return;
+    }
+
+    if (!canAccess(role, pathname) && !redirected.current) {
       redirected.current = true;
-      showToast('Acesso negado: sem permissao para esta pagina.', 'error');
+      showToast('Acesso negado: sem permissão para esta página.', 'error');
       router.replace(fallbackPath);
     }
-  }, [allowed, fallbackPath, router, showToast]);
+  }, [isLoading, isAuthenticated, role, pathname, fallbackPath, router, showToast]);
 
-  // Reset ref when pathname changes (user navigated to a new valid page)
   useEffect(() => {
     redirected.current = false;
   }, [pathname]);

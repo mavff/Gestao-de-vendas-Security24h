@@ -15,7 +15,7 @@ export interface PaginatedResponse<T> {
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 2000;
 
 export function parsePagination(query: PaginationQuery): { skip: number; take: number; page: number; pageSize: number } {
   const page = Math.max(1, Number(query.page) || DEFAULT_PAGE);

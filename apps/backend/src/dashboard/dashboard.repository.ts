@@ -1,0 +1,184 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../database/prisma.service';
+
+export type PeriodKey = '7d' | '30d' | '90d' | 'all';
+
+const MES_NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+@Injectable()
+export class DashboardRepository {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private getDateFrom(period: PeriodKey): Date | null {
+    const daysMap: Record<PeriodKey, number | null> = { '7d': 7, '30d': 30, '90d': 90, all: null };
+    const days = daysMap[period];
+    return days ? new Date(Date.now() - days * 86_400_000) : null;
+  }
+
+  async getStats(period: PeriodKey) {
+    this.prisma.ensureConnection();
+    const dateFrom = this.getDateFrom(period);
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+
+    const orcWhere: Record<string, any> = { status: { not: 'C' } };
+    if (dateFrom) orcWhere.emissao = { gte: dateFrom };
+
+    const closuresWhere: Record<string, any> = { fechamento: { not: null }, usuario: { not: null } };
+    if (dateFrom) closuresWhere.fechamento = { gte: dateFrom };
+
+    const prospectWhere: Record<string, any> = { OR: [{ inativo: false }, { inativo: null }] };
+    if (dateFrom) prospectWhere.dataCadastro = { gte: dateFrom };
+
+    // Batch 1: parallelizable queries
+    const [funnel, bySeller, byOriginRaw, totalLeads, kpiConverted, kpiRevenue, kpiNewWeek, leadsByPeriod] =
+      await Promise.all([
+        // 1. Funil por etapa (orçamentos não cancelados)
+        this.prisma.orcamento.groupBy({
+          by: ['etapa'],
+          where: { ...orcWhere, etapa: { not: null } },
+          _count: { codInterno: true },
+          orderBy: { _count: { codInterno: 'desc' } },
+        }),
+
+        // 2. Fechamentos por usuário/vendedor
+        this.prisma.orcamento.groupBy({
+          by: ['usuario'],
+          where: closuresWhere,
+          _count: { codInterno: true },
+          orderBy: { _count: { codInterno: 'desc' } },
+          take: 10,
+        }),
+
+        // 3. Leads por origem (códigos brutos)
+        this.prisma.prospect.groupBy({
+          by: ['origem'],
+          where: { ...prospectWhere, origem: { not: null } },
+          _count: { codProspect: true },
+          orderBy: { _count: { codProspect: 'desc' } },
+          take: 8,
+        }),
+
+        // 4. KPI: total de leads ativos no período
+        this.prisma.prospect.count({ where: prospectWhere }),
+
+        // 5. KPI: leads convertidos (virou cliente)
+        this.prisma.prospect.count({
+          where: {
+            status: 'X',
+            ...(dateFrom ? { dataCadastro: { gte: dateFrom } } : {}),
+          },
+        }),
+
+        // 6. KPI: receita estimada (soma dos orçamentos não cancelados)
+        this.prisma.orcamento.aggregate({
+          where: orcWhere,
+          _sum: { totalProdutos: true, totalServicos: true },
+        }),
+
+        // 7. KPI: novos leads esta semana (fixo — sempre 7d)
+        this.prisma.prospect.count({
+          where: { dataCadastro: { gte: weekAgo }, OR: [{ inativo: false }, { inativo: null }] },
+        }),
+
+        // 8. Leads por período (agrupamento por data)
+        this.getLeadsByPeriod(period, dateFrom),
+      ]);
+
+    // Batch 2: buscar labels de origem com base nos códigos encontrados
+    const originCodes = byOriginRaw.filter((o) => o.origem != null).map((o) => o.origem as number);
+    const originLabels =
+      originCodes.length > 0
+        ? await this.prisma.dadoEntidade.findMany({
+            where: { codInterno: { in: originCodes } },
+            select: { codInterno: true, descreve: true },
+          })
+        : [];
+
+    // --- Montar resposta ---
+
+    const funnelData = funnel
+      .filter((f) => f.etapa)
+      .map((f) => ({ stage: f.etapa as string, total: f._count.codInterno }));
+
+    const closuresBySeller = bySeller
+      .filter((s) => s.usuario)
+      .map((s) => ({ seller: (s.usuario as string).trim(), closures: s._count.codInterno }));
+
+    const originMap = new Map(originLabels.map((o) => [o.codInterno, o.descreve]));
+    const leadsByOrigin = byOriginRaw
+      .filter((o) => o.origem != null)
+      .map((o) => ({
+        origin: originMap.get(o.origem as number) ?? `Código ${o.origem}`,
+        total: o._count.codProspect,
+      }));
+
+    const conversionRate =
+      totalLeads > 0 ? Math.round((kpiConverted / totalLeads) * 1000) / 10 : 0;
+
+    const revenue =
+      Number(kpiRevenue._sum.totalProdutos ?? 0) + Number(kpiRevenue._sum.totalServicos ?? 0);
+
+    return {
+      funnelData,
+      leadsByWeek: leadsByPeriod,
+      closuresBySeller,
+      leadsByOrigin,
+      kpis: {
+        totalLeads,
+        conversionRate,
+        estimatedRevenue: Math.round(revenue),
+        newLeadsThisWeek: kpiNewWeek,
+      },
+    };
+  }
+
+  private async getLeadsByPeriod(
+    period: PeriodKey,
+    dateFrom: Date | null,
+  ): Promise<{ week: string; leads: number }[]> {
+    if (period === '7d' && dateFrom) {
+      // Agrupar por dia da semana (últimos 7 dias)
+      const rows: any[] = await this.prisma.$queryRaw`
+        SELECT DATENAME(weekday, DataCadastro) as dia, COUNT(*) as leads
+        FROM Prospects
+        WHERE DataCadastro >= ${dateFrom}
+          AND (Inativo = 0 OR Inativo IS NULL)
+        GROUP BY DATENAME(weekday, DataCadastro), DATEPART(weekday, DataCadastro)
+        ORDER BY DATEPART(weekday, DataCadastro)
+      `;
+      const dayPt: Record<string, string> = {
+        Sunday: 'Dom', Monday: 'Seg', Tuesday: 'Ter',
+        Wednesday: 'Qua', Thursday: 'Qui', Friday: 'Sex', Saturday: 'Sáb',
+      };
+      return rows.map((r) => ({ week: dayPt[r.dia] ?? r.dia, leads: Number(r.leads) }));
+    }
+
+    if (period === '30d' && dateFrom) {
+      // Agrupar por semana do mês (últimos 30 dias)
+      const rows: any[] = await this.prisma.$queryRaw`
+        SELECT DATEPART(week, DataCadastro) as semana, COUNT(*) as leads
+        FROM Prospects
+        WHERE DataCadastro >= ${dateFrom}
+          AND (Inativo = 0 OR Inativo IS NULL)
+        GROUP BY DATEPART(week, DataCadastro)
+        ORDER BY semana
+      `;
+      return rows.map((r, i) => ({ week: `Sem ${i + 1}`, leads: Number(r.leads) }));
+    }
+
+    // 90d ou all — agrupar por mês (últimos 12 meses no máximo)
+    const monthFrom = period === '90d' && dateFrom ? dateFrom : new Date(Date.now() - 365 * 86_400_000);
+    const rows: any[] = await this.prisma.$queryRaw`
+      SELECT YEAR(DataCadastro) as ano, MONTH(DataCadastro) as mes, COUNT(*) as leads
+      FROM Prospects
+      WHERE DataCadastro >= ${monthFrom}
+        AND (Inativo = 0 OR Inativo IS NULL)
+      GROUP BY YEAR(DataCadastro), MONTH(DataCadastro)
+      ORDER BY ano, mes
+    `;
+    return rows.map((r) => ({
+      week: MES_NOMES[Number(r.mes) - 1],
+      leads: Number(r.leads),
+    }));
+  }
+}

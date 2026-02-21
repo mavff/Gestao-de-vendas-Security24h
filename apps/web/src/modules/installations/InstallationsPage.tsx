@@ -5,6 +5,7 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
+import { createDataSource } from '../../lib/dataSource/factory';
 import { mockEquipments, mockOrdens, mockPropostas, mockUsers } from '../../mocks/data';
 import { compressImage } from '../../services/imageUtils';
 import { loadMock, saveMock } from '../../services/mockStorage';
@@ -35,12 +36,24 @@ export function InstallationsPage() {
   );
 
   useEffect(() => {
+    // Sem API: ordens, users, propostas sempre do localStorage
     const data = loadMock('mock_ordens', mockOrdens);
     setOrdens(data);
     setUsers(loadMock('mock_users', mockUsers));
-    setEquipments(loadMock('mock_equipments', mockEquipments));
     setPropostas(loadMock('mock_propostas', mockPropostas));
     if (data.length > 0) setSelectedId(data[0].id);
+
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await createDataSource().equipment.list({ pageSize: 500 });
+        if (!cancelled) setEquipments(res.data);
+      } catch {
+        if (!cancelled) setEquipments(loadMock('mock_equipments', mockEquipments));
+      }
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => { if (ordens.length) saveMock('mock_ordens', ordens); }, [ordens]);

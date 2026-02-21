@@ -35,6 +35,13 @@ export type ProspectsQuery = ListQuery & {
   origem?: number;
 };
 
+export type OrcamentosQuery = ListQuery & {
+  status?: string;
+  vendedor?: number;
+  prospect?: number;
+  modalidade?: string;
+};
+
 export type ProductApiDto = {
   codProduto: number;
   descricao: string;
@@ -43,8 +50,10 @@ export type ProductApiDto = {
   codGrupo?: number | null;
   codCategoria?: number | null;
   preco?: number | string | null;
-  aplicacao?: string | null;
   produtoKit?: boolean | null;
+  grupoOrcamento?: string | null;
+  pontos?: number | null;
+  ncm?: string | null;
 };
 
 export type ProductKitItemApiDto = {
@@ -59,17 +68,64 @@ export type KitApiDto = ProductApiDto & {
   kitItens?: ProductKitItemApiDto[];
 };
 
+export type OrcamentoApiDto = {
+  codInterno: number;
+  numOrcamento?: string | null;
+  clienteNome?: string | null;
+  cgcCpf?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  vendedor?: number | null;
+  status?: string | null;
+  modalidade?: string | null;
+  emissao?: string | null;
+  validade?: string | null;
+  fechamento?: string | null;
+  pontos?: number | null;
+  totalProdutos?: number | null;
+  totalServicos?: number | null;
+  valorMonitoramento?: number | null;
+  etapa?: string | null;
+  probabilidade?: number | null;
+};
+
 export type ProspectApiDto = {
   codProspect: number;
   nome: string;
   email?: string | null;
+  fone1?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  endereco?: string | null;
   vendedor?: number | null;
+  usuario?: string | null;
   origem?: number | null;
+  origemDescreve?: string | null;
   status?: string | null;
   inativo?: boolean | null;
+  dataCadastro?: string | null;
+  orcamentoTotal?: number | null;
+  ultimaProbabilidade?: number | null;
+  ultimaAcaoDescricao?: string | null;
+  ultimaAcaoData?: string | null;
 };
 
-export type DataSourceEntity = 'equipment' | 'kits' | 'prospects';
+export type DashboardStats = {
+  funnelData: { stage: string; total: number }[];
+  leadsByWeek: { week: string; leads: number }[];
+  closuresBySeller: { seller: string; closures: number }[];
+  leadsByOrigin: { origin: string; total: number }[];
+  kpis: {
+    totalLeads: number;
+    conversionRate: number;
+    estimatedRevenue: number;
+    newLeadsThisWeek: number;
+  };
+};
+
+export type PeriodKey = '7d' | '30d' | '90d' | 'all';
+
+export type DataSourceEntity = 'equipment' | 'kits' | 'prospects' | 'dashboard' | 'orcamentos';
 export type DataSourceOperation = 'list' | 'getById';
 
 export class DataSourceError extends Error {

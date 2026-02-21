@@ -2,6 +2,7 @@ import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { KitsModule } from './kits/kits.module';
@@ -52,6 +53,7 @@ function buildTypeOrmModule(): DynamicModule[] {
     LookupsModule,
     ProspectsModule,
     OrcamentosModule,
+    DashboardModule,
     ...(process.env.SQL_SERVER_HOST ? [AuthModule] : []),
   ],
 })

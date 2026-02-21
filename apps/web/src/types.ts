@@ -12,7 +12,7 @@ export type Lead = {
   value: number;
   stage: LeadStage;
   responsible: string;
-  origin: 'Site' | 'Indicação' | 'Campanha' | 'WhatsApp';
+  origin: string;
   week: string;
   status: 'ativo' | 'pausado';
   notes: string[];
@@ -23,6 +23,7 @@ export type Lead = {
   endereco?: string;
   tipoLocal?: 'Residencial' | 'Comercial' | 'Condomínio' | 'Industrial';
   vendaStep?: VendaStep;
+  probabilidade?: number;
 };
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'SDR' | 'VENDEDOR' | 'TECNICO' | 'INFRA' | 'MONITOR';
@@ -63,7 +64,7 @@ export type Installation = { id: string; client: string; leadId: string; technic
 
 export type EquipmentCategory = 'Câmera' | 'Sensor' | 'Central' | 'Acessório';
 
-export type Marca = 'Intelbras' | 'Hikvision' | 'DSC' | 'Viaweb' | 'Vetti' | 'Genérico';
+export type Marca = 'Intelbras' | 'Hikvision' | 'Hilook' | 'Ezviz' | 'DSC' | 'JFL' | 'PPA' | 'Viaweb' | 'Genérico';
 
 export type KitCategoria = 'alarme_residencial' | 'alarme_comercial' | 'alarme_cftv' | 'cftv_analogico' | 'cftv_ip' | 'cftv_inteligente';
 

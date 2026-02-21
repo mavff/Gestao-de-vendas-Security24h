@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { getNavForRole } from '../../config/rbac';
 import { useAuth } from '../../contexts/AuthContext';
-import { UserRole } from '../../types';
 import { theme } from '../common/theme';
 
 const MOBILE_BREAKPOINT = 900;
@@ -145,11 +144,10 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
   );
 }
 
-const ALL_ROLES: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
 
 export function AppShell({ title, children }: { title: string; children: React.ReactNode }) {
   const pathname = usePathname();
-  const { role, setRole } = useAuth();
+  const { user, role, logout } = useAuth();
   const navItems = getNavForRole(role);
   const [isMobile, setIsMobile] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -296,31 +294,61 @@ export function AppShell({ title, children }: { title: string; children: React.R
             )}
             <h2 style={{ margin: 0, fontSize: isMobile ? 21 : 25, color: theme.text }}>{title}</h2>
           </div>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
-            style={{
-              background: theme.soft,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 999,
-              padding: '4px 10px',
-              fontSize: 11,
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Avatar com inicial */}
+            <div style={{
+              width: 30,
+              height: 30,
+              borderRadius: '50%',
+              background: `linear-gradient(135deg, ${theme.gold}44, ${theme.gold}22)`,
+              border: `1px solid ${theme.gold}66`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 13,
+              fontWeight: 700,
               color: theme.gold,
-              fontWeight: 600,
-              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
-              cursor: 'pointer',
-              appearance: 'none',
-              WebkitAppearance: 'none',
-              paddingRight: 22,
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23C8A951' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'right 8px center',
-            }}
-          >
-            {ALL_ROLES.map((r) => (
-              <option key={r} value={r} style={{ background: '#1a1a1a', color: theme.text }}>{r}</option>
-            ))}
-          </select>
+              flexShrink: 0,
+            }}>
+              {(user?.name ?? role).charAt(0).toUpperCase()}
+            </div>
+            {/* Nome e role */}
+            <div style={{ display: isMobile ? 'none' : 'grid', gap: 1 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: theme.text, lineHeight: 1.2 }}>
+                {user?.name ?? user?.username ?? '—'}
+              </span>
+              <span style={{ fontSize: 10, color: theme.gold, fontWeight: 600, letterSpacing: 0.4 }}>
+                {role}
+              </span>
+            </div>
+            {/* Botão sair */}
+            <button
+              type="button"
+              onClick={logout}
+              title="Sair"
+              style={{
+                border: `1px solid ${theme.border}`,
+                background: 'transparent',
+                color: theme.muted,
+                borderRadius: 6,
+                padding: '4px 8px',
+                fontSize: 11,
+                cursor: 'pointer',
+                letterSpacing: 0.3,
+                transition: 'color 150ms ease, border-color 150ms ease',
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = theme.danger;
+                (e.currentTarget as HTMLButtonElement).style.borderColor = theme.danger;
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = theme.muted;
+                (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
+              }}
+            >
+              Sair
+            </button>
+          </div>
         </div>
         {children}
       </main>

@@ -1,5 +1,5 @@
 import { Equipment, Kit } from '../../types';
-import { DataSourceMode, EquipmentQuery, KitsQuery, PaginatedResult, ProspectApiDto, ProspectsQuery } from './types';
+import { DashboardStats, DataSourceMode, EquipmentQuery, KitsQuery, OrcamentoApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, ProspectApiDto, ProspectsQuery } from './types';
 
 export interface IEquipmentDataSource {
   list(query?: EquipmentQuery): Promise<PaginatedResult<Equipment>>;
@@ -16,10 +16,20 @@ export interface IProspectsDataSource {
   getById(id: string | number): Promise<ProspectApiDto | null>;
 }
 
+export interface IDashboardDataSource {
+  getStats(period: PeriodKey): Promise<DashboardStats>;
+}
+
+export interface IOrcamentosDataSource {
+  list(query?: OrcamentosQuery): Promise<PaginatedResult<OrcamentoApiDto>>;
+}
+
 export type DataSourceRegistry = {
   mode: DataSourceMode;
   equipment: IEquipmentDataSource;
   kits: IKitsDataSource;
   prospects: IProspectsDataSource;
+  dashboard: IDashboardDataSource;
+  orcamentos: IOrcamentosDataSource;
 };
 
