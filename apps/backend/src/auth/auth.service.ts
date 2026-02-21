@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,7 +14,16 @@ export class AuthService {
   ) {}
 
   async login(username: string, password: string) {
-    const user = await this.usersRepository.findOne({ where: { usuario: username } });
+    let user: SenhaUser | null;
+    try {
+      user = await this.usersRepository.findOne({ where: { usuario: username } });
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('DataSource is not initialized') || msg.includes('Connection is not established') || msg.includes('Failed to connect')) {
+        throw new ServiceUnavailableException('Servidor de autenticação indisponível. Verifique a conexão com a rede da empresa.');
+      }
+      throw err;
+    }
     if (!user || user.usuarioInativo || user.senhaSis !== password) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
