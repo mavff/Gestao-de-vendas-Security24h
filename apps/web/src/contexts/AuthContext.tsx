@@ -20,8 +20,18 @@ type AuthCtx = {
 };
 
 export const TOKEN_KEY = 'sec24h_token';
-const REFRESH_KEY = 'sec24h_refresh';
-const USER_KEY = 'sec24h_user';
+const REFRESH_KEY   = 'sec24h_refresh';
+const USER_KEY      = 'sec24h_user';
+
+function apiBase() {
+  return (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001').replace(/\/+$/, '');
+}
+
+function clearStorage() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USER_KEY);
+}
 
 const VALID_ROLES: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
 function isValidRole(v: string): v is UserRole {
@@ -41,20 +51,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Restaura sessão do localStorage
+  // Restaura sessão validando o token contra o backend
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(USER_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as AuthUser;
-        if (parsed?.role && isValidRole(parsed.role)) {
-          setUser(parsed);
-        }
+    async function restoreSession() {
+      const storedRaw  = localStorage.getItem(USER_KEY);
+      const token      = localStorage.getItem(TOKEN_KEY);
+      const refresh    = localStorage.getItem(REFRESH_KEY);
+
+      // Sem dados salvos → vai para login
+      if (!storedRaw || !token) {
+        clearStorage();
+        setIsLoading(false);
+        return;
       }
-    } catch {
-      // ignora JSON inválido
+
+      let storedUser: AuthUser | null = null;
+      try {
+        const parsed = JSON.parse(storedRaw) as AuthUser;
+        if (parsed?.role && isValidRole(parsed.role)) storedUser = parsed;
+      } catch { /* JSON inválido */ }
+
+      if (!storedUser) {
+        clearStorage();
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        // 1. Testa se o access token ainda é válido
+        const meRes = await fetch(`${apiBase()}/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (meRes.ok) {
+          // Token válido — restaura sessão normalmente
+          setUser(storedUser);
+          setIsLoading(false);
+          return;
+        }
+
+        // 2. Access token expirou — tenta refresh
+        if (refresh) {
+          const refreshRes = await fetch(`${apiBase()}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: refresh }),
+          });
+
+          if (refreshRes.ok) {
+            const data = await refreshRes.json() as { accessToken: string };
+            localStorage.setItem(TOKEN_KEY, data.accessToken);
+            setUser(storedUser);
+            setIsLoading(false);
+            return;
+          }
+        }
+
+        // 3. Ambos falharam — sessão expirada, exige novo login
+        clearStorage();
+      } catch {
+        // Backend inacessível — mantém sessão local (modo offline)
+        setUser(storedUser);
+      }
+
+      setIsLoading(false);
     }
-    setIsLoading(false);
+
+    restoreSession();
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
@@ -90,9 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-    localStorage.removeItem(USER_KEY);
+    clearStorage();
     setUser(null);
   }, []);
 

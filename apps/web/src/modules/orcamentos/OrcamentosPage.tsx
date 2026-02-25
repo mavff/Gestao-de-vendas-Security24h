@@ -5,7 +5,7 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
-import { OrcamentoApiDto } from '../../lib/dataSource/types';
+import { OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockOrcamentos, mockPropostas, mockSolucoes } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
@@ -82,7 +82,8 @@ export function OrcamentosPage() {
 
   const [view, setView] = useState<ViewState>('list');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedDbOrc, setSelectedDbOrc] = useState<OrcamentoApiDto | null>(null);
+  const [selectedDbOrc, setSelectedDbOrc] = useState<OrcamentoDetalheApiDto | null>(null);
+  const [dbDetailLoading, setDbDetailLoading] = useState(false);
   const [showSolucaoModal, setShowSolucaoModal] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>('todas');
 
@@ -201,6 +202,20 @@ export function OrcamentosPage() {
     showToast('Orçamento salvo.', 'success');
   }
 
+  async function handleOpenDbOrc(orc: OrcamentoApiDto) {
+    setDbDetailLoading(true);
+    try {
+      const ds = createDataSource();
+      const detalhe = await ds.orcamentos.getById(orc.codInterno);
+      setSelectedDbOrc(detalhe ?? { ...orc, produtos: [], servicosAdicionais: [] });
+    } catch {
+      setSelectedDbOrc({ ...orc, produtos: [], servicosAdicionais: [] });
+    } finally {
+      setDbDetailLoading(false);
+    }
+    setView('db-detail');
+  }
+
   function handleGerarProposta(orc: Orcamento) {
     const propostaItens = orc.itens.map((i) => ({
       equipamentoId: i.equipmentId,
@@ -303,6 +318,10 @@ export function OrcamentosPage() {
             <div style={{ fontSize: 13, color: theme.muted, padding: '8px 0' }}>Nenhum orçamento encontrado no banco.</div>
           )}
 
+          {dbDetailLoading && (
+            <div style={{ fontSize: 12, color: theme.gold, padding: '4px 0 8px' }}>Carregando detalhes…</div>
+          )}
+
           <div style={{ display: 'grid', gap: 10 }}>
             {dbOrcamentos.map((orc) => {
               const total = (orc.totalProdutos ?? 0) + (orc.totalServicos ?? 0);
@@ -310,7 +329,7 @@ export function OrcamentosPage() {
               return (
                 <div
                   key={orc.codInterno}
-                  onClick={() => { setSelectedDbOrc(orc); setView('db-detail'); }}
+                  onClick={() => handleOpenDbOrc(orc)}
                   style={{
                     background: theme.panel,
                     border: `1px solid ${theme.border}`,
@@ -427,18 +446,22 @@ export function OrcamentosPage() {
   );
 }
 
-/* ---- DB Orçamento Detail (read-only) ---- */
+/* ---- DB Orçamento Detail (read-only, com itens) ---- */
 
-function OrcamentoDbDetail({ orc, onBack }: { orc: OrcamentoApiDto; onBack: () => void }) {
+function OrcamentoDbDetail({ orc, onBack }: { orc: OrcamentoDetalheApiDto; onBack: () => void }) {
   const totalEquip = orc.totalProdutos ?? 0;
   const totalServ = orc.totalServicos ?? 0;
   const totalGeral = totalEquip + totalServ;
+  const mensalidade = orc.valorMonitoramento ?? 0;
   const statusInfo = DB_STATUS_MAP[orc.status ?? ''] ?? { label: orc.status ?? '—', color: theme.muted };
 
+  const MODALIDADE_LABELS: Record<string, string> = { V: 'Venda', L: 'Locação/Comodato', R: 'Rastreamento' };
+
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ maxWidth: 760 }}>
       {/* Header */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+        <button onClick={onBack} style={{ ...btnSoft, padding: '5px 10px', fontSize: 12 }}>← Voltar</button>
         <strong style={{ fontSize: 16 }}>{orc.clienteNome || '—'}</strong>
         <span style={{
           fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
@@ -460,37 +483,129 @@ function OrcamentoDbDetail({ orc, onBack }: { orc: OrcamentoApiDto; onBack: () =
       {/* Info grid */}
       <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
         <h4 style={{ margin: '0 0 12px', fontSize: 13, color: theme.gold }}>Dados do Orçamento</h4>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
           <InfoRow label="Cliente" value={orc.clienteNome} />
           <InfoRow label="CPF/CNPJ" value={orc.cgcCpf} />
-          <InfoRow label="Cidade" value={[orc.cidade, orc.uf].filter(Boolean).join(' — ')} />
-          <InfoRow label="Modalidade" value={orc.modalidade} />
+          <InfoRow label="Cidade/UF" value={[orc.cidade, orc.uf].filter(Boolean).join(' — ')} />
+          <InfoRow label="Modalidade" value={orc.modalidade ? (MODALIDADE_LABELS[orc.modalidade] ?? orc.modalidade) : null} />
           <InfoRow label="Etapa" value={orc.etapa} />
           <InfoRow label="Probabilidade" value={orc.probabilidade != null ? `${orc.probabilidade}%` : null} />
           <InfoRow label="Emissão" value={formatDate(orc.emissao)} />
           <InfoRow label="Validade" value={formatDate(orc.validade)} />
           {orc.fechamento && <InfoRow label="Fechamento" value={formatDate(orc.fechamento)} />}
-          {orc.pontos != null && <InfoRow label="Pontos" value={String(orc.pontos)} />}
+          {orc.pontos != null && <InfoRow label="Pontos monitorados" value={String(orc.pontos)} />}
         </div>
       </div>
 
-      {/* Totals */}
+      {/* Tabela de produtos */}
+      {orc.produtos.length > 0 && (
+        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <h4 style={{ margin: '0 0 10px', fontSize: 13, color: theme.gold }}>
+            Produtos / Equipamentos ({orc.produtos.length} itens)
+          </h4>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 460 }}>
+              <thead>
+                <tr>
+                  {['Descrição', 'Qtd', 'Unit.', 'Total'].map((h) => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orc.produtos.map((p) => {
+                  const qtd = Number(p.quantidade ?? 0);
+                  const unit = Number(p.liquido ?? p.unitario ?? 0); // liquido = com desconto
+                  const tot = Number(p.total ?? 0);
+                  return (
+                    <tr key={p.codInterno}>
+                      <td style={tdStyle}>{p.descricao || `Produto ${p.codProduto}`}</td>
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>{qtd}</td>
+                      <td style={tdStyle}>R$ {formatCurrency(unit)}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>R$ {formatCurrency(tot || unit * qtd)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={3} style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontSize: 12, color: theme.muted }}>
+                    Subtotal produtos
+                  </td>
+                  <td style={{ ...tdStyle, fontWeight: 700, color: theme.text }}>
+                    R$ {formatCurrency(totalEquip)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tabela de serviços (mão de obra, mensalidades etc.) */}
+      {orc.servicosAdicionais.length > 0 && (
+        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+          <h4 style={{ margin: '0 0 10px', fontSize: 13, color: theme.gold }}>
+            Serviços Adicionais ({orc.servicosAdicionais.length} itens)
+          </h4>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Serviço', 'Qtd', 'Valor Mensal'].map((h) => (
+                  <th key={h} style={thStyle}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {orc.servicosAdicionais.map((s) => {
+                const qtd = Number(s.quantidade ?? 1);
+                const val = Number(s.valorServico ?? 0);
+                return (
+                  <tr key={s.codInterno}>
+                    <td style={tdStyle}>{s.observacoes || `Serviço ${s.codServico ?? s.codInterno}`}</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>{qtd}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>R$ {formatCurrency(val * qtd)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={2} style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontSize: 12, color: theme.muted }}>
+                  Subtotal serviços
+                </td>
+                <td style={{ ...tdStyle, fontWeight: 700, color: theme.text }}>
+                  R$ {formatCurrency(totalServ)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {/* Resumo financeiro final */}
       <div style={{
         background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))',
         border: `2px solid ${theme.gold}44`,
         borderRadius: 12, padding: 16, marginBottom: 14,
       }}>
         <h4 style={{ margin: '0 0 12px', fontSize: 13, color: theme.gold }}>Resumo Financeiro</h4>
-        <DbCostLine label="Total Produtos" value={totalEquip} />
-        <DbCostLine label="Total Serviços" value={totalServ} />
-        {orc.valorMonitoramento != null && orc.valorMonitoramento > 0 && (
-          <DbCostLine label="Monitoramento (mensal)" value={orc.valorMonitoramento} />
-        )}
-        <div style={{ borderTop: `2px solid ${theme.gold}`, margin: '10px 0 6px' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: theme.gold }}>TOTAL GERAL</span>
-          <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(totalGeral)}</span>
+        {totalEquip > 0 && <DbCostLine label="Equipamentos" value={totalEquip} />}
+        {totalServ > 0 && <DbCostLine label="Serviços / Mão de obra" value={totalServ} />}
+        <div style={{ borderTop: `2px solid ${theme.gold}`, margin: '10px 0 8px' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold }}>TOTAL GERAL</span>
+          <span style={{ fontSize: 24, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(totalGeral)}</span>
         </div>
+        {mensalidade > 0 && (
+          <>
+            <div style={{ borderTop: `1px solid ${theme.border}`, margin: '4px 0 8px' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: theme.muted }}>Mensalidade de monitoramento</span>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>R$ {formatCurrency(mensalidade)}<span style={{ fontSize: 11, color: theme.muted }}>/mês</span></span>
+            </div>
+          </>
+        )}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

@@ -40,6 +40,7 @@ model Produto {
   // Relations
   kitItens           ProdutoKit[] @relation("KitMaster")
   kitPertence        ProdutoKit[] @relation("KitItem")
+  preOrcamentosItens PreOrcamentoProduto[]
 
   @@map("Produtos")
 }
@@ -301,6 +302,44 @@ model OrdemServico {
   unidade         Int?      @map("Unidade")
 
   @@map("OSs")
+}
+
+// ============================================================
+// PréOrçamento (Pre-budget templates)
+// ============================================================
+
+model PreOrcamento {
+  codInterno          Int      @id @map("CodInterno")
+  descricao           String   @map("Descrição") @db.NVarChar(200)
+  unidade             Int?     @map("Unidade")
+  observacoes         String?  @map("Observações") @db.NVarChar(4000)
+  valorMensalVenda    Decimal? @map("ValorMensalVenda") @db.Decimal(18, 2)
+  valorMensalComodato Decimal? @map("ValorMensalComodato") @db.Decimal(18, 2)
+  ampliacao           Boolean? @map("Ampliação")
+  limitePontos        Int?     @map("LimitePontos")
+  valorPontoAdicional Decimal? @map("ValorPontoAdicional") @db.Decimal(18, 2)
+  valorCrea           Decimal? @map("ValorCrea") @db.Decimal(18, 2)
+
+  // Relations
+  produtos            PreOrcamentoProduto[]
+
+  @@map("PréOrçamento")
+}
+
+model PreOrcamentoProduto {
+  codInterno      Int      @id @map("CodInterno")
+  codPreOrcamento Int      @map("CodPréOrçamento")
+  codProduto      Int?     @map("CodProduto")
+  descricao       String?  @map("Descrição") @db.NVarChar(200)
+  quantidade      Decimal? @map("Quantidade") @db.Decimal(18, 2)
+  grupoOrcamento  String?  @map("GrupoOrçamento") @db.NVarChar(50)
+  orcOrdem        Int?     @map("OrcOrdem")
+
+  // Relations
+  preOrcamento    PreOrcamento @relation(fields: [codPreOrcamento], references: [codInterno], onDelete: NoAction, onUpdate: NoAction)
+  produto         Produto?     @relation(fields: [codProduto], references: [codProduto], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("PréOrçamentoProdutos")
 }
 
 // ============================================================

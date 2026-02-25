@@ -29,6 +29,7 @@ const routes: RouteConfig[] = [
   { path: '/instalacoes', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Ordens de Serviço', showInSidebar: true },
   { path: '/equipamentos', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Equipamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'INFRA'] },
   { path: '/kits', roles: ['ADMIN', 'INFRA', 'VENDEDOR'], label: 'Kits', showInSidebar: true, sidebarRoles: ['ADMIN', 'INFRA'] },
+  { path: '/modelos', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR'], label: 'Modelos de Orçamento', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'VENDEDOR'] },
   { path: '/usuarios', roles: ['ADMIN', 'INFRA'], label: 'Usuários', showInSidebar: true },
   { path: '/missoes', roles: allRoles, label: 'Missões', showInSidebar: true },
   { path: '/login', roles: allRoles },

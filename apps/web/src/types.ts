@@ -109,7 +109,7 @@ export type Equipment = {
 export type Kit = {
   id: string;
   name: string;
-  items: { equipmentId: string; quantity: number }[];
+  items: { equipmentId: string; quantity: number; itemName?: string; unitPrice?: number }[];
   linkedLeadId?: string;
   marca?: Marca;
   categoria?: KitCategoria;

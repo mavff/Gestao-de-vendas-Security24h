@@ -9,6 +9,7 @@ import { HealthModule } from './health/health.module';
 import { KitsModule } from './kits/kits.module';
 import { LookupsModule } from './lookups/lookups.module';
 import { OrcamentosModule } from './orcamentos/orcamentos.module';
+import { PreOrcamentosModule } from './pre-orcamentos/pre-orcamentos.module';
 import { ProductsModule } from './products/products.module';
 import { ProspectsModule } from './prospects/prospects.module';
 import { SenhaUser } from './database/senha-user.entity';
@@ -87,6 +88,7 @@ function buildTypeOrmModule(): DynamicModule[] {
     LookupsModule,
     ProspectsModule,
     OrcamentosModule,
+    PreOrcamentosModule,
     DashboardModule,
     ...(process.env.SQL_SERVER_HOST ? [AuthModule] : []),
   ],

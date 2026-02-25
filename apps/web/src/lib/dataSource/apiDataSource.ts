@@ -1,6 +1,6 @@
 import { apiClient, ApiClientError, ApiMeta } from '../apiClient';
 import { Equipment, Kit } from '../../types';
-import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IProspectsDataSource } from './interfaces';
+import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource } from './interfaces';
 import {
   DashboardStats,
   DataSourceEntity,
@@ -10,9 +10,12 @@ import {
   KitApiDto,
   KitsQuery,
   OrcamentoApiDto,
+  OrcamentoDetalheApiDto,
   OrcamentosQuery,
   PaginatedResult,
   PeriodKey,
+  PreOrcamentoApiDto,
+  PreOrcamentosQuery,
   ProductApiDto,
   ProspectApiDto,
   ProspectsQuery,
@@ -175,14 +178,92 @@ class ApiDashboardDataSource implements IDashboardDataSource {
   }
 }
 
+/** Prisma serializa Decimal(18,2) como string — converte para number na borda da API. */
+function parseOrcamentoDecimals(orc: OrcamentoApiDto): OrcamentoApiDto {
+  return {
+    ...orc,
+    totalProdutos: orc.totalProdutos != null ? Number(orc.totalProdutos) : null,
+    totalServicos: orc.totalServicos != null ? Number(orc.totalServicos) : null,
+    valorMonitoramento: orc.valorMonitoramento != null ? Number(orc.valorMonitoramento) : null,
+    probabilidade: orc.probabilidade != null ? Number(orc.probabilidade) : null,
+  };
+}
+
+function parseOrcamentoDetalhe(orc: OrcamentoDetalheApiDto): OrcamentoDetalheApiDto {
+  return {
+    ...parseOrcamentoDecimals(orc),
+    produtos: (orc.produtos ?? []).map((p) => ({
+      ...p,
+      quantidade: p.quantidade != null ? Number(p.quantidade) : null,
+      unitario: p.unitario != null ? Number(p.unitario) : null,
+      total: p.total != null ? Number(p.total) : null,
+      liquido: p.liquido != null ? Number(p.liquido) : null,
+    })),
+    servicosAdicionais: (orc.servicosAdicionais ?? []).map((s) => ({
+      ...s,
+      valorServico: s.valorServico != null ? Number(s.valorServico) : null,
+      quantidade: s.quantidade != null ? Number(s.quantidade) : null,
+    })),
+  };
+}
+
 class ApiOrcamentosDataSource implements IOrcamentosDataSource {
   async list(query: OrcamentosQuery = {}): Promise<PaginatedResult<OrcamentoApiDto>> {
     try {
       const response = await apiClient.get<OrcamentoApiDto[]>('/orcamentos', { query });
       const meta = normalizeMeta(response.meta, query.page, query.pageSize, response.data.length);
-      return { data: response.data, meta };
+      return { data: response.data.map(parseOrcamentoDecimals), meta };
     } catch (error) {
       throw createApiDataSourceError({ entity: 'orcamentos', operation: 'list', cause: error });
+    }
+  }
+
+  async getById(id: number): Promise<OrcamentoDetalheApiDto | null> {
+    try {
+      const response = await apiClient.get<OrcamentoDetalheApiDto>(`/orcamentos/${id}`);
+      return parseOrcamentoDetalhe(response.data);
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 404) return null;
+      throw createApiDataSourceError({ entity: 'orcamentos', operation: 'getById', cause: error });
+    }
+  }
+}
+
+function parsePreOrcamentoDecimals(o: PreOrcamentoApiDto): PreOrcamentoApiDto {
+  return {
+    ...o,
+    valorMensalVenda: o.valorMensalVenda != null ? Number(o.valorMensalVenda) : null,
+    valorMensalComodato: o.valorMensalComodato != null ? Number(o.valorMensalComodato) : null,
+    valorPontoAdicional: o.valorPontoAdicional != null ? Number(o.valorPontoAdicional) : null,
+    valorCrea: o.valorCrea != null ? Number(o.valorCrea) : null,
+    produtos: (o.produtos ?? []).map((p) => ({
+      ...p,
+      quantidade: p.quantidade != null ? Number(p.quantidade) : null,
+      produto: p.produto
+        ? { ...p.produto, preco: p.produto.preco != null ? Number(p.produto.preco) : null }
+        : null,
+    })),
+  };
+}
+
+class ApiPreOrcamentosDataSource implements IPreOrcamentosDataSource {
+  async list(query: PreOrcamentosQuery = {}): Promise<PaginatedResult<PreOrcamentoApiDto>> {
+    try {
+      const response = await apiClient.get<PreOrcamentoApiDto[]>('/pre-orcamentos', { query });
+      const meta = normalizeMeta(response.meta, query.page, query.pageSize, response.data.length);
+      return { data: response.data.map(parsePreOrcamentoDecimals), meta };
+    } catch (error) {
+      throw createApiDataSourceError({ entity: 'preOrcamentos', operation: 'list', cause: error });
+    }
+  }
+
+  async getById(id: number): Promise<PreOrcamentoApiDto | null> {
+    try {
+      const response = await apiClient.get<PreOrcamentoApiDto>(`/pre-orcamentos/${id}`);
+      return parsePreOrcamentoDecimals(response.data);
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 404) return null;
+      throw createApiDataSourceError({ entity: 'preOrcamentos', operation: 'getById', cause: error });
     }
   }
 }
@@ -195,6 +276,7 @@ export function createApiDataSource(): DataSourceRegistry {
     prospects: new ApiProspectsDataSource(),
     dashboard: new ApiDashboardDataSource(),
     orcamentos: new ApiOrcamentosDataSource(),
+    preOrcamentos: new ApiPreOrcamentosDataSource(),
   };
 }
 

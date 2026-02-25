@@ -2,15 +2,18 @@ import { Equipment, Kit, Lead } from '../../types';
 import { mockEquipments, mockKits, mockLeads } from '../../mocks/data';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
 import { loadMock } from '../../services/mockStorage';
-import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IProspectsDataSource } from './interfaces';
+import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource } from './interfaces';
 import {
   DashboardStats,
   EquipmentQuery,
   KitsQuery,
   OrcamentoApiDto,
+  OrcamentoDetalheApiDto,
   OrcamentosQuery,
   PaginatedResult,
   PeriodKey,
+  PreOrcamentoApiDto,
+  PreOrcamentosQuery,
   ProspectApiDto,
   ProspectsQuery,
   paginateArray,
@@ -100,6 +103,18 @@ class MockOrcamentosDataSource implements IOrcamentosDataSource {
   async list(query: OrcamentosQuery = {}): Promise<PaginatedResult<OrcamentoApiDto>> {
     return paginateArray([], query.page, query.pageSize);
   }
+  async getById(_id: number): Promise<OrcamentoDetalheApiDto | null> {
+    return null;
+  }
+}
+
+class MockPreOrcamentosDataSource implements IPreOrcamentosDataSource {
+  async list(query: PreOrcamentosQuery = {}): Promise<PaginatedResult<PreOrcamentoApiDto>> {
+    return paginateArray([], query.page, query.pageSize);
+  }
+  async getById(_id: number): Promise<PreOrcamentoApiDto | null> {
+    return null;
+  }
 }
 
 export function createMockDataSource(): DataSourceRegistry {
@@ -110,6 +125,7 @@ export function createMockDataSource(): DataSourceRegistry {
     prospects: new MockProspectsDataSource(),
     dashboard: new MockDashboardDataSource(),
     orcamentos: new MockOrcamentosDataSource(),
+    preOrcamentos: new MockPreOrcamentosDataSource(),
   };
 }
 

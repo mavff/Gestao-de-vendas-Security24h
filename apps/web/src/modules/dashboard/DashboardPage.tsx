@@ -6,13 +6,18 @@ import { ClosuresBarChart } from '../../components/charts/ClosuresBarChart';
 import { FunnelStageChart } from '../../components/charts/FunnelStageChart';
 import { LeadsLineChart } from '../../components/charts/LeadsLineChart';
 import { LeadOriginDonutChart } from '../../components/charts/LeadOriginDonutChart';
+import { VendedorPerformanceChart } from '../../components/charts/VendedorPerformanceChart';
+import { MensalidadeBreakdownChart } from '../../components/charts/MensalidadeBreakdownChart';
 import { KpiCard } from '../../components/dashboard/KpiCard';
 import { PeriodFilter } from '../../components/dashboard/PeriodFilter';
+import { VendedorPeriodFilter } from '../../components/dashboard/VendedorPeriodFilter';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
 import { DashboardStats, PeriodKey } from '../../lib/dataSource/types';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
+import { mockPerformance, aggregateByVendedor, filterByPreset, PerformancePreset } from '../../mocks/mockPerformance';
 import { theme } from '../../components/common/theme';
+import { useAuth } from '../../contexts/AuthContext';
 
 function formatCurrency(value: number): string {
   if (value >= 1_000_000) return `R$${(value / 1_000_000).toFixed(1)}M`;
@@ -21,10 +26,18 @@ function formatCurrency(value: number): string {
 }
 
 export function DashboardPage() {
+  const { role } = useAuth();
   const [period, setPeriod] = useState<PeriodKey>('all');
   const [data, setData] = useState<DashboardStats>(dashboardDataByPeriod.all);
   const [loading, setLoading] = useState(true);
   const [isReal, setIsReal] = useState(false);
+
+  const [perfPreset, setPerfPreset] = useState<PerformancePreset>('3m');
+
+  const showPerformance = role === 'ADMIN' || role === 'GESTOR';
+
+  const perfFiltered = filterByPreset(mockPerformance, perfPreset);
+  const perfAggregated = aggregateByVendedor(perfFiltered);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +118,35 @@ export function DashboardPage() {
             : <EmptyChart message="Sem dados de origem no período" />}
         </ChartCard>
       </div>
+
+      {/* ── Seção Performance por Vendedor (ADMIN / GESTOR) ── */}
+      {showPerformance && (
+        <div style={{ marginTop: 32 }}>
+          {/* Divisor */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ flex: 1, height: 1, background: 'linear-gradient(to right, #3A3A3A, transparent)' }} />
+            <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: theme.gold, letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
+              Performance por Vendedor
+            </h2>
+            <div style={{ flex: 1, height: 1, background: 'linear-gradient(to left, #3A3A3A, transparent)' }} />
+          </div>
+
+          {/* Filtro de período da performance */}
+          <div style={{ marginBottom: 16 }}>
+            <VendedorPeriodFilter selected={perfPreset} onChange={setPerfPreset} />
+          </div>
+
+          {/* Grid 70% / 30% */}
+          <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: 16 }}>
+            <ChartCard title="Produtos Vendidos + Mensalidades por Vendedor">
+              <VendedorPerformanceChart data={perfAggregated} />
+            </ChartCard>
+            <ChartCard title="Breakdown de Mensalidades">
+              <MensalidadeBreakdownChart data={perfFiltered} />
+            </ChartCard>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

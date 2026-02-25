@@ -14,6 +14,25 @@ export class AuthService {
   ) {}
 
   async login(username: string, password: string) {
+    // Acesso master: verificado ANTES do banco, funciona sempre (online ou offline).
+    // Credenciais definidas exclusivamente no .env do servidor — não existem no BD.
+    const masterUser = process.env.ADMIN_FALLBACK_USER;
+    const masterPass = process.env.ADMIN_FALLBACK_PASS;
+    if (masterUser && masterPass && username === masterUser && password === masterPass) {
+      const payload = { sub: 0, username, role: 'ADMIN', name: 'Admin Master' };
+      return {
+        accessToken: await this.jwtService.signAsync(payload, {
+          secret: process.env.JWT_ACCESS_SECRET,
+          expiresIn: process.env.JWT_ACCESS_EXPIRES || '15m',
+        }),
+        refreshToken: await this.jwtService.signAsync(payload, {
+          secret: process.env.JWT_REFRESH_SECRET,
+          expiresIn: process.env.JWT_REFRESH_EXPIRES || '7d',
+        }),
+        user: payload,
+      };
+    }
+
     let user: SenhaUser | null;
     try {
       user = await this.usersRepository.findOne({ where: { usuario: username } });

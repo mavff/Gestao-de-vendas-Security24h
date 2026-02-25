@@ -17,7 +17,6 @@ export class KitsRepository {
     const { skip, take, page, pageSize } = parsePagination(filters);
     const where: Record<string, any> = {
       produtoKit: true,
-      cancelado: false,
     };
 
     if (filters.q) {

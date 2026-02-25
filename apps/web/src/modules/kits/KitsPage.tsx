@@ -33,37 +33,57 @@ export function KitsPage() {
 
   const [kits, setKits] = useState<Kit[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [filterMarca, setFilterMarca] = useState<Marca | 'todas'>('todas');
 
+  // Detail view state
+  const [viewKit, setViewKit] = useState<Kit | null>(null);
+  const [localQtds, setLocalQtds] = useState<Record<string, number>>({});
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      setLoading(true);
       const ds = createDataSource();
       const [kitsRes, eqRes] = await Promise.allSettled([
-        ds.kits.list({ pageSize: 200 }),
+        ds.kits.list({ pageSize: 500 }),
         ds.equipment.list({ pageSize: 500 }),
       ]);
       if (cancelled) return;
       setKits(kitsRes.status === 'fulfilled' ? kitsRes.value.data : loadMock('mock_kits', mockKits));
       setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
+      setLoading(false);
     }
     load();
     return () => { cancelled = true; };
   }, []);
+
   useEffect(() => { if (kits.length) saveMock('mock_kits', kits); }, [kits]);
 
   function eqName(id: string) {
     return equipments.find((e) => e.id === id)?.name ?? id;
   }
 
-  function eqPrice(id: string) {
-    return equipments.find((e) => e.id === id)?.price ?? 0;
+  function itemName(item: Kit['items'][0]) {
+    return item.itemName || eqName(item.equipmentId);
+  }
+
+  function itemUnitPrice(item: Kit['items'][0]) {
+    if (item.unitPrice != null) return item.unitPrice;
+    return equipments.find((e) => e.id === item.equipmentId)?.price ?? 0;
   }
 
   function kitTotal(kit: Kit) {
-    return kit.items.reduce((s, i) => s + eqPrice(i.equipmentId) * i.quantity, 0);
+    return kit.items.reduce((s, i) => s + itemUnitPrice(i) * i.quantity, 0);
+  }
+
+  function openDetail(kit: Kit) {
+    setViewKit(kit);
+    const qtds: Record<string, number> = {};
+    kit.items.forEach((i) => { qtds[i.equipmentId] = i.quantity; });
+    setLocalQtds(qtds);
   }
 
   function handleSave(kit: Kit) {
@@ -91,7 +111,6 @@ export function KitsPage() {
   return (
     <AppShell title={canWrite ? 'Kits' : 'Catálogo de Kits'}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        {/* Marca filter */}
         <button onClick={() => setFilterMarca('todas')} style={{ ...filterBtnStyle, ...(filterMarca === 'todas' ? filterBtnActive : {}) }}>Todas</button>
         {marcas.map((m) => (
           <button key={m} onClick={() => setFilterMarca(m)} style={{ ...filterBtnStyle, ...(filterMarca === m ? { background: marcaColors[m] + '22', borderColor: marcaColors[m], color: marcaColors[m], fontWeight: 700 } : {}) }}>
@@ -104,7 +123,11 @@ export function KitsPage() {
         )}
       </div>
 
-      {filtered.length === 0 && (
+      {loading && (
+        <div style={{ textAlign: 'center', color: theme.muted, padding: 40 }}>Carregando kits...</div>
+      )}
+
+      {!loading && filtered.length === 0 && (
         <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 32, textAlign: 'center', color: theme.muted }}>
           Nenhum kit {filterMarca !== 'todas' ? `para ${filterMarca}` : 'cadastrado'}.
         </div>
@@ -112,17 +135,33 @@ export function KitsPage() {
 
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
         {filtered.map((kit) => {
-          const mColor = kit.marca ? marcaColors[kit.marca] : theme.muted;
+          const mColor = kit.marca ? marcaColors[kit.marca] : theme.gold;
+          const total = kitTotal(kit);
           return (
-            <div key={kit.id} style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14 }}>
+            <div
+              key={kit.id}
+              onClick={() => openDetail(kit)}
+              style={{
+                background: theme.panel,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 10,
+                padding: 14,
+                cursor: 'pointer',
+                transition: 'border-color 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = theme.gold + '66')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = theme.border)}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <strong style={{ fontSize: 15 }}>{kit.name}</strong>
                   {kit.marca && (
                     <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: mColor + '22', color: mColor, border: `1px solid ${mColor}44` }}>{kit.marca}</span>
                   )}
                 </div>
-                <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold, whiteSpace: 'nowrap' }}>R$ {kitTotal(kit).toLocaleString('pt-BR')}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold, whiteSpace: 'nowrap', marginLeft: 8 }}>
+                  R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
               </div>
               {kit.categoria && (
                 <div style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>{KIT_CATEGORIA_LABELS[kit.categoria]}</div>
@@ -130,26 +169,55 @@ export function KitsPage() {
               {kit.descricao && (
                 <div style={{ fontSize: 12, color: theme.muted, marginBottom: 8, lineHeight: 1.4 }}>{kit.descricao}</div>
               )}
-              <div style={{ display: 'grid', gap: 4 }}>
-                {kit.items.map((item) => (
-                  <div key={item.equipmentId} style={{ fontSize: 13, color: theme.text }}>
-                    {item.quantity}x {eqName(item.equipmentId)}
-                    <span style={{ color: theme.muted }}> — R$ {(eqPrice(item.equipmentId) * item.quantity).toLocaleString('pt-BR')}</span>
+              <div style={{ display: 'grid', gap: 3, marginBottom: 8 }}>
+                {kit.items.slice(0, 5).map((item) => (
+                  <div key={item.equipmentId} style={{ fontSize: 12, color: theme.muted, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{item.quantity}× {itemName(item)}</span>
+                    <span>R$ {(itemUnitPrice(item) * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                   </div>
                 ))}
+                {kit.items.length > 5 && (
+                  <div style={{ fontSize: 11, color: theme.muted }}>+ {kit.items.length - 5} itens...</div>
+                )}
               </div>
-              {canWrite && (
-                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                  <button onClick={() => { setEditId(kit.id); setModalOpen(true); }} style={btnSmall}>Editar</button>
-                  <button onClick={() => handleDelete(kit.id)} style={{ ...btnSmall, borderColor: theme.danger, color: theme.danger }}>Excluir</button>
-                </div>
-              )}
+
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                <span style={{ flex: 1, fontSize: 11, color: theme.muted }}>Clique para simular quantidades</span>
+                {canWrite && (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditId(kit.id); setModalOpen(true); }}
+                      style={btnSmall}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(kit.id); }}
+                      style={{ ...btnSmall, borderColor: theme.danger, color: theme.danger }}
+                    >
+                      Excluir
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
 
-      {/* Modal */}
+      {/* Detail / Simulation Modal */}
+      {viewKit && (
+        <KitDetailModal
+          kit={viewKit}
+          localQtds={localQtds}
+          setLocalQtds={setLocalQtds}
+          itemName={itemName}
+          itemUnitPrice={itemUnitPrice}
+          onClose={() => setViewKit(null)}
+        />
+      )}
+
+      {/* Edit form modal (ADMIN only) */}
       {modalOpen && (
         <KitFormModal
           existing={editId ? kits.find((k) => k.id === editId) ?? null : null}
@@ -162,7 +230,135 @@ export function KitsPage() {
   );
 }
 
-/* ---- Kit form modal ---- */
+/* ---- Kit Detail / Simulation Modal ---- */
+
+function KitDetailModal({
+  kit,
+  localQtds,
+  setLocalQtds,
+  itemName,
+  itemUnitPrice,
+  onClose,
+}: {
+  kit: Kit;
+  localQtds: Record<string, number>;
+  setLocalQtds: (q: Record<string, number>) => void;
+  itemName: (item: Kit['items'][0]) => string;
+  itemUnitPrice: (item: Kit['items'][0]) => number;
+  onClose: () => void;
+}) {
+  function changeQty(equipmentId: string, delta: number) {
+    const current = localQtds[equipmentId] ?? 1;
+    const next = Math.max(0, current + delta);
+    setLocalQtds({ ...localQtds, [equipmentId]: next });
+  }
+
+  function resetQtds() {
+    const qtds: Record<string, number> = {};
+    kit.items.forEach((i) => { qtds[i.equipmentId] = i.quantity; });
+    setLocalQtds(qtds);
+  }
+
+  const total = kit.items.reduce((s, item) => {
+    const qty = localQtds[item.equipmentId] ?? item.quantity;
+    return s + itemUnitPrice(item) * qty;
+  }, 0);
+
+  const hasChanges = kit.items.some((i) => (localQtds[i.equipmentId] ?? i.quantity) !== i.quantity);
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', zIndex: 50 }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 24, width: 560, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h3 style={{ margin: 0, color: theme.gold, fontSize: 18 }}>{kit.name}</h3>
+            {kit.descricao && <div style={{ fontSize: 13, color: theme.muted, marginTop: 4 }}>{kit.descricao}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: theme.muted, fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
+        </div>
+
+        {/* Hint */}
+        <div style={{ background: 'rgba(200,169,81,0.08)', border: `1px solid ${theme.gold}33`, borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 12, color: theme.muted }}>
+          Ajuste as quantidades abaixo para simular o preço para o cliente. As alterações são temporárias.
+        </div>
+
+        {/* Items table */}
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 4 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Produto</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>Unit.</th>
+              <th style={{ ...thStyle, textAlign: 'center' }}>Qtd.</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {kit.items.map((item) => {
+              const qty = localQtds[item.equipmentId] ?? item.quantity;
+              const unit = itemUnitPrice(item);
+              const sub = unit * qty;
+              const name = itemName(item);
+              const isZero = qty === 0;
+              return (
+                <tr key={item.equipmentId} style={{ opacity: isZero ? 0.4 : 1 }}>
+                  <td style={tdStyle}>{name}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', color: theme.muted, whiteSpace: 'nowrap' }}>
+                    R$ {unit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <button
+                        onClick={() => changeQty(item.equipmentId, -1)}
+                        style={qtyBtn}
+                        disabled={qty === 0}
+                      >−</button>
+                      <span style={{ minWidth: 24, textAlign: 'center', fontWeight: 600, fontSize: 14 }}>{qty}</span>
+                      <button
+                        onClick={() => changeQty(item.equipmentId, +1)}
+                        style={qtyBtn}
+                      >+</button>
+                    </div>
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    R$ {sub.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        {/* Total */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderTop: `2px solid ${theme.gold}44`, marginTop: 8 }}>
+          <div>
+            <span style={{ fontSize: 14, color: theme.muted }}>Total estimado</span>
+            {hasChanges && (
+              <span style={{ marginLeft: 10, fontSize: 11, color: theme.gold, border: `1px solid ${theme.gold}44`, borderRadius: 6, padding: '2px 7px' }}>modificado</span>
+            )}
+          </div>
+          <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>
+            R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </span>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          {hasChanges && (
+            <button onClick={resetQtds} style={btnSoft}>Resetar qtds</button>
+          )}
+          <div style={{ flex: 1 }} />
+          <button onClick={onClose} style={btnGold}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Kit form modal (ADMIN) ---- */
 
 function KitFormModal({ existing, equipments, onSave, onCancel }: {
   existing: Kit | null;
@@ -185,7 +381,7 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
   const total = useMemo(() =>
     items.reduce((s, i) => {
       const eq = equipments.find((e) => e.id === i.equipmentId);
-      return s + (eq?.price ?? 0) * i.quantity;
+      return s + (eq?.price ?? i.unitPrice ?? 0) * i.quantity;
     }, 0),
   [items, equipments]);
 
@@ -273,12 +469,15 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
             <tbody>
               {items.map((item) => {
                 const eq = equipments.find((e) => e.id === item.equipmentId);
+                const price = eq?.price ?? item.unitPrice ?? 0;
                 return (
                   <tr key={item.equipmentId}>
-                    <td style={tdStyle}>{eq?.name ?? item.equipmentId}</td>
+                    <td style={tdStyle}>{eq?.name ?? item.itemName ?? item.equipmentId}</td>
                     <td style={tdStyle}>{item.quantity}</td>
-                    <td style={tdStyle}>R$ {((eq?.price ?? 0) * item.quantity).toLocaleString('pt-BR')}</td>
-                    <td style={tdStyle}><button onClick={() => removeItem(item.equipmentId)} style={{ background: 'transparent', border: `1px solid ${theme.danger}`, borderRadius: 6, color: theme.danger, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}>x</button></td>
+                    <td style={tdStyle}>R$ {(price * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td style={tdStyle}>
+                      <button onClick={() => removeItem(item.equipmentId)} style={{ background: 'transparent', border: `1px solid ${theme.danger}`, borderRadius: 6, color: theme.danger, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}>x</button>
+                    </td>
                   </tr>
                 );
               })}
@@ -288,7 +487,7 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${theme.border}` }}>
           <span style={{ fontSize: 13, color: theme.muted }}>Total do Kit</span>
-          <span style={{ fontSize: 18, fontWeight: 700, color: theme.gold }}>R$ {total.toLocaleString('pt-BR')}</span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: theme.gold }}>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -311,3 +510,4 @@ const thStyle: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', bo
 const tdStyle: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${theme.border}`, fontSize: 13 };
 const filterBtnStyle: React.CSSProperties = { padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, background: theme.soft, border: `1px solid ${theme.border}`, color: theme.text };
 const filterBtnActive: React.CSSProperties = { background: 'rgba(200,169,81,0.12)', borderColor: theme.gold, color: theme.gold, fontWeight: 700 };
+const qtyBtn: React.CSSProperties = { background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, width: 28, height: 28, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 };

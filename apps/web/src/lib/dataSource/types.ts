@@ -89,6 +89,31 @@ export type OrcamentoApiDto = {
   probabilidade?: number | null;
 };
 
+export type OrcamentoProdutoApiDto = {
+  codInterno: number;
+  codProduto?: number | null;
+  descricao?: string | null;
+  quantidade?: number | string | null;
+  unitario?: number | string | null;
+  total?: number | string | null;
+  liquido?: number | string | null;
+  grupoOrcamento?: string | null;
+  localInstalacao?: string | null;
+};
+
+export type OrcamentoServicoApiDto = {
+  codInterno: number;
+  codServico?: number | null;
+  valorServico?: number | string | null;
+  observacoes?: string | null;
+  quantidade?: number | string | null;
+};
+
+export type OrcamentoDetalheApiDto = OrcamentoApiDto & {
+  produtos: OrcamentoProdutoApiDto[];
+  servicosAdicionais: OrcamentoServicoApiDto[];
+};
+
 export type ProspectApiDto = {
   codProspect: number;
   nome: string;
@@ -125,7 +150,38 @@ export type DashboardStats = {
 
 export type PeriodKey = '7d' | '30d' | '90d' | 'all';
 
-export type DataSourceEntity = 'equipment' | 'kits' | 'prospects' | 'dashboard' | 'orcamentos';
+export type PreOrcamentoProdutoApiDto = {
+  codInterno: number;
+  codProduto?: number | null;
+  descricao?: string | null;
+  quantidade?: number | string | null;
+  grupoOrcamento?: string | null;
+  orcOrdem?: number | null;
+  produto?: {
+    codProduto: number;
+    descricao: string;
+    preco?: number | string | null;
+    grupoOrcamento?: string | null;
+  } | null;
+};
+
+export type PreOrcamentoApiDto = {
+  codInterno: number;
+  descricao: string;
+  unidade?: number | null;
+  observacoes?: string | null;
+  valorMensalVenda?: number | string | null;
+  valorMensalComodato?: number | string | null;
+  ampliacao?: boolean | null;
+  limitePontos?: number | null;
+  valorPontoAdicional?: number | string | null;
+  valorCrea?: number | string | null;
+  produtos: PreOrcamentoProdutoApiDto[];
+};
+
+export type PreOrcamentosQuery = ListQuery;
+
+export type DataSourceEntity = 'equipment' | 'kits' | 'prospects' | 'dashboard' | 'orcamentos' | 'preOrcamentos';
 export type DataSourceOperation = 'list' | 'getById';
 
 export class DataSourceError extends Error {
