@@ -40,6 +40,8 @@ export type OrcamentosQuery = ListQuery & {
   vendedor?: number;
   prospect?: number;
   modalidade?: string;
+  dataInicio?: string;
+  dataFim?: string;
 };
 
 export type ProductApiDto = {
@@ -146,6 +148,20 @@ export type DashboardStats = {
     estimatedRevenue: number;
     newLeadsThisWeek: number;
   };
+};
+
+export type FunnelStats = {
+  prospects: number;
+  totalOrcamentos: number;
+  abertos: number;
+  emAprovacao: number;
+  liberados: number;
+  emInstalacao: number;
+  cancelados: number;
+  avancados: number;
+  taxaConversao: number;
+  ticketMedioEquip: number;
+  ticketMedioMensal: number;
 };
 
 export type PeriodKey = '7d' | '30d' | '90d' | 'all';

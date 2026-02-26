@@ -5,7 +5,7 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
-import { OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
+import { FunnelStats, OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockOrcamentos, mockPropostas, mockSolucoes } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
@@ -63,6 +63,20 @@ const DB_STATUS_MAP: Record<string, { label: string; color: string }> = {
 
 type StatusFilter = 'todas' | Orcamento['status'];
 type ViewState = 'list' | 'local-detail' | 'db-detail';
+type PeriodPreset = '7d' | '30d' | '90d' | 'ano' | 'custom';
+
+function getDateRange(preset: PeriodPreset, start: string, end: string): { dataInicio?: string; dataFim?: string } {
+  const today = new Date();
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  switch (preset) {
+    case '7d':  { const d = new Date(today); d.setDate(d.getDate() - 7);  return { dataInicio: iso(d), dataFim: iso(today) }; }
+    case '30d': { const d = new Date(today); d.setDate(d.getDate() - 30); return { dataInicio: iso(d), dataFim: iso(today) }; }
+    case '90d': { const d = new Date(today); d.setDate(d.getDate() - 90); return { dataInicio: iso(d), dataFim: iso(today) }; }
+    case 'ano': return { dataInicio: `${today.getFullYear()}-01-01`, dataFim: iso(today) };
+    case 'custom': return { dataInicio: start || undefined, dataFim: end || undefined };
+    default: return {};
+  }
+}
 
 /* ---- Main Component ---- */
 
@@ -76,9 +90,14 @@ export function OrcamentosPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([]);
 
   // DB orçamentos
+  const isRealData = getDataSourceMode() === 'api';
   const [dbOrcamentos, setDbOrcamentos] = useState<OrcamentoApiDto[]>([]);
   const [dbLoading, setDbLoading] = useState(true);
-  const [isRealData, setIsRealData] = useState(false);
+  const [funnelStats, setFunnelStats] = useState<FunnelStats | null>(null);
+  const [funnelLoading, setFunnelLoading] = useState(false);
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('30d');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   const [view, setView] = useState<ViewState>('list');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -118,27 +137,33 @@ export function OrcamentosPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load DB orçamentos
+  // Load DB orçamentos + funil (recarrega ao mudar período)
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setDbLoading(true);
+      if (isRealData) setFunnelLoading(true);
       try {
         const ds = createDataSource();
-        const result = await ds.orcamentos.list({ page: 1, pageSize: 100 });
+        const range = getDateRange(periodPreset, customStart, customEnd);
+        const [result, funnel] = await Promise.all([
+          ds.orcamentos.list({ page: 1, pageSize: 100, ...range }),
+          isRealData ? ds.orcamentos.getFunnel(range) : Promise.resolve(null),
+        ]);
         if (!cancelled) {
           setDbOrcamentos(result.data);
-          setIsRealData(getDataSourceMode() === 'api');
+          setFunnelStats(funnel);
         }
       } catch {
-        if (!cancelled) setDbOrcamentos([]);
+        if (!cancelled) { setDbOrcamentos([]); setFunnelStats(null); }
       } finally {
-        if (!cancelled) setDbLoading(false);
+        if (!cancelled) { setDbLoading(false); setFunnelLoading(false); }
       }
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodPreset, customStart, customEnd]);
 
   useEffect(() => { saveMock('mock_orcamentos', orcamentos); }, [orcamentos]);
   useEffect(() => { saveMock('mock_solucoes', solucoes); }, [solucoes]);
@@ -300,6 +325,23 @@ export function OrcamentosPage() {
         ))}
       </div>
 
+      {/* Filtro de período (só dados reais) */}
+      {isRealData && (
+        <PeriodFilter
+          preset={periodPreset}
+          onPresetChange={setPeriodPreset}
+          customStart={customStart}
+          onCustomStartChange={setCustomStart}
+          customEnd={customEnd}
+          onCustomEndChange={setCustomEnd}
+        />
+      )}
+
+      {/* Funil de Vendas */}
+      {isRealData && (funnelLoading || funnelStats) && (
+        <FunnelCard stats={funnelStats} loading={funnelLoading} />
+      )}
+
       {/* DB orçamentos section */}
       {showDbSection && (
         <div style={{ marginBottom: 20 }}>
@@ -443,6 +485,139 @@ export function OrcamentosPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+/* ---- Period Filter ---- */
+
+function PeriodFilter({
+  preset, onPresetChange, customStart, onCustomStartChange, customEnd, onCustomEndChange,
+}: {
+  preset: PeriodPreset;
+  onPresetChange: (p: PeriodPreset) => void;
+  customStart: string;
+  onCustomStartChange: (v: string) => void;
+  customEnd: string;
+  onCustomEndChange: (v: string) => void;
+}) {
+  const labels: Record<PeriodPreset, string> = {
+    '7d': '7 dias', '30d': '30 dias', '90d': '90 dias', 'ano': 'Este ano', 'custom': 'Personalizado',
+  };
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+      <span style={{ fontSize: 11, color: theme.muted, marginRight: 2 }}>Período:</span>
+      {(['7d', '30d', '90d', 'ano', 'custom'] as PeriodPreset[]).map((p) => (
+        <button
+          key={p}
+          onClick={() => onPresetChange(p)}
+          style={{
+            ...btnSmall,
+            borderColor: preset === p ? theme.gold : theme.border,
+            color: preset === p ? theme.gold : theme.text,
+            background: preset === p ? 'rgba(200,169,81,0.1)' : 'transparent',
+          }}
+        >
+          {labels[p]}
+        </button>
+      ))}
+      {preset === 'custom' && (
+        <>
+          <input
+            type="date"
+            value={customStart}
+            onChange={(e) => onCustomStartChange(e.target.value)}
+            style={{ background: theme.soft, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6, padding: '4px 8px', fontSize: 12 }}
+          />
+          <span style={{ fontSize: 12, color: theme.muted }}>até</span>
+          <input
+            type="date"
+            value={customEnd}
+            onChange={(e) => onCustomEndChange(e.target.value)}
+            style={{ background: theme.soft, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6, padding: '4px 8px', fontSize: 12 }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---- Funnel Card ---- */
+
+function KpiChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ textAlign: 'center', padding: '0 10px' }}>
+      <div style={{ fontSize: 10, color: theme.muted, marginBottom: 2, whiteSpace: 'nowrap' }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: theme.text }}>{value}</div>
+    </div>
+  );
+}
+
+function FunnelCard({ stats, loading }: { stats: FunnelStats | null; loading: boolean }) {
+  if (loading && !stats) {
+    return (
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: theme.muted }}>Carregando funil de vendas…</div>
+      </div>
+    );
+  }
+  if (!stats) return null;
+
+  const stages = [
+    { label: 'Prospects cadastrados', count: stats.prospects, color: '#5B9BD5' },
+    { label: 'Orçamentos emitidos', count: stats.totalOrcamentos, color: theme.gold },
+    { label: 'Em negociação (Abertos)', count: stats.abertos, color: theme.warning },
+    { label: 'Aguardando aprovação', count: stats.emAprovacao, color: '#7B9BD5' },
+    { label: 'Liberados', count: stats.liberados, color: theme.success },
+    { label: 'Em instalação', count: stats.emInstalacao, color: '#C8A951' },
+    { label: 'Cancelados', count: stats.cancelados, color: theme.danger },
+  ];
+
+  const max = Math.max(...stages.map((s) => s.count), 1);
+
+  return (
+    <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: theme.gold, fontWeight: 600 }}>Funil de Vendas</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: theme.soft, borderRadius: 8, overflow: 'hidden', border: `1px solid ${theme.border}` }}>
+          <KpiChip label="Conversão" value={`${stats.taxaConversao}%`} />
+          <div style={{ width: 1, background: theme.border, alignSelf: 'stretch' }} />
+          <KpiChip label="Ticket Médio Equip." value={`R$ ${formatCurrency(stats.ticketMedioEquip)}`} />
+          <div style={{ width: 1, background: theme.border, alignSelf: 'stretch' }} />
+          <KpiChip label="Mensalidade Média" value={`R$ ${formatCurrency(stats.ticketMedioMensal)}`} />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 8 }}>
+        {stages.map((stage) => {
+          const widthPct = Math.max(3, Math.round((stage.count / max) * 100));
+          return (
+            <div key={stage.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 190, fontSize: 11, color: theme.muted, flexShrink: 0, textAlign: 'right', lineHeight: 1.3 }}>
+                {stage.label}
+              </div>
+              <div style={{ flex: 1, background: theme.soft, borderRadius: 4, height: 24, overflow: 'hidden', minWidth: 0 }}>
+                <div style={{
+                  width: `${widthPct}%`,
+                  height: '100%',
+                  background: stage.count === 0 ? 'rgba(255,255,255,0.04)' : stage.color + 'bb',
+                  borderRadius: 4,
+                  transition: 'width 500ms ease',
+                }} />
+              </div>
+              <div style={{ width: 36, textAlign: 'right', fontSize: 13, fontWeight: 600, flexShrink: 0, color: stage.count > 0 ? stage.color : theme.muted }}>
+                {stage.count}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {stats.avancados > 0 && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${theme.border}`, fontSize: 12, color: theme.muted }}>
+          <span style={{ color: theme.success, fontWeight: 600 }}>{stats.avancados}</span> orçamentos avançaram (Liberados + Em Instalação) de {stats.totalOrcamentos} emitidos no período.
+        </div>
+      )}
+    </div>
   );
 }
 

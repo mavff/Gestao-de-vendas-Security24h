@@ -5,6 +5,14 @@ import { OrcamentosRepository } from './orcamentos.repository';
 export class OrcamentosController {
   constructor(private readonly orcamentosRepo: OrcamentosRepository) {}
 
+  @Get('funnel')
+  getFunnel(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    return this.orcamentosRepo.getFunnel(dataInicio, dataFim);
+  }
+
   @Get()
   list(
     @Query('page') page?: string,
@@ -14,6 +22,8 @@ export class OrcamentosController {
     @Query('vendedor') vendedor?: string,
     @Query('prospect') prospect?: string,
     @Query('modalidade') modalidade?: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
   ) {
     return this.orcamentosRepo.findAll({
       page,
@@ -23,6 +33,8 @@ export class OrcamentosController {
       vendedor: vendedor ? Number(vendedor) : undefined,
       prospect: prospect ? Number(prospect) : undefined,
       modalidade: modalidade || undefined,
+      dataInicio: dataInicio || undefined,
+      dataFim: dataFim || undefined,
     });
   }
 

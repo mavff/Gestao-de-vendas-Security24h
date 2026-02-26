@@ -7,6 +7,7 @@ import {
   DataSourceError,
   DataSourceOperation,
   EquipmentQuery,
+  FunnelStats,
   KitApiDto,
   KitsQuery,
   OrcamentoApiDto,
@@ -225,6 +226,15 @@ class ApiOrcamentosDataSource implements IOrcamentosDataSource {
     } catch (error) {
       if (error instanceof ApiClientError && error.status === 404) return null;
       throw createApiDataSourceError({ entity: 'orcamentos', operation: 'getById', cause: error });
+    }
+  }
+
+  async getFunnel(query?: { dataInicio?: string; dataFim?: string }): Promise<FunnelStats> {
+    try {
+      const response = await apiClient.get<FunnelStats>('/orcamentos/funnel', { query });
+      return response.data;
+    } catch (error) {
+      throw createApiDataSourceError({ entity: 'orcamentos', operation: 'list', cause: error });
     }
   }
 }

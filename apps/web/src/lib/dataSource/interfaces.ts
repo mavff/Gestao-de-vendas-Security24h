@@ -1,5 +1,5 @@
 import { Equipment, Kit } from '../../types';
-import { DashboardStats, DataSourceMode, EquipmentQuery, KitsQuery, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery } from './types';
+import { DashboardStats, DataSourceMode, EquipmentQuery, FunnelStats, KitsQuery, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery } from './types';
 
 export interface IEquipmentDataSource {
   list(query?: EquipmentQuery): Promise<PaginatedResult<Equipment>>;
@@ -23,6 +23,7 @@ export interface IDashboardDataSource {
 export interface IOrcamentosDataSource {
   list(query?: OrcamentosQuery): Promise<PaginatedResult<OrcamentoApiDto>>;
   getById(id: number): Promise<OrcamentoDetalheApiDto | null>;
+  getFunnel(query?: { dataInicio?: string; dataFim?: string }): Promise<FunnelStats>;
 }
 
 export interface IPreOrcamentosDataSource {

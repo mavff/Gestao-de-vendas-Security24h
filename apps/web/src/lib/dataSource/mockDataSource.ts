@@ -6,6 +6,7 @@ import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDa
 import {
   DashboardStats,
   EquipmentQuery,
+  FunnelStats,
   KitsQuery,
   OrcamentoApiDto,
   OrcamentoDetalheApiDto,
@@ -105,6 +106,13 @@ class MockOrcamentosDataSource implements IOrcamentosDataSource {
   }
   async getById(_id: number): Promise<OrcamentoDetalheApiDto | null> {
     return null;
+  }
+  async getFunnel(): Promise<FunnelStats> {
+    return {
+      prospects: 0, totalOrcamentos: 0, abertos: 0, emAprovacao: 0,
+      liberados: 0, emInstalacao: 0, cancelados: 0, avancados: 0,
+      taxaConversao: 0, ticketMedioEquip: 0, ticketMedioMensal: 0,
+    };
   }
 }
 
