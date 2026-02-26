@@ -6,6 +6,7 @@ import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDa
 import {
   DashboardStats,
   EquipmentQuery,
+  FinanceiroDashboard,
   FunnelStats,
   KitsQuery,
   OrcamentoApiDto,
@@ -97,6 +98,39 @@ class MockProspectsDataSource implements IProspectsDataSource {
 class MockDashboardDataSource implements IDashboardDataSource {
   async getStats(period: PeriodKey): Promise<DashboardStats> {
     return dashboardDataByPeriod[period] ?? dashboardDataByPeriod.all;
+  }
+
+  async getFinanceiro(): Promise<FinanceiroDashboard> {
+    return {
+      receitaEquipamentos: 185000,
+      receitaInstalacao: 42000,
+      receitaTotal: 227000,
+      mrrBase: 38500,
+      arr: 462000,
+      orcamentosFechados: 14,
+      ticketMedio: 16214,
+      pipelineAberto: 450000,
+      osInstalacoes: 18,
+      osManutencoes: 7,
+      porVendedor: [
+        { usuario: 'Ana', equipamentos: 72000, instalacao: 16000, total: 88000 },
+        { usuario: 'Carlos', equipamentos: 54000, instalacao: 12000, total: 66000 },
+        { usuario: 'Renata', equipamentos: 38000, instalacao: 9000, total: 47000 },
+        { usuario: 'Felipe', equipamentos: 21000, instalacao: 5000, total: 26000 },
+      ],
+      evolucaoMensal: [
+        { mes: 'Out/24', equipamentos: 28000, instalacao: 6000 },
+        { mes: 'Nov/24', equipamentos: 31000, instalacao: 7500 },
+        { mes: 'Dez/24', equipamentos: 22000, instalacao: 5000 },
+        { mes: 'Jan/25', equipamentos: 35000, instalacao: 8000 },
+        { mes: 'Fev/25', equipamentos: 42000, instalacao: 9500 },
+      ],
+      mixReceita: [
+        { name: 'Equipamentos', value: 185000 },
+        { name: 'Instalação', value: 42000 },
+        { name: 'Monitoramento MRR', value: 38500 },
+      ],
+    };
   }
 }
 

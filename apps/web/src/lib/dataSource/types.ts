@@ -150,6 +150,22 @@ export type DashboardStats = {
   };
 };
 
+export type FinanceiroDashboard = {
+  receitaEquipamentos: number;
+  receitaInstalacao: number;
+  receitaTotal: number;
+  mrrBase: number;
+  arr: number;
+  orcamentosFechados: number;
+  ticketMedio: number;
+  pipelineAberto: number;
+  osInstalacoes: number;
+  osManutencoes: number;
+  porVendedor: { usuario: string; equipamentos: number; instalacao: number; total: number }[];
+  evolucaoMensal: { mes: string; equipamentos: number; instalacao: number }[];
+  mixReceita: { name: string; value: number }[];
+};
+
 export type FunnelStats = {
   prospects: number;
   totalOrcamentos: number;

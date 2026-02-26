@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 export type PeriodKey = '7d' | '30d' | '90d' | 'all';
 
 const MES_NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const EMPRESA_IDS = [2, 1002];
 
 @Injectable()
 export class DashboardRepository {
@@ -20,10 +21,10 @@ export class DashboardRepository {
     const dateFrom = this.getDateFrom(period);
     const weekAgo = new Date(Date.now() - 7 * 86_400_000);
 
-    const orcWhere: Record<string, any> = { status: { not: 'C' } };
+    const orcWhere: Record<string, any> = { status: { not: 'C' }, empresa: { in: EMPRESA_IDS } };
     if (dateFrom) orcWhere.emissao = { gte: dateFrom };
 
-    const closuresWhere: Record<string, any> = { fechamento: { not: null }, usuario: { not: null } };
+    const closuresWhere: Record<string, any> = { fechamento: { not: null }, usuario: { not: null }, empresa: { in: EMPRESA_IDS } };
     if (dateFrom) closuresWhere.fechamento = { gte: dateFrom };
 
     const prospectWhere: Record<string, any> = { OR: [{ inativo: false }, { inativo: null }] };
@@ -129,6 +130,136 @@ export class DashboardRepository {
         estimatedRevenue: Math.round(revenue),
         newLeadsThisWeek: kpiNewWeek,
       },
+    };
+  }
+
+  async getFinanceiro(dataInicio?: string, dataFim?: string) {
+    this.prisma.ensureConnection();
+
+    function buildPeriodFilter(field: 'emissao' | 'dataAbertura') {
+      if (!dataInicio && !dataFim) return {};
+      return {
+        [field]: {
+          ...(dataInicio ? { gte: new Date(dataInicio + 'T00:00:00.000Z') } : {}),
+          ...(dataFim ? { lte: new Date(dataFim + 'T23:59:59.999Z') } : {}),
+        },
+      };
+    }
+
+    const orcPeriodo = buildPeriodFilter('emissao');
+    const osPeriodo = buildPeriodFilter('dataAbertura');
+    const baseOrc = { empresa: { in: EMPRESA_IDS } };
+    const baseOs = { empresa: { in: EMPRESA_IDS } };
+
+    const [
+      receitaAgg,
+      mrrAgg,
+      pipelineAgg,
+      osInstalacoes,
+      osManutencoes,
+      porVendedorRaw,
+      fechadosList,
+    ] = await Promise.all([
+      // 1. Receita fechada no período
+      this.prisma.orcamento.aggregate({
+        where: { ...baseOrc, ...orcPeriodo, status: { in: ['L', 'E'] } },
+        _sum: { totalProdutos: true, totalServicos: true },
+        _count: { codInterno: true },
+      }),
+      // 2. MRR base ativa (sem filtro de período)
+      this.prisma.orcamento.aggregate({
+        where: { ...baseOrc, status: { not: 'C' } },
+        _sum: { valorMonitoramento: true },
+      }),
+      // 3. Pipeline aberto no período
+      this.prisma.orcamento.aggregate({
+        where: { ...baseOrc, ...orcPeriodo, status: 'A' },
+        _sum: { totalProdutos: true, totalServicos: true },
+      }),
+      // 4. OS Instalações no período
+      this.prisma.ordemServico.count({
+        where: { ...baseOs, ...osPeriodo, tipo: 'I' },
+      }),
+      // 5. OS Manutenções no período
+      this.prisma.ordemServico.count({
+        where: { ...baseOs, ...osPeriodo, tipo: 'M' },
+      }),
+      // 6. Por vendedor (fechados no período, top 10)
+      this.prisma.orcamento.groupBy({
+        by: ['usuario'],
+        where: { ...baseOrc, ...orcPeriodo, status: { in: ['L', 'E'] }, usuario: { not: null } },
+        _sum: { totalProdutos: true, totalServicos: true },
+        orderBy: { _sum: { totalProdutos: 'desc' } },
+        take: 10,
+      }),
+      // 7. Detalhes fechados para agregação mensal
+      this.prisma.orcamento.findMany({
+        where: { ...baseOrc, ...orcPeriodo, status: { in: ['L', 'E'] } },
+        select: { emissao: true, totalProdutos: true, totalServicos: true },
+      }),
+    ]);
+
+    // Aggregate by month
+    const monthlyMap = new Map<string, { equipamentos: number; instalacao: number }>();
+    for (const orc of fechadosList) {
+      if (!orc.emissao) continue;
+      const mesKey = orc.emissao.toISOString().slice(0, 7);
+      const cur = monthlyMap.get(mesKey) ?? { equipamentos: 0, instalacao: 0 };
+      cur.equipamentos += Number(orc.totalProdutos ?? 0);
+      cur.instalacao += Number(orc.totalServicos ?? 0);
+      monthlyMap.set(mesKey, cur);
+    }
+
+    const evolucaoMensal = Array.from(monthlyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([mesKey, vals]) => {
+        const [ano, mesNum] = mesKey.split('-');
+        const label = MES_NOMES[Number(mesNum) - 1] + '/' + ano.slice(2);
+        return { mes: label, equipamentos: Math.round(vals.equipamentos), instalacao: Math.round(vals.instalacao) };
+      });
+
+    const receitaEquipamentos = Number(receitaAgg._sum.totalProdutos ?? 0);
+    const receitaInstalacao = Number(receitaAgg._sum.totalServicos ?? 0);
+    const receitaTotal = receitaEquipamentos + receitaInstalacao;
+    const orcamentosFechados = receitaAgg._count.codInterno;
+    const ticketMedio = orcamentosFechados > 0 ? Math.round(receitaTotal / orcamentosFechados) : 0;
+    const mrrBase = Number(mrrAgg._sum.valorMonitoramento ?? 0);
+    const arr = Math.round(mrrBase * 12);
+    const pipelineAberto = Number(pipelineAgg._sum.totalProdutos ?? 0) + Number(pipelineAgg._sum.totalServicos ?? 0);
+
+    const porVendedor = porVendedorRaw
+      .filter((v) => v.usuario)
+      .map((v) => {
+        const equipamentos = Number(v._sum.totalProdutos ?? 0);
+        const instalacao = Number(v._sum.totalServicos ?? 0);
+        return {
+          usuario: (v.usuario as string).trim(),
+          equipamentos: Math.round(equipamentos),
+          instalacao: Math.round(instalacao),
+          total: Math.round(equipamentos + instalacao),
+        };
+      });
+
+    const mixReceita = [
+      { name: 'Equipamentos', value: Math.round(receitaEquipamentos) },
+      { name: 'Instalação', value: Math.round(receitaInstalacao) },
+      { name: 'Monitoramento MRR', value: Math.round(mrrBase) },
+    ].filter((item) => item.value > 0);
+
+    return {
+      receitaEquipamentos: Math.round(receitaEquipamentos),
+      receitaInstalacao: Math.round(receitaInstalacao),
+      receitaTotal: Math.round(receitaTotal),
+      mrrBase: Math.round(mrrBase),
+      arr,
+      orcamentosFechados,
+      ticketMedio,
+      pipelineAberto: Math.round(pipelineAberto),
+      osInstalacoes,
+      osManutencoes,
+      porVendedor,
+      evolucaoMensal,
+      mixReceita,
     };
   }
 

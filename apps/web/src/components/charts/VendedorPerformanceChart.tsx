@@ -2,9 +2,11 @@
 
 import { VendedorPerformance } from '../../mocks/mockPerformance';
 
-type Props = {
-  data: VendedorPerformance[];
-};
+type FinanceiroVendedorRow = { usuario: string; equipamentos: number; instalacao: number; total: number };
+
+type Props =
+  | { data: VendedorPerformance[]; financeiro?: never }
+  | { data?: never; financeiro: FinanceiroVendedorRow[] };
 
 const GOLD_DARK = '#A07830';
 const GOLD = '#C8A951';
@@ -17,8 +19,22 @@ function fmtCurrency(v: number): string {
   return `R$${v}`;
 }
 
-export function VendedorPerformanceChart({ data }: Props) {
-  if (data.length === 0) {
+export function VendedorPerformanceChart(props: Props) {
+  const rows = props.financeiro
+    ? props.financeiro.map((d) => ({
+        label: d.usuario.split(' ')[0],
+        fullName: d.usuario,
+        produtos: d.equipamentos,
+        mensalidades: d.instalacao,
+      }))
+    : (props.data ?? []).map((d) => ({
+        label: d.vendedor.split(' ')[0],
+        fullName: d.vendedor,
+        produtos: d.produtosVendidos,
+        mensalidades: d.mensalidadeMonitoramento + d.mensalidadeLocacao + d.mensalidadeTecnico + d.mensalidadeOutros,
+      }));
+
+  if (rows.length === 0) {
     return (
       <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13, fontStyle: 'italic' }}>
         Sem dados no período selecionado
@@ -35,17 +51,10 @@ export function VendedorPerformanceChart({ data }: Props) {
   const chartW = svgW - padLeft - padRight;
   const chartH = svgH - padTop - padBottom;
 
-  const n = data.length;
+  const n = rows.length;
   const groupW = chartW / n;
   const barGap = 4;
   const barW = Math.max(8, Math.min(28, (groupW - barGap * 3) / 2));
-
-  const rows = data.map((d) => ({
-    label: d.vendedor.split(' ')[0], // first name only
-    fullName: d.vendedor,
-    produtos: d.produtosVendidos,
-    mensalidades: d.mensalidadeMonitoramento + d.mensalidadeLocacao + d.mensalidadeTecnico + d.mensalidadeOutros,
-  }));
 
   const maxVal = Math.max(...rows.flatMap((r) => [r.produtos, r.mensalidades]), 1);
 
@@ -60,15 +69,15 @@ export function VendedorPerformanceChart({ data }: Props) {
       <div style={{ display: 'flex', gap: 16, marginBottom: 8, paddingLeft: padLeft }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: MUTED }}>
           <div style={{ width: 12, height: 12, borderRadius: 2, background: GOLD_DARK }} />
-          Produtos Vendidos
+          {props.financeiro ? 'Equipamentos' : 'Produtos Vendidos'}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: MUTED }}>
           <div style={{ width: 12, height: 12, borderRadius: 2, background: GOLD }} />
-          Total Mensalidades
+          {props.financeiro ? 'Instalação' : 'Total Mensalidades'}
         </div>
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: 'block', minWidth: 320 }}>
+      <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: 'block', minWidth: 320, maxHeight: 215 }}>
         {/* Y-axis grid lines + labels */}
         {yTickVals.map((val) => {
           const y = padTop + chartH - (val / maxVal) * chartH;

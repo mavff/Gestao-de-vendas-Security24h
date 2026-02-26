@@ -12,6 +12,8 @@ export interface OrcamentoFilters extends PaginationQuery {
   dataFim?: string;    // ISO date YYYY-MM-DD
 }
 
+const EMPRESA_IDS = [2, 1002];
+
 function buildDateFilter(dataInicio?: string, dataFim?: string) {
   if (!dataInicio && !dataFim) return undefined;
   const filter: Record<string, Date> = {};
@@ -28,7 +30,7 @@ export class OrcamentosRepository {
     this.prisma.ensureConnection();
 
     const { skip, take, page, pageSize } = parsePagination(filters);
-    const where: Record<string, any> = {};
+    const where: Record<string, any> = { empresa: { in: EMPRESA_IDS } };
 
     if (filters.q) {
       where.OR = [
@@ -92,7 +94,7 @@ export class OrcamentosRepository {
     this.prisma.ensureConnection();
 
     const emissaoFilter = buildDateFilter(dataInicio, dataFim);
-    const baseWhere: Record<string, any> = emissaoFilter ? { emissao: emissaoFilter } : {};
+    const baseWhere: Record<string, any> = { empresa: { in: EMPRESA_IDS }, ...(emissaoFilter ? { emissao: emissaoFilter } : {}) };
     const prospectWhere: Record<string, any> = {};
     if (emissaoFilter) prospectWhere.dataCadastro = emissaoFilter;
 

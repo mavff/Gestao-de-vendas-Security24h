@@ -7,6 +7,7 @@ import {
   DataSourceError,
   DataSourceOperation,
   EquipmentQuery,
+  FinanceiroDashboard,
   FunnelStats,
   KitApiDto,
   KitsQuery,
@@ -175,6 +176,11 @@ class ApiProspectsDataSource implements IProspectsDataSource {
 class ApiDashboardDataSource implements IDashboardDataSource {
   async getStats(period: PeriodKey): Promise<DashboardStats> {
     const response = await apiClient.get<DashboardStats>('/dashboard/stats', { query: { period } });
+    return response.data;
+  }
+
+  async getFinanceiro(query?: { dataInicio?: string; dataFim?: string }): Promise<FinanceiroDashboard> {
+    const response = await apiClient.get<FinanceiroDashboard>('/dashboard/financeiro', { query });
     return response.data;
   }
 }
