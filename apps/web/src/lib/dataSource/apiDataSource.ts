@@ -1,7 +1,10 @@
 import { apiClient, ApiClientError, ApiMeta } from '../apiClient';
 import { Equipment, Kit } from '../../types';
-import { DataSourceRegistry, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource } from './interfaces';
+import { DataSourceRegistry, ICrmDataSource, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource, ISdrDataSource, ISheetsDataSource } from './interfaces';
 import {
+  CrmLeadsResult,
+  CrmQuery,
+  CrmSource,
   DashboardStats,
   DataSourceEntity,
   DataSourceError,
@@ -11,6 +14,7 @@ import {
   FunnelStats,
   KitApiDto,
   KitsQuery,
+  MateriaisVendidosResult,
   OrcamentoApiDto,
   OrcamentoDetalheApiDto,
   OrcamentosQuery,
@@ -21,6 +25,9 @@ import {
   ProductApiDto,
   ProspectApiDto,
   ProspectsQuery,
+  SdrQuery,
+  SdrTabResult,
+  SheetsLeadStats,
   buildMeta,
   normalizePage,
   normalizePageSize,
@@ -180,7 +187,7 @@ class ApiDashboardDataSource implements IDashboardDataSource {
   }
 
   async getFinanceiro(query?: { dataInicio?: string; dataFim?: string }): Promise<FinanceiroDashboard> {
-    const response = await apiClient.get<FinanceiroDashboard>('/dashboard/financeiro', { query });
+    const response = await apiClient.get<FinanceiroDashboard>('/dashboard/financeiro', { query, timeoutMs: 30000 });
     return response.data;
   }
 }
@@ -243,6 +250,30 @@ class ApiOrcamentosDataSource implements IOrcamentosDataSource {
       throw createApiDataSourceError({ entity: 'orcamentos', operation: 'list', cause: error });
     }
   }
+
+  async getMateriaisVendidos(query?: { dataInicio?: string; dataFim?: string }): Promise<MateriaisVendidosResult> {
+    try {
+      const response = await apiClient.get<MateriaisVendidosResult>('/orcamentos/materiais-vendidos', { query, timeoutMs: 30000 });
+      const data = response.data;
+      // Normaliza decimais vindos como string do Prisma
+      return {
+        ...data,
+        produtos: data.produtos.map((p) => ({
+          ...p,
+          quantidadeTotal: Number(p.quantidadeTotal),
+          valorTotal: Number(p.valorTotal),
+        })),
+        orcamentos: data.orcamentos.map((o) => ({
+          ...o,
+          totalProdutos: o.totalProdutos != null ? Number(o.totalProdutos) : null,
+          totalServicos: o.totalServicos != null ? Number(o.totalServicos) : null,
+          valorMonitoramento: o.valorMonitoramento != null ? Number(o.valorMonitoramento) : null,
+        })),
+      };
+    } catch (error) {
+      throw createApiDataSourceError({ entity: 'orcamentos', operation: 'list', cause: error });
+    }
+  }
 }
 
 function parsePreOrcamentoDecimals(o: PreOrcamentoApiDto): PreOrcamentoApiDto {
@@ -284,6 +315,46 @@ class ApiPreOrcamentosDataSource implements IPreOrcamentosDataSource {
   }
 }
 
+class ApiSheetsDataSource implements ISheetsDataSource {
+  async getLeads(): Promise<SheetsLeadStats> {
+    const response = await apiClient.get<SheetsLeadStats>('/sheets/leads', { timeoutMs: 15000 });
+    return response.data;
+  }
+}
+
+class ApiCrmDataSource implements ICrmDataSource {
+  async getLeads(query: CrmQuery = {}): Promise<CrmLeadsResult> {
+    const response = await apiClient.get<CrmLeadsResult>(
+      '/crm/leads',
+      { query: query as Record<string, string>, timeoutMs: 20000 },
+    );
+    return response.data;
+  }
+
+  async getSources(): Promise<CrmSource[]> {
+    const response = await apiClient.get<CrmSource[]>('/crm/sources', { timeoutMs: 5000 });
+    return response.data;
+  }
+}
+
+class ApiSdrDataSource implements ISdrDataSource {
+  async getTab(query: SdrQuery = {}): Promise<SdrTabResult> {
+    const response = await apiClient.get<SdrTabResult>(
+      '/sheets/sdr-log',
+      { query: query as Record<string, string>, timeoutMs: 15000 },
+    );
+    return response.data;
+  }
+
+  async checkHealth(): Promise<{ online: boolean; latencyMs: number }> {
+    const response = await apiClient.get<{ online: boolean; latencyMs: number }>(
+      '/sheets/health',
+      { timeoutMs: 8000 },
+    );
+    return response.data;
+  }
+}
+
 export function createApiDataSource(): DataSourceRegistry {
   return {
     mode: 'api',
@@ -293,6 +364,9 @@ export function createApiDataSource(): DataSourceRegistry {
     dashboard: new ApiDashboardDataSource(),
     orcamentos: new ApiOrcamentosDataSource(),
     preOrcamentos: new ApiPreOrcamentosDataSource(),
+    sheets: new ApiSheetsDataSource(),
+    sdr: new ApiSdrDataSource(),
+    crm: new ApiCrmDataSource(),
   };
 }
 

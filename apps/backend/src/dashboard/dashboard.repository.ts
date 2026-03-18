@@ -158,7 +158,8 @@ export class DashboardRepository {
       osInstalacoes,
       osManutencoes,
       porVendedorRaw,
-      fechadosList,
+      evolucaoMensal,
+      porTecnicoRaw,
     ] = await Promise.all([
       // 1. Receita fechada no período
       this.prisma.orcamento.aggregate({
@@ -192,31 +193,11 @@ export class DashboardRepository {
         orderBy: { _sum: { totalProdutos: 'desc' } },
         take: 10,
       }),
-      // 7. Detalhes fechados para agregação mensal
-      this.prisma.orcamento.findMany({
-        where: { ...baseOrc, ...orcPeriodo, status: { in: ['L', 'E'] } },
-        select: { emissao: true, totalProdutos: true, totalServicos: true },
-      }),
+      // 7. Evolução mensal via SQL GROUP BY (não transfere todos os registros — eficiente para ranges amplos)
+      this.buildMonthlyEvolution(dataInicio, dataFim),
+      // 8. Performance por técnico (OS fechadas + receita do orçamento vinculado)
+      this.buildTecnicoPerformance(dataInicio, dataFim),
     ]);
-
-    // Aggregate by month
-    const monthlyMap = new Map<string, { equipamentos: number; instalacao: number }>();
-    for (const orc of fechadosList) {
-      if (!orc.emissao) continue;
-      const mesKey = orc.emissao.toISOString().slice(0, 7);
-      const cur = monthlyMap.get(mesKey) ?? { equipamentos: 0, instalacao: 0 };
-      cur.equipamentos += Number(orc.totalProdutos ?? 0);
-      cur.instalacao += Number(orc.totalServicos ?? 0);
-      monthlyMap.set(mesKey, cur);
-    }
-
-    const evolucaoMensal = Array.from(monthlyMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([mesKey, vals]) => {
-        const [ano, mesNum] = mesKey.split('-');
-        const label = MES_NOMES[Number(mesNum) - 1] + '/' + ano.slice(2);
-        return { mes: label, equipamentos: Math.round(vals.equipamentos), instalacao: Math.round(vals.instalacao) };
-      });
 
     const receitaEquipamentos = Number(receitaAgg._sum.totalProdutos ?? 0);
     const receitaInstalacao = Number(receitaAgg._sum.totalServicos ?? 0);
@@ -246,6 +227,15 @@ export class DashboardRepository {
       { name: 'Monitoramento MRR', value: Math.round(mrrBase) },
     ].filter((item) => item.value > 0);
 
+    const porTecnico = (porTecnicoRaw as any[]).map((r) => ({
+      tecnico: String(r.tecnico ?? 'Não identificado').trim(),
+      osInstalacoes: Number(r.osInstalacoes ?? 0),
+      osManutencoes: Number(r.osManutencoes ?? 0),
+      receitaEquipamentos: Math.round(Number(r.receitaEquipamentos ?? 0)),
+      receitaInstalacao: Math.round(Number(r.receitaInstalacao ?? 0)),
+      receitaTotal: Math.round(Number(r.receitaEquipamentos ?? 0) + Number(r.receitaInstalacao ?? 0)),
+    }));
+
     return {
       receitaEquipamentos: Math.round(receitaEquipamentos),
       receitaInstalacao: Math.round(receitaInstalacao),
@@ -260,7 +250,196 @@ export class DashboardRepository {
       porVendedor,
       evolucaoMensal,
       mixReceita,
+      porTecnico,
     };
+  }
+
+  /**
+   * Performance por técnico: conta OS (instalações + manutenções) fechadas no período
+   * e soma a receita dos orçamentos vinculados às instalações.
+   * Join: OSs → Senhas (nome) → Orçamentos (receita).
+   */
+  private async buildTecnicoPerformance(dataInicio?: string, dataFim?: string) {
+    type TecnicoRow = {
+      tecnico: string;
+      osInstalacoes: number;
+      osManutencoes: number;
+      receitaEquipamentos: number;
+      receitaInstalacao: number;
+    };
+
+    if (dataInicio && dataFim) {
+      const di = new Date(dataInicio + 'T00:00:00.000Z');
+      const df = new Date(dataFim + 'T23:59:59.999Z');
+      return this.prisma.$queryRaw<TecnicoRow[]>`
+        SELECT
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))) AS tecnico,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN 1 ELSE 0 END) AS osInstalacoes,
+          SUM(CASE WHEN os.[Tipo] = 'M' THEN 1 ELSE 0 END) AS osManutencoes,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT) ELSE 0 END) AS receitaEquipamentos,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) AS receitaInstalacao
+        FROM [OSs] os
+        LEFT JOIN [Senhas] s ON s.[IDUsuário] = os.[Técnico]
+        LEFT JOIN [Orçamentos] orc ON orc.[CodInterno] = os.[Orçamento] AND orc.[Empresa] IN (2, 1002)
+        WHERE os.[Empresa] IN (2, 1002)
+          AND os.[Técnico] IS NOT NULL
+          AND os.[DataFechamento] IS NOT NULL
+          AND os.[DataFechamento] >= ${di}
+          AND os.[DataFechamento] <= ${df}
+        GROUP BY
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))),
+          os.[Técnico]
+        ORDER BY
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT)
+                                              + CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) DESC`;
+    } else if (dataInicio) {
+      const di = new Date(dataInicio + 'T00:00:00.000Z');
+      return this.prisma.$queryRaw<TecnicoRow[]>`
+        SELECT
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))) AS tecnico,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN 1 ELSE 0 END) AS osInstalacoes,
+          SUM(CASE WHEN os.[Tipo] = 'M' THEN 1 ELSE 0 END) AS osManutencoes,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT) ELSE 0 END) AS receitaEquipamentos,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) AS receitaInstalacao
+        FROM [OSs] os
+        LEFT JOIN [Senhas] s ON s.[IDUsuário] = os.[Técnico]
+        LEFT JOIN [Orçamentos] orc ON orc.[CodInterno] = os.[Orçamento] AND orc.[Empresa] IN (2, 1002)
+        WHERE os.[Empresa] IN (2, 1002)
+          AND os.[Técnico] IS NOT NULL
+          AND os.[DataFechamento] IS NOT NULL
+          AND os.[DataFechamento] >= ${di}
+        GROUP BY
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))),
+          os.[Técnico]
+        ORDER BY
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT)
+                                              + CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) DESC`;
+    } else if (dataFim) {
+      const df = new Date(dataFim + 'T23:59:59.999Z');
+      return this.prisma.$queryRaw<TecnicoRow[]>`
+        SELECT
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))) AS tecnico,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN 1 ELSE 0 END) AS osInstalacoes,
+          SUM(CASE WHEN os.[Tipo] = 'M' THEN 1 ELSE 0 END) AS osManutencoes,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT) ELSE 0 END) AS receitaEquipamentos,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) AS receitaInstalacao
+        FROM [OSs] os
+        LEFT JOIN [Senhas] s ON s.[IDUsuário] = os.[Técnico]
+        LEFT JOIN [Orçamentos] orc ON orc.[CodInterno] = os.[Orçamento] AND orc.[Empresa] IN (2, 1002)
+        WHERE os.[Empresa] IN (2, 1002)
+          AND os.[Técnico] IS NOT NULL
+          AND os.[DataFechamento] IS NOT NULL
+          AND os.[DataFechamento] <= ${df}
+        GROUP BY
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))),
+          os.[Técnico]
+        ORDER BY
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT)
+                                              + CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) DESC`;
+    } else {
+      return this.prisma.$queryRaw<TecnicoRow[]>`
+        SELECT
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))) AS tecnico,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN 1 ELSE 0 END) AS osInstalacoes,
+          SUM(CASE WHEN os.[Tipo] = 'M' THEN 1 ELSE 0 END) AS osManutencoes,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT) ELSE 0 END) AS receitaEquipamentos,
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) AS receitaInstalacao
+        FROM [OSs] os
+        LEFT JOIN [Senhas] s ON s.[IDUsuário] = os.[Técnico]
+        LEFT JOIN [Orçamentos] orc ON orc.[CodInterno] = os.[Orçamento] AND orc.[Empresa] IN (2, 1002)
+        WHERE os.[Empresa] IN (2, 1002)
+          AND os.[Técnico] IS NOT NULL
+          AND os.[DataFechamento] IS NOT NULL
+        GROUP BY
+          COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])),
+                   'Técnico ' + CAST(os.[Técnico] AS VARCHAR(20))),
+          os.[Técnico]
+        ORDER BY
+          SUM(CASE WHEN os.[Tipo] = 'I' THEN CAST(ISNULL(orc.[TotalProdutos], 0) AS FLOAT)
+                                              + CAST(ISNULL(orc.[TotalServiços], 0) AS FLOAT) ELSE 0 END) DESC`;
+    }
+  }
+
+  /**
+   * Agrega receita fechada por mês usando GROUP BY no SQL Server.
+   * Evita buscar todos os registros individualmente (sem TAKE) em ranges amplos.
+   */
+  private async buildMonthlyEvolution(
+    dataInicio?: string,
+    dataFim?: string,
+  ): Promise<{ mes: string; equipamentos: number; instalacao: number }[]> {
+    type MonthRow = { ano: number; mes: number; equipamentos: number; instalacao: number };
+    let rows: MonthRow[];
+
+    if (dataInicio && dataFim) {
+      const di = new Date(dataInicio + 'T00:00:00.000Z');
+      const df = new Date(dataFim + 'T23:59:59.999Z');
+      rows = await this.prisma.$queryRaw<MonthRow[]>`
+        SELECT YEAR([Emissão]) as ano, MONTH([Emissão]) as mes,
+               SUM(CAST(ISNULL([TotalProdutos], 0) AS FLOAT)) as equipamentos,
+               SUM(CAST(ISNULL([TotalServiços], 0) AS FLOAT)) as instalacao
+        FROM [Orçamentos]
+        WHERE [Empresa] IN (2, 1002)
+          AND [Status] IN ('L', 'E')
+          AND [Emissão] IS NOT NULL
+          AND [Emissão] >= ${di}
+          AND [Emissão] <= ${df}
+        GROUP BY YEAR([Emissão]), MONTH([Emissão])
+        ORDER BY YEAR([Emissão]), MONTH([Emissão])`;
+    } else if (dataInicio) {
+      const di = new Date(dataInicio + 'T00:00:00.000Z');
+      rows = await this.prisma.$queryRaw<MonthRow[]>`
+        SELECT YEAR([Emissão]) as ano, MONTH([Emissão]) as mes,
+               SUM(CAST(ISNULL([TotalProdutos], 0) AS FLOAT)) as equipamentos,
+               SUM(CAST(ISNULL([TotalServiços], 0) AS FLOAT)) as instalacao
+        FROM [Orçamentos]
+        WHERE [Empresa] IN (2, 1002)
+          AND [Status] IN ('L', 'E')
+          AND [Emissão] IS NOT NULL
+          AND [Emissão] >= ${di}
+        GROUP BY YEAR([Emissão]), MONTH([Emissão])
+        ORDER BY YEAR([Emissão]), MONTH([Emissão])`;
+    } else if (dataFim) {
+      const df = new Date(dataFim + 'T23:59:59.999Z');
+      rows = await this.prisma.$queryRaw<MonthRow[]>`
+        SELECT YEAR([Emissão]) as ano, MONTH([Emissão]) as mes,
+               SUM(CAST(ISNULL([TotalProdutos], 0) AS FLOAT)) as equipamentos,
+               SUM(CAST(ISNULL([TotalServiços], 0) AS FLOAT)) as instalacao
+        FROM [Orçamentos]
+        WHERE [Empresa] IN (2, 1002)
+          AND [Status] IN ('L', 'E')
+          AND [Emissão] IS NOT NULL
+          AND [Emissão] <= ${df}
+        GROUP BY YEAR([Emissão]), MONTH([Emissão])
+        ORDER BY YEAR([Emissão]), MONTH([Emissão])`;
+    } else {
+      rows = await this.prisma.$queryRaw<MonthRow[]>`
+        SELECT YEAR([Emissão]) as ano, MONTH([Emissão]) as mes,
+               SUM(CAST(ISNULL([TotalProdutos], 0) AS FLOAT)) as equipamentos,
+               SUM(CAST(ISNULL([TotalServiços], 0) AS FLOAT)) as instalacao
+        FROM [Orçamentos]
+        WHERE [Empresa] IN (2, 1002)
+          AND [Status] IN ('L', 'E')
+          AND [Emissão] IS NOT NULL
+        GROUP BY YEAR([Emissão]), MONTH([Emissão])
+        ORDER BY YEAR([Emissão]), MONTH([Emissão])`;
+    }
+
+    return rows.map((r) => {
+      const label = MES_NOMES[Number(r.mes) - 1] + '/' + String(r.ano).slice(2);
+      return {
+        mes: label,
+        equipamentos: Math.round(Number(r.equipamentos)),
+        instalacao: Math.round(Number(r.instalacao)),
+      };
+    });
   }
 
   private async getLeadsByPeriod(

@@ -5,6 +5,17 @@ import { OrcamentosRepository } from './orcamentos.repository';
 export class OrcamentosController {
   constructor(private readonly orcamentosRepo: OrcamentosRepository) {}
 
+  @Get('materiais-vendidos')
+  getMateriaisVendidos(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    return this.orcamentosRepo.getMateriaisVendidos(
+      dataInicio || undefined,
+      dataFim || undefined,
+    );
+  }
+
   @Get('funnel')
   getFunnel(
     @Query('dataInicio') dataInicio?: string,

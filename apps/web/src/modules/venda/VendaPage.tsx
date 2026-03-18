@@ -154,7 +154,7 @@ export function VendaPage() {
     setSolDraft({
       id: '', leadId,
       clienteNome: `${lead.name} — ${lead.company}`,
-      marca: 'Intelbras', blocos: emptyBlocos(), observacaoGeral: '',
+      marca: 'Intelbras', blocos: emptyBlocos(), servicos: [], observacaoGeral: '',
       status: 'rascunho', criadoPor: userId, createdAt: now, updatedAt: now,
     });
     setWizStep(0);
@@ -164,7 +164,7 @@ export function VendaPage() {
   /* =============================================
      Step accessibility
      ============================================= */
-  const solucaoPronta = solucao?.status === 'pronta' || solucao?.status === 'aprovada';
+  const solucaoPronta = solucao?.status === 'enviada' || solucao?.status === 'aprovada';
   const solucaoAprovada = solucao?.status === 'aprovada';
   const vistoriaConcluida = vistoria?.status === 'concluida';
 
@@ -202,7 +202,7 @@ export function VendaPage() {
     if (!solDraft) return;
     const now = new Date().toISOString().slice(0, 10);
     const id = solDraft.id || 'SOL' + Date.now();
-    const pronta: SolucaoTecnica = { ...solDraft, id, status: 'pronta', updatedAt: now };
+    const pronta: SolucaoTecnica = { ...solDraft, id, status: 'enviada', updatedAt: now };
 
     if (solDraft.id) {
       setSolucoes((cur) => cur.map((s) => s.id === id ? pronta : s));
@@ -332,7 +332,7 @@ export function VendaPage() {
 
   /* --- step sub-labels --- */
   const stepSublabel: Record<StepName, string> = useMemo(() => ({
-    'Solução': solucao ? (solucao.status === 'aprovada' ? 'Aprovada' : solucao.status === 'pronta' ? 'Aguardando aprovação' : 'Rascunho') : 'Não iniciada',
+    'Solução': solucao ? (solucao.status === 'aprovada' ? 'Aprovada' : solucao.status === 'enviada' ? 'Aguardando aprovação' : 'Rascunho') : 'Não iniciada',
     'Fotos/Pontos': vistoria ? (vistoria.status === 'concluida' ? 'Concluída' : `${vistoria.ambientes.length} amb.`) : 'Pendente',
     'OS': ordem ? (ordem.status === 'concluida' ? 'Concluída' : ordem.status.replace('_', ' ')) : 'Aguardando',
   }), [solucao, vistoria, ordem]);
@@ -493,7 +493,7 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
   const [selectedKitId, setSelectedKitId] = useState<string | null>(null);
 
   const kitsForMarca = useMemo(() => kits.filter((k) => k.marca === draft.marca), [kits, draft.marca]);
-  const isPronta = solucaoExistente?.status === 'pronta';
+  const isPronta = solucaoExistente?.status === 'enviada';
   const isAprovada = solucaoExistente?.status === 'aprovada';
   const isReadOnly = isPronta || isAprovada;
 

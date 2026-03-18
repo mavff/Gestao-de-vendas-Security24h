@@ -229,7 +229,7 @@ export type BlocoTecnico = {
   itens: ItemSolucao[];
 };
 
-export type SolucaoStatus = 'rascunho' | 'pronta' | 'aprovada';
+export type SolucaoStatus = 'rascunho' | 'enviada' | 'aprovada';
 
 export type SolucaoTecnica = {
   id: string;
@@ -237,6 +237,7 @@ export type SolucaoTecnica = {
   clienteNome: string;
   marca: Marca;
   blocos: BlocoTecnico[];
+  servicos: PropostaServico[];
   observacaoGeral: string;
   status: SolucaoStatus;
   criadoPor: string;

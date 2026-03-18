@@ -150,6 +150,15 @@ export type DashboardStats = {
   };
 };
 
+export type TecnicoRow = {
+  tecnico: string;
+  osInstalacoes: number;
+  osManutencoes: number;
+  receitaEquipamentos: number;
+  receitaInstalacao: number;
+  receitaTotal: number;
+};
+
 export type FinanceiroDashboard = {
   receitaEquipamentos: number;
   receitaInstalacao: number;
@@ -164,6 +173,7 @@ export type FinanceiroDashboard = {
   porVendedor: { usuario: string; equipamentos: number; instalacao: number; total: number }[];
   evolucaoMensal: { mes: string; equipamentos: number; instalacao: number }[];
   mixReceita: { name: string; value: number }[];
+  porTecnico: TecnicoRow[];
 };
 
 export type FunnelStats = {
@@ -173,6 +183,7 @@ export type FunnelStats = {
   emAprovacao: number;
   liberados: number;
   emInstalacao: number;
+  faturados: number;
   cancelados: number;
   avancados: number;
   taxaConversao: number;
@@ -181,6 +192,39 @@ export type FunnelStats = {
 };
 
 export type PeriodKey = '7d' | '30d' | '90d' | 'all';
+
+export type MateriaisVendidosProduto = {
+  codProduto: number | null;
+  descricao: string;
+  grupoOrcamento: string | null;
+  quantidadeTotal: number;
+  valorTotal: number;
+  ocorrencias: number;
+};
+
+export type MateriaisVendidosOrcamento = {
+  codInterno: number;
+  numOrcamento?: number | null;
+  clienteNome?: string | null;
+  emissao?: string | null;
+  status?: string | null;
+  totalProdutos?: number | string | null;
+  totalServicos?: number | string | null;
+  valorMonitoramento?: number | string | null;
+  qtdProdutos: number;
+};
+
+export type MateriaisVendidosResult = {
+  resumo: {
+    totalOrcamentosVendidos: number;
+    totalItensUnicos: number;
+    totalPecas: number;
+    totalValorProdutos: number;
+    totalValorMensalidades: number;
+  };
+  produtos: MateriaisVendidosProduto[];
+  orcamentos: MateriaisVendidosOrcamento[];
+};
 
 export type PreOrcamentoProdutoApiDto = {
   codInterno: number;
@@ -213,7 +257,138 @@ export type PreOrcamentoApiDto = {
 
 export type PreOrcamentosQuery = ListQuery;
 
-export type DataSourceEntity = 'equipment' | 'kits' | 'prospects' | 'dashboard' | 'orcamentos' | 'preOrcamentos';
+export type SheetsLeadStats = {
+  kpis: {
+    totalLeads: number;
+    totalVisitas: number;
+    totalFechou: number;
+    taxaFechamento: number;
+    newThisWeek: number;
+  };
+  funnelCrm: { stage: string; total: number }[];
+  porOrigem: { origin: string; total: number }[];
+  porCanal: { origin: string; total: number }[];
+  porResponsavel: { seller: string; closures: number }[];
+  porStatus: { status: string; total: number }[];
+  evolucaoMensal: { mes: string; whatsapp: number; instagram: number; visitas: number }[];
+  leadsRecentes: {
+    nome: string;
+    empresa: string;
+    canal: string;
+    status: string;
+    prioridade: string;
+    responsavel: string;
+    data: string;
+  }[];
+  analiseCanal: {
+    canal: string;
+    origens: string[];
+    leads: number;
+    visitas: number;
+    fechamentos: number;
+  }[];
+};
+
+export type SdrTabEntry = {
+  rowIndex: number;
+  cells: string[];
+};
+
+export type SdrTabStats = {
+  total: number;
+  porStatus: { label: string; total: number }[];
+};
+
+export type SdrTabResult = {
+  tab: string;
+  sheetName: string;
+  columns: string[];
+  entries: SdrTabEntry[];
+  stats: SdrTabStats;
+};
+
+export type SdrQuery = {
+  tab?: 'whatsapp' | 'instagram' | 'visitas';
+  period?: 'week' | 'month' | '30d' | 'custom';
+  start?: string;
+  end?: string;
+};
+
+// ── CRM Types ────────────────────────────────────────────────────────────────
+
+export interface CrmLead {
+  id: string;
+  nome: string;
+  telefone: string;
+  email: string;
+  endereco: string;
+  cidade: string;
+  bairro: string;
+  empresa: string;
+  origem: string;
+  origemLabel: string;
+  produtoInteresse: string;
+  tipoLocal: string;
+  urgencia: string;
+  valorPretendido: string;
+  objetivo: string;
+  status: string;
+  statusNorm: string;
+  responsavel: string;
+  dataEntrada: string;
+  horaEntrada: string;
+  fontes: string[];
+  score: number;
+  prioridade: 'alta' | 'media' | 'baixa';
+  observacoes: string;
+  duplicatas: number;
+  fechou: string;
+  motivoPerda: string;
+  valorOrcamento: string;
+  instagramHandle: string;
+}
+
+export interface CrmStats {
+  total: number;
+  novos: number;
+  emContato: number;
+  qualificados: number;
+  orcamentoEnviado: number;
+  fechados: number;
+  perdidos: number;
+  semAtendimento: number;
+  porOrigem: { origem: string; total: number }[];
+  porProduto: { produto: string; total: number }[];
+  porResponsavel: { responsavel: string; total: number }[];
+  porStatus: { status: string; total: number }[];
+  porPrioridade: { prioridade: string; total: number }[];
+  porPeriodo: { mes: string; total: number }[];
+}
+
+export interface CrmQuery {
+  search?: string;
+  origem?: string;
+  status?: string;
+  responsavel?: string;
+  prioridade?: string;
+  produtoInteresse?: string;
+  cidade?: string;
+  period?: 'week' | 'month' | '30d' | '90d' | 'custom' | 'all';
+  start?: string;
+  end?: string;
+}
+
+export interface CrmLeadsResult {
+  leads: CrmLead[];
+  stats: CrmStats;
+}
+
+export interface CrmSource {
+  id: string;
+  label: string;
+}
+
+export type DataSourceEntity = 'equipment' | 'kits' | 'prospects' | 'dashboard' | 'orcamentos' | 'preOrcamentos' | 'sheets' | 'sdr' | 'crm';
 export type DataSourceOperation = 'list' | 'getById';
 
 export class DataSourceError extends Error {

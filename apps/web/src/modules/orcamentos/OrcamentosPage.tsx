@@ -5,7 +5,7 @@ import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
-import { FunnelStats, OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
+import { FunnelStats, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockOrcamentos, mockPropostas, mockSolucoes } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import {
@@ -58,12 +58,38 @@ const DB_STATUS_MAP: Record<string, { label: string; color: string }> = {
   P: { label: 'Aguard. Aprovação', color: '#5B9BD5' },
   L: { label: 'Liberado', color: theme.success },
   E: { label: 'Em Instalação', color: theme.gold },
+  F: { label: 'Faturado', color: '#43C17B' },
   C: { label: 'Cancelado', color: theme.danger },
 };
 
 type StatusFilter = 'todas' | Orcamento['status'];
 type ViewState = 'list' | 'local-detail' | 'db-detail';
 type PeriodPreset = '7d' | '30d' | '90d' | 'ano' | 'custom';
+
+type PriceRangeKey = 'todos' | '0-300' | '300-800' | '800-1200' | '1200-2500' | '2500-5000' | '5000+' | 'custom';
+
+const PRICE_RANGES: { key: PriceRangeKey; label: string; min: number; max: number }[] = [
+  { key: 'todos', label: 'Todos', min: 0, max: Infinity },
+  { key: '0-300', label: 'R$ 0–300', min: 0, max: 300 },
+  { key: '300-800', label: 'R$ 300–800', min: 300, max: 800 },
+  { key: '800-1200', label: 'R$ 800–1.200', min: 800, max: 1200 },
+  { key: '1200-2500', label: 'R$ 1.200–2.500', min: 1200, max: 2500 },
+  { key: '2500-5000', label: 'R$ 2.500–5.000', min: 2500, max: 5000 },
+  { key: '5000+', label: 'R$ 5.000+', min: 5000, max: Infinity },
+  { key: 'custom', label: 'Personalizado', min: 0, max: Infinity },
+];
+
+function matchPriceRange(total: number, range: PriceRangeKey, customMin: string, customMax: string): boolean {
+  if (range === 'todos') return true;
+  if (range === 'custom') {
+    const min = customMin ? Number(customMin) : 0;
+    const max = customMax ? Number(customMax) : Infinity;
+    return total >= min && total <= max;
+  }
+  const config = PRICE_RANGES.find((r) => r.key === range);
+  if (!config) return true;
+  return total >= config.min && total <= config.max;
+}
 
 function getDateRange(preset: PeriodPreset, start: string, end: string): { dataInicio?: string; dataFim?: string } {
   const today = new Date();
@@ -98,6 +124,19 @@ export function OrcamentosPage() {
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('30d');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  // searchTrigger: incrementa para disparar busca manualmente
+  const [searchTrigger, setSearchTrigger] = useState(0);
+
+  const [materiaisVendidos, setMateriaisVendidos] = useState<MateriaisVendidosResult | null>(null);
+  const [materiaisLoading, setMateriaisLoading] = useState(false);
+  type DbStatusTab = 'todos' | 'F' | 'L' | 'P' | 'E' | 'A' | 'C';
+  const [dbStatusTab, setDbStatusTab] = useState<DbStatusTab>('todos');
+
+  // Filtro de faixa de preço
+  type PriceRange = 'todos' | '0-300' | '300-800' | '800-1200' | '1200-2500' | '2500-5000' | '5000+' | 'custom';
+  const [priceRange, setPriceRange] = useState<PriceRange>('todos');
+  const [customPriceMin, setCustomPriceMin] = useState('');
+  const [customPriceMax, setCustomPriceMax] = useState('');
 
   const [view, setView] = useState<ViewState>('list');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -120,7 +159,7 @@ export function OrcamentosPage() {
       setTimeout(() => {
         const sols = loadMock('mock_solucoes', mockSolucoes);
         const eqs = loadMock('mock_equipments', mockEquipments);
-        const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'pronta');
+        const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'enviada');
         if (sol) {
           const orc = gerarOrcamentoDeSolucao(sol, eqs);
           setOrcamentos((cur) => {
@@ -137,7 +176,16 @@ export function OrcamentosPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load DB orçamentos + funil (recarrega ao mudar período)
+  // Dispara busca: presets disparam direto; custom só via botão Consultar
+  function handlePresetChange(p: PeriodPreset) {
+    setPeriodPreset(p);
+    if (p !== 'custom') setSearchTrigger((n) => n + 1);
+  }
+  function handleConsultar() {
+    setSearchTrigger((n) => n + 1);
+  }
+
+  // Load DB orçamentos + funil (recarrega ao mudar searchTrigger ou preset não-custom)
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -147,14 +195,15 @@ export function OrcamentosPage() {
         const ds = createDataSource();
         const range = getDateRange(periodPreset, customStart, customEnd);
         const [result, funnel] = await Promise.all([
-          ds.orcamentos.list({ page: 1, pageSize: 100, ...range }),
+          ds.orcamentos.list({ page: 1, pageSize: 500, ...range }),
           isRealData ? ds.orcamentos.getFunnel(range) : Promise.resolve(null),
         ]);
         if (!cancelled) {
           setDbOrcamentos(result.data);
           setFunnelStats(funnel);
         }
-      } catch {
+      } catch (err) {
+        console.error('[Orçamentos] Erro ao carregar:', err);
         if (!cancelled) { setDbOrcamentos([]); setFunnelStats(null); }
       } finally {
         if (!cancelled) { setDbLoading(false); setFunnelLoading(false); }
@@ -163,7 +212,30 @@ export function OrcamentosPage() {
     load();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodPreset, customStart, customEnd]);
+  }, [searchTrigger]);
+
+  // Load materiais vendidos separadamente (não bloqueia a listagem principal)
+  useEffect(() => {
+    if (!isRealData) return;
+    let cancelled = false;
+    async function loadMateriais() {
+      setMateriaisLoading(true);
+      try {
+        const ds = createDataSource();
+        const range = getDateRange(periodPreset, customStart, customEnd);
+        const result = await ds.orcamentos.getMateriaisVendidos(range);
+        if (!cancelled) setMateriaisVendidos(result);
+      } catch (err) {
+        console.error('[Orçamentos] Erro ao carregar materiais:', err);
+        if (!cancelled) setMateriaisVendidos(null);
+      } finally {
+        if (!cancelled) setMateriaisLoading(false);
+      }
+    }
+    loadMateriais();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTrigger]);
 
   useEffect(() => { saveMock('mock_orcamentos', orcamentos); }, [orcamentos]);
   useEffect(() => { saveMock('mock_solucoes', solucoes); }, [solucoes]);
@@ -329,11 +401,12 @@ export function OrcamentosPage() {
       {isRealData && (
         <PeriodFilter
           preset={periodPreset}
-          onPresetChange={setPeriodPreset}
+          onPresetChange={handlePresetChange}
           customStart={customStart}
           onCustomStartChange={setCustomStart}
           customEnd={customEnd}
           onCustomEndChange={setCustomEnd}
+          onConsultar={handleConsultar}
         />
       )}
 
@@ -342,7 +415,7 @@ export function OrcamentosPage() {
         <FunnelCard stats={funnelStats} loading={funnelLoading} />
       )}
 
-      {/* DB orçamentos section */}
+      {/* DB orçamentos section — agrupados por status */}
       {showDbSection && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -356,74 +429,132 @@ export function OrcamentosPage() {
             )}
           </div>
 
+          {/* Status tabs */}
+          {!dbLoading && dbOrcamentos.length > 0 && (
+            <DbStatusTabs
+              orcamentos={dbOrcamentos}
+              activeTab={dbStatusTab}
+              onTabChange={setDbStatusTab}
+            />
+          )}
+
           {!dbLoading && dbOrcamentos.length === 0 && (
             <div style={{ fontSize: 13, color: theme.muted, padding: '8px 0' }}>Nenhum orçamento encontrado no banco.</div>
+          )}
+
+          {/* Filtro de faixa de preço */}
+          {!dbLoading && dbOrcamentos.length > 0 && (
+            <PriceRangeFilter
+              value={priceRange}
+              onChange={setPriceRange}
+              customMin={customPriceMin}
+              onCustomMinChange={setCustomPriceMin}
+              customMax={customPriceMax}
+              onCustomMaxChange={setCustomPriceMax}
+              orcamentos={dbOrcamentos.filter((o) => dbStatusTab === 'todos' || o.status === dbStatusTab)}
+            />
           )}
 
           {dbDetailLoading && (
             <div style={{ fontSize: 12, color: theme.gold, padding: '4px 0 8px' }}>Carregando detalhes…</div>
           )}
 
-          <div style={{ display: 'grid', gap: 10 }}>
-            {dbOrcamentos.map((orc) => {
-              const total = (orc.totalProdutos ?? 0) + (orc.totalServicos ?? 0);
-              const statusInfo = DB_STATUS_MAP[orc.status ?? ''] ?? { label: orc.status ?? '?', color: theme.muted };
-              return (
-                <div
-                  key={orc.codInterno}
-                  onClick={() => handleOpenDbOrc(orc)}
-                  style={{
-                    background: theme.panel,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 10,
-                    padding: 14,
-                    cursor: 'pointer',
-                    transition: 'border-color 140ms',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <strong style={{ fontSize: 15 }}>{orc.clienteNome || '—'}</strong>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
-                        background: 'rgba(200,169,81,0.15)', color: theme.gold, border: `1px solid ${theme.gold}44`,
-                        letterSpacing: 0.5,
-                      }}>BD</span>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 999,
-                        background: statusInfo.color + '22', color: statusInfo.color,
-                        border: `1px solid ${statusInfo.color}44`,
-                      }}>
-                        {statusInfo.label}
-                      </span>
-                    </div>
+          {/* Resumo de materiais — visível nas abas Faturados, Liberados ou Em Instalação */}
+          {(dbStatusTab === 'F' || dbStatusTab === 'L' || dbStatusTab === 'E') && materiaisVendidos && !materiaisLoading && materiaisVendidos.produtos.length > 0 && (
+            <TopProdutosRanking materiais={materiaisVendidos} />
+          )}
+          {(dbStatusTab === 'F' || dbStatusTab === 'L' || dbStatusTab === 'E') && materiaisLoading && (
+            <div style={{ fontSize: 12, color: theme.muted, padding: '8px 0' }}>Carregando materiais…</div>
+          )}
+
+          {/* Filtered orc list */}
+          {(() => {
+            const filtered = dbOrcamentos
+              .filter((orc) => dbStatusTab === 'todos' || orc.status === dbStatusTab)
+              .filter((orc) => {
+                const total = (Number(orc.totalProdutos) || 0) + (Number(orc.totalServicos) || 0);
+                return matchPriceRange(total, priceRange, customPriceMin, customPriceMax);
+              });
+            const faixaLabel = priceRange !== 'todos'
+              ? ` na faixa ${priceRange === 'custom' ? `R$ ${customPriceMin || '0'} – R$ ${customPriceMax || '∞'}` : `R$ ${priceRange.replace('-', ' – R$ ').replace('+', '+')}`}`
+              : '';
+            return (
+              <>
+                {filtered.length > 0 && (
+                  <div style={{ fontSize: 11, color: theme.muted, marginBottom: 6 }}>
+                    {filtered.length} orçamento{filtered.length !== 1 ? 's' : ''}{faixaLabel}
                   </div>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
-                    {orc.numOrcamento && (
-                      <span style={{ fontSize: 12, color: theme.muted }}>Nº {orc.numOrcamento}</span>
-                    )}
-                    {(orc.cidade || orc.uf) && (
-                      <span style={{ fontSize: 12, color: theme.muted }}>
-                        {[orc.cidade, orc.uf].filter(Boolean).join('/')}
-                      </span>
-                    )}
-                    {orc.etapa && (
-                      <span style={{ fontSize: 12, color: theme.muted }}>Etapa: {orc.etapa}</span>
-                    )}
-                    {orc.modalidade && (
-                      <span style={{ fontSize: 12, color: theme.muted }}>{orc.modalidade}</span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: theme.gold }}>
-                      R$ {formatCurrency(total)}
-                    </span>
-                    <span style={{ fontSize: 12, color: theme.muted }}>{formatDate(orc.emissao)}</span>
-                  </div>
+                )}
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {filtered.map((orc) => {
+                    const total = (Number(orc.totalProdutos) || 0) + (Number(orc.totalServicos) || 0);
+                    const statusInfo = DB_STATUS_MAP[orc.status ?? ''] ?? { label: orc.status ?? '?', color: theme.muted };
+                    return (
+                      <div
+                        key={orc.codInterno}
+                        onClick={() => handleOpenDbOrc(orc)}
+                        style={{
+                          background: theme.panel,
+                          border: `1px solid ${theme.border}`,
+                          borderRadius: 10,
+                          padding: 14,
+                          cursor: 'pointer',
+                          transition: 'border-color 140ms',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <strong style={{ fontSize: 15 }}>{orc.clienteNome || '—'}</strong>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+                              background: 'rgba(200,169,81,0.15)', color: theme.gold, border: `1px solid ${theme.gold}44`,
+                              letterSpacing: 0.5,
+                            }}>BD</span>
+                            <span style={{
+                              fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 999,
+                              background: statusInfo.color + '22', color: statusInfo.color,
+                              border: `1px solid ${statusInfo.color}44`,
+                            }}>
+                              {statusInfo.label}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                          {orc.numOrcamento && (
+                            <span style={{ fontSize: 12, color: theme.muted }}>Nº {orc.numOrcamento}</span>
+                          )}
+                          {(orc.cidade || orc.uf) && (
+                            <span style={{ fontSize: 12, color: theme.muted }}>
+                              {[orc.cidade, orc.uf].filter(Boolean).join('/')}
+                            </span>
+                          )}
+                          {orc.etapa && (
+                            <span style={{ fontSize: 12, color: theme.muted }}>Etapa: {orc.etapa}</span>
+                          )}
+                          {orc.modalidade && (
+                            <span style={{ fontSize: 12, color: theme.muted }}>{orc.modalidade}</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                          <span style={{ fontSize: 18, fontWeight: 700, color: theme.gold }}>
+                            R$ {formatCurrency(total)}
+                          </span>
+                          <span style={{ fontSize: 12, color: theme.muted }}>{formatDate(orc.emissao)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+
+                {/* Empty state */}
+                {filtered.length === 0 && !dbLoading && (
+                  <div style={{ fontSize: 13, color: theme.muted, padding: '12px 0' }}>
+                    Nenhum orçamento encontrado{dbStatusTab !== 'todos' ? ` com status "${DB_STATUS_MAP[dbStatusTab]?.label ?? dbStatusTab}"` : ''}{faixaLabel}.
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -479,7 +610,7 @@ export function OrcamentosPage() {
       {/* Modal: Selecionar Solução */}
       {showSolucaoModal && (
         <SolucaoSelectorModal
-          solucoes={solucoes.filter((s) => s.status === 'pronta')}
+          solucoes={solucoes.filter((s) => s.status === 'enviada')}
           onSelect={handleGerarFromModal}
           onClose={() => setShowSolucaoModal(false)}
         />
@@ -491,7 +622,7 @@ export function OrcamentosPage() {
 /* ---- Period Filter ---- */
 
 function PeriodFilter({
-  preset, onPresetChange, customStart, onCustomStartChange, customEnd, onCustomEndChange,
+  preset, onPresetChange, customStart, onCustomStartChange, customEnd, onCustomEndChange, onConsultar,
 }: {
   preset: PeriodPreset;
   onPresetChange: (p: PeriodPreset) => void;
@@ -499,6 +630,7 @@ function PeriodFilter({
   onCustomStartChange: (v: string) => void;
   customEnd: string;
   onCustomEndChange: (v: string) => void;
+  onConsultar: () => void;
 }) {
   const labels: Record<PeriodPreset, string> = {
     '7d': '7 dias', '30d': '30 dias', '90d': '90 dias', 'ano': 'Este ano', 'custom': 'Personalizado',
@@ -535,6 +667,23 @@ function PeriodFilter({
             onChange={(e) => onCustomEndChange(e.target.value)}
             style={{ background: theme.soft, color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 6, padding: '4px 8px', fontSize: 12 }}
           />
+          <button
+            onClick={onConsultar}
+            disabled={!customStart || !customEnd}
+            style={{
+              background: theme.gold,
+              border: 'none',
+              borderRadius: 6,
+              color: '#111',
+              padding: '5px 14px',
+              cursor: customStart && customEnd ? 'pointer' : 'not-allowed',
+              fontWeight: 700,
+              fontSize: 12,
+              opacity: customStart && customEnd ? 1 : 0.5,
+            }}
+          >
+            Consultar
+          </button>
         </>
       )}
     </div>
@@ -569,6 +718,7 @@ function FunnelCard({ stats, loading }: { stats: FunnelStats | null; loading: bo
     { label: 'Aguardando aprovação', count: stats.emAprovacao, color: '#7B9BD5' },
     { label: 'Liberados', count: stats.liberados, color: theme.success },
     { label: 'Em instalação', count: stats.emInstalacao, color: '#C8A951' },
+    { label: 'Faturados', count: stats.faturados, color: '#43C17B' },
     { label: 'Cancelados', count: stats.cancelados, color: theme.danger },
   ];
 
@@ -614,7 +764,7 @@ function FunnelCard({ stats, loading }: { stats: FunnelStats | null; loading: bo
 
       {stats.avancados > 0 && (
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${theme.border}`, fontSize: 12, color: theme.muted }}>
-          <span style={{ color: theme.success, fontWeight: 600 }}>{stats.avancados}</span> orçamentos avançaram (Liberados + Em Instalação) de {stats.totalOrcamentos} emitidos no período.
+          <span style={{ color: theme.success, fontWeight: 600 }}>{stats.avancados}</span> orçamentos fechados (Faturados + Liberados + Em Instalação) de {stats.totalOrcamentos} emitidos no período.
         </div>
       )}
     </div>
@@ -1149,6 +1299,239 @@ function OrcamentoStatusBadge({ status }: { status: Orcamento['status'] }) {
     </span>
   );
 }
+
+/* ---- Price Range Filter ---- */
+
+function PriceRangeFilter({
+  value, onChange, customMin, onCustomMinChange, customMax, onCustomMaxChange, orcamentos,
+}: {
+  value: PriceRangeKey;
+  onChange: (v: PriceRangeKey) => void;
+  customMin: string;
+  onCustomMinChange: (v: string) => void;
+  customMax: string;
+  onCustomMaxChange: (v: string) => void;
+  orcamentos: OrcamentoApiDto[];
+}) {
+  // Conta orçamentos por faixa
+  const counts: Record<string, number> = {};
+  for (const orc of orcamentos) {
+    const total = (Number(orc.totalProdutos) || 0) + (Number(orc.totalServicos) || 0);
+    for (const r of PRICE_RANGES) {
+      if (r.key === 'todos' || r.key === 'custom') continue;
+      if (total >= r.min && total <= r.max) {
+        counts[r.key] = (counts[r.key] || 0) + 1;
+      }
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+      <span style={{ fontSize: 11, color: theme.muted, marginRight: 2 }}>Faixa de preço:</span>
+      {PRICE_RANGES.map((r) => {
+        const count = r.key === 'todos' ? orcamentos.length : (counts[r.key] ?? 0);
+        const showCount = r.key !== 'custom';
+        return (
+          <button
+            key={r.key}
+            onClick={() => onChange(r.key)}
+            style={{
+              ...btnSmall,
+              padding: '3px 8px',
+              fontSize: 11,
+              borderColor: value === r.key ? '#5B9BD5' : theme.border,
+              color: value === r.key ? '#5B9BD5' : theme.muted,
+              background: value === r.key ? 'rgba(91,155,213,0.1)' : 'transparent',
+              display: 'flex', gap: 4, alignItems: 'center',
+            }}
+          >
+            {r.label}
+            {showCount && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '0px 5px', borderRadius: 999,
+                background: value === r.key ? 'rgba(91,155,213,0.2)' : theme.soft,
+                color: value === r.key ? '#5B9BD5' : theme.muted,
+              }}>
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+      {value === 'custom' && (
+        <>
+          <span style={{ fontSize: 11, color: theme.muted }}>R$</span>
+          <input
+            type="number"
+            placeholder="Mín"
+            value={customMin}
+            onChange={(e) => onCustomMinChange(e.target.value)}
+            style={{
+              background: theme.soft, color: theme.text, border: `1px solid ${theme.border}`,
+              borderRadius: 6, padding: '3px 6px', fontSize: 12, width: 70,
+            }}
+          />
+          <span style={{ fontSize: 11, color: theme.muted }}>até R$</span>
+          <input
+            type="number"
+            placeholder="Máx"
+            value={customMax}
+            onChange={(e) => onCustomMaxChange(e.target.value)}
+            style={{
+              background: theme.soft, color: theme.text, border: `1px solid ${theme.border}`,
+              borderRadius: 6, padding: '3px 6px', fontSize: 12, width: 70,
+            }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---- Top Produtos Ranking (barras visuais) ---- */
+
+function TopProdutosRanking({ materiais }: { materiais: MateriaisVendidosResult }) {
+  const top = materiais.produtos.slice(0, 10);
+  if (top.length === 0) return null;
+  const maxQtd = Math.max(...top.map((p) => p.quantidadeTotal), 1);
+
+  return (
+    <div style={{
+      background: theme.panel,
+      border: `1px solid ${theme.border}`,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 14,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h4 style={{ margin: 0, fontSize: 14, color: theme.gold, fontWeight: 600 }}>
+          Top {top.length} Produtos Mais Vendidos
+        </h4>
+        <div style={{ fontSize: 11, color: theme.muted }}>
+          {materiais.resumo.totalOrcamentosVendidos} orçamentos aprovados · {materiais.resumo.totalPecas} peças
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 6 }}>
+        {top.map((p, i) => {
+          const widthPct = Math.max(5, Math.round((p.quantidadeTotal / maxQtd) * 100));
+          const barColor = i < 3 ? theme.gold : theme.success;
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                width: 22, height: 22, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700,
+                background: i < 3 ? theme.gold + '22' : theme.soft,
+                color: i < 3 ? theme.gold : theme.muted,
+                border: `1px solid ${i < 3 ? theme.gold + '44' : theme.border}`,
+                flexShrink: 0,
+              }}>
+                {i + 1}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: i < 3 ? 600 : 400,
+                    color: i < 3 ? theme.text : theme.muted,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {p.descricao}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: barColor, flexShrink: 0 }}>
+                    {p.quantidadeTotal} un
+                  </span>
+                </div>
+                <div style={{ background: theme.soft, borderRadius: 3, height: 6, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${widthPct}%`, height: '100%',
+                    background: `linear-gradient(90deg, ${barColor}bb, ${barColor}66)`,
+                    borderRadius: 3, transition: 'width 500ms ease',
+                  }} />
+                </div>
+              </div>
+              <span style={{ fontSize: 11, color: theme.muted, flexShrink: 0, width: 70, textAlign: 'right' }}>
+                R$ {formatCurrency(p.valorTotal)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {materiais.produtos.length > 10 && (
+        <div style={{ fontSize: 11, color: theme.muted, marginTop: 8, textAlign: 'right' }}>
+          + {materiais.produtos.length - 10} outros produtos
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- DB Status Tabs ---- */
+
+type DbStatusTabKey = 'todos' | 'F' | 'L' | 'P' | 'E' | 'A' | 'C';
+
+const DB_TAB_CONFIG: { key: DbStatusTabKey; label: string; color: string }[] = [
+  { key: 'todos', label: 'Todos', color: theme.text },
+  { key: 'F', label: 'Faturados', color: '#43C17B' },
+  { key: 'L', label: 'Liberados', color: theme.success },
+  { key: 'E', label: 'Em Instalação', color: '#C8A951' },
+  { key: 'P', label: 'Aguard. Aprovação', color: '#5B9BD5' },
+  { key: 'A', label: 'Abertos', color: theme.warning },
+  { key: 'C', label: 'Cancelados', color: theme.danger },
+];
+
+function DbStatusTabs({
+  orcamentos, activeTab, onTabChange,
+}: {
+  orcamentos: OrcamentoApiDto[];
+  activeTab: DbStatusTabKey;
+  onTabChange: (tab: DbStatusTabKey) => void;
+}) {
+  const counts: Record<string, number> = {};
+  for (const o of orcamentos) {
+    const s = o.status ?? '?';
+    counts[s] = (counts[s] ?? 0) + 1;
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      {DB_TAB_CONFIG.map((tab) => {
+        const count = tab.key === 'todos' ? orcamentos.length : (counts[tab.key] ?? 0);
+        const isActive = activeTab === tab.key;
+        return (
+          <button
+            key={tab.key}
+            onClick={() => onTabChange(tab.key)}
+            style={{
+              background: isActive ? tab.color + '18' : 'transparent',
+              border: `1px solid ${isActive ? tab.color : theme.border}`,
+              borderRadius: 8,
+              color: isActive ? tab.color : theme.muted,
+              padding: '5px 12px',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: isActive ? 600 : 400,
+              display: 'flex',
+              gap: 5,
+              alignItems: 'center',
+              transition: 'all 140ms',
+            }}
+          >
+            {tab.label}
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999,
+              background: isActive ? tab.color + '30' : theme.soft,
+              color: isActive ? tab.color : theme.muted,
+            }}>
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 
 /* ---- Styles ---- */
 

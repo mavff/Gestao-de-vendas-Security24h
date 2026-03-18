@@ -104,6 +104,7 @@ export class OrcamentosRepository {
       emAprovacao,
       liberados,
       emInstalacao,
+      faturados,
       cancelados,
       prospects,
       ticketAgg,
@@ -113,6 +114,7 @@ export class OrcamentosRepository {
       this.prisma.orcamento.count({ where: { ...baseWhere, status: 'P' } }),
       this.prisma.orcamento.count({ where: { ...baseWhere, status: 'L' } }),
       this.prisma.orcamento.count({ where: { ...baseWhere, status: 'E' } }),
+      this.prisma.orcamento.count({ where: { ...baseWhere, status: 'F' } }),
       this.prisma.orcamento.count({ where: { ...baseWhere, status: 'C' } }),
       this.prisma.prospect.count({ where: prospectWhere }),
       this.prisma.orcamento.aggregate({
@@ -121,7 +123,7 @@ export class OrcamentosRepository {
       }),
     ]);
 
-    const avancados = liberados + emInstalacao;
+    const avancados = faturados + liberados + emInstalacao;
     const taxaConversao = totalOrcamentos > 0
       ? Math.round((avancados / totalOrcamentos) * 100)
       : 0;
@@ -133,11 +135,121 @@ export class OrcamentosRepository {
       emAprovacao,
       liberados,
       emInstalacao,
+      faturados,
       cancelados,
       avancados,
       taxaConversao,
       ticketMedioEquip: Number(ticketAgg._avg.totalProdutos) || 0,
       ticketMedioMensal: Number(ticketAgg._avg.valorMonitoramento) || 0,
+    };
+  }
+
+  /**
+   * Agrega todos os produtos dos orçamentos que resultaram em venda (status F, L ou E)
+   * no período informado. Agrupa por codProduto + descricao somando quantidades.
+   */
+  async getMateriaisVendidos(dataInicio?: string, dataFim?: string) {
+    this.prisma.ensureConnection();
+
+    const emissaoFilter = buildDateFilter(dataInicio, dataFim);
+    const baseWhere: Record<string, any> = {
+      empresa: { in: EMPRESA_IDS },
+      status: { in: ['F', 'L', 'E'] },
+      ...(emissaoFilter ? { emissao: emissaoFilter } : {}),
+    };
+
+    // Busca orçamentos vendidos com seus produtos
+    const orcamentos = await this.prisma.orcamento.findMany({
+      where: baseWhere,
+      select: {
+        codInterno: true,
+        numOrcamento: true,
+        clienteNome: true,
+        emissao: true,
+        status: true,
+        totalProdutos: true,
+        totalServicos: true,
+        valorMonitoramento: true,
+        produtos: {
+          select: {
+            codProduto: true,
+            descricao: true,
+            quantidade: true,
+            unitario: true,
+            total: true,
+            liquido: true,
+            grupoOrcamento: true,
+          },
+        },
+      },
+      orderBy: { emissao: 'desc' },
+    });
+
+    // Agrega produtos por codProduto+descricao
+    const prodMap = new Map<string, {
+      codProduto: number | null;
+      descricao: string;
+      grupoOrcamento: string | null;
+      quantidadeTotal: number;
+      valorTotal: number;
+      ocorrencias: number; // em quantos orçamentos aparece
+    }>();
+
+    for (const orc of orcamentos) {
+      for (const p of orc.produtos) {
+        const key = `${p.codProduto ?? 0}::${p.descricao ?? 'Sem descrição'}`;
+        const qtd = Number(p.quantidade ?? 0);
+        const val = Number(p.total ?? 0) || (Number(p.liquido ?? p.unitario ?? 0) * qtd);
+
+        const existing = prodMap.get(key);
+        if (existing) {
+          existing.quantidadeTotal += qtd;
+          existing.valorTotal += val;
+          existing.ocorrencias += 1;
+        } else {
+          prodMap.set(key, {
+            codProduto: p.codProduto,
+            descricao: p.descricao ?? 'Sem descrição',
+            grupoOrcamento: p.grupoOrcamento ?? null,
+            quantidadeTotal: qtd,
+            valorTotal: val,
+            ocorrencias: 1,
+          });
+        }
+      }
+    }
+
+    const produtos = Array.from(prodMap.values())
+      .sort((a, b) => b.quantidadeTotal - a.quantidadeTotal);
+
+    const totalOrcamentosVendidos = orcamentos.length;
+    const totalItensUnicos = produtos.length;
+    const totalPecas = produtos.reduce((s, p) => s + p.quantidadeTotal, 0);
+    const totalValorProdutos = produtos.reduce((s, p) => s + p.valorTotal, 0);
+    const totalValorMensalidades = orcamentos.reduce(
+      (s, o) => s + Number(o.valorMonitoramento ?? 0), 0,
+    );
+
+    return {
+      resumo: {
+        totalOrcamentosVendidos,
+        totalItensUnicos,
+        totalPecas,
+        totalValorProdutos,
+        totalValorMensalidades,
+      },
+      produtos,
+      orcamentos: orcamentos.map((o) => ({
+        codInterno: o.codInterno,
+        numOrcamento: o.numOrcamento,
+        clienteNome: o.clienteNome,
+        emissao: o.emissao,
+        status: o.status,
+        totalProdutos: o.totalProdutos,
+        totalServicos: o.totalServicos,
+        valorMonitoramento: o.valorMonitoramento,
+        qtdProdutos: o.produtos.length,
+      })),
     };
   }
 

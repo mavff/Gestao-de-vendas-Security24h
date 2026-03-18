@@ -11,3 +11,4 @@ ios/Pods
 .next/
 out/
 NUL
+*.sqlite

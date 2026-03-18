@@ -21,6 +21,7 @@ const iconByPath: Record<string, string> = {
   '/kits': 'kits',
   '/usuarios': 'usuarios',
   '/missoes': 'missoes',
+  '/sdr': 'sdr',
 };
 
 function NavIcon({ icon, active }: { icon: string; active: boolean }) {
@@ -130,6 +131,16 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
         <line x1="12" y1="17.3" x2="12" y2="19.5" />
         <line x1="4.5" y1="12" x2="6.7" y2="12" />
         <line x1="17.3" y1="12" x2="19.5" y2="12" />
+      </svg>
+    );
+  }
+
+  if (icon === 'sdr') {
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M4 7h16M4 12h10M4 17h7" />
+        <circle cx="19" cy="16" r="3.5" />
+        <line x1="21.5" y1="18.5" x2="23" y2="20" />
       </svg>
     );
   }

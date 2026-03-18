@@ -11,7 +11,7 @@ async function bootstrap() {
   app.use(helmet());
   app.use(new RateLimitMiddleware().use);
 
-  const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3001')
+  const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
     .split(',')
     .map((o) => o.trim());
 

@@ -1,9 +1,15 @@
+import * as path from 'path';
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuthModule } from './auth/auth.module';
+import { AppUsersModule } from './app-users/app-users.module';
+import { AppUser } from './app-users/app-user.entity';
+import { AppKv } from './app-users/app-kv.entity';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { SheetsModule } from './sheets/sheets.module';
+import { CrmModule } from './crm/crm.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { KitsModule } from './kits/kits.module';
@@ -60,7 +66,12 @@ function buildTypeOrmModule(): DynamicModule[] {
       dataSourceFactory: async (options) => {
         const ds = new DataSource(options!);
         try {
-          await ds.initialize();
+          await Promise.race([
+            ds.initialize(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('TypeORM connection timeout after 8s')), 8000),
+            ),
+          ]);
           logger.log('TypeORM ✓ conectado ao SQL Server');
         } catch (err) {
           logger.warn(
@@ -77,12 +88,28 @@ function buildTypeOrmModule(): DynamicModule[] {
   ];
 }
 
+/** SQLite connection for app-specific data (users, settings, etc.) */
+function buildSqliteModule(): DynamicModule[] {
+  const dbPath = path.resolve(__dirname, '..', 'data', 'app.sqlite');
+  return [
+    TypeOrmModule.forRoot({
+      name: 'sqlite',
+      type: 'better-sqlite3',
+      database: dbPath,
+      entities: [AppUser, AppKv],
+      synchronize: true, // Auto-create tables — safe for SQLite local
+    }),
+  ];
+}
+
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', path.resolve(__dirname, '..', '.env')] }),
     ...buildTypeOrmModule(),
+    ...buildSqliteModule(),
     PrismaModule,
     HealthModule,
+    AppUsersModule,
     ProductsModule,
     KitsModule,
     LookupsModule,
@@ -90,6 +117,8 @@ function buildTypeOrmModule(): DynamicModule[] {
     OrcamentosModule,
     PreOrcamentosModule,
     DashboardModule,
+    SheetsModule,
+    CrmModule,
     ...(process.env.SQL_SERVER_HOST ? [AuthModule] : []),
   ],
 })

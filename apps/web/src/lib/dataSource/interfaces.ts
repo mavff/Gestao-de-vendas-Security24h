@@ -1,5 +1,5 @@
 import { Equipment, Kit } from '../../types';
-import { DashboardStats, DataSourceMode, EquipmentQuery, FinanceiroDashboard, FunnelStats, KitsQuery, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery } from './types';
+import { CrmLeadsResult, CrmQuery, CrmSource, DashboardStats, DataSourceMode, EquipmentQuery, FinanceiroDashboard, FunnelStats, KitsQuery, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery, SdrQuery, SdrTabResult, SheetsLeadStats } from './types';
 
 export interface IEquipmentDataSource {
   list(query?: EquipmentQuery): Promise<PaginatedResult<Equipment>>;
@@ -25,11 +25,26 @@ export interface IOrcamentosDataSource {
   list(query?: OrcamentosQuery): Promise<PaginatedResult<OrcamentoApiDto>>;
   getById(id: number): Promise<OrcamentoDetalheApiDto | null>;
   getFunnel(query?: { dataInicio?: string; dataFim?: string }): Promise<FunnelStats>;
+  getMateriaisVendidos(query?: { dataInicio?: string; dataFim?: string }): Promise<MateriaisVendidosResult>;
 }
 
 export interface IPreOrcamentosDataSource {
   list(query?: PreOrcamentosQuery): Promise<PaginatedResult<PreOrcamentoApiDto>>;
   getById(id: number): Promise<PreOrcamentoApiDto | null>;
+}
+
+export interface ISheetsDataSource {
+  getLeads(): Promise<SheetsLeadStats>;
+}
+
+export interface ISdrDataSource {
+  getTab(query?: SdrQuery): Promise<SdrTabResult>;
+  checkHealth(): Promise<{ online: boolean; latencyMs: number }>;
+}
+
+export interface ICrmDataSource {
+  getLeads(query?: CrmQuery): Promise<CrmLeadsResult>;
+  getSources(): Promise<CrmSource[]>;
 }
 
 export type DataSourceRegistry = {
@@ -40,5 +55,8 @@ export type DataSourceRegistry = {
   dashboard: IDashboardDataSource;
   orcamentos: IOrcamentosDataSource;
   preOrcamentos: IPreOrcamentosDataSource;
+  sheets: ISheetsDataSource;
+  sdr: ISdrDataSource;
+  crm: ICrmDataSource;
 };
 

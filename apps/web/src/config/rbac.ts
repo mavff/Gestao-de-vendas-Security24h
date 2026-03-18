@@ -23,8 +23,7 @@ const routes: RouteConfig[] = [
   { path: '/vendas', roles: ['ADMIN', 'GESTOR', 'VENDEDOR'], label: 'Minhas Vendas', showInSidebar: true, sidebarRoles: ['VENDEDOR'] },
   { path: '/venda', roles: ['ADMIN', 'GESTOR', 'VENDEDOR'] },
   { path: '/leads', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR'] },
-  { path: '/propostas', roles: ['ADMIN', 'GESTOR'], label: 'Propostas', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR'] },
-  { path: '/solucoes', roles: ['ADMIN', 'VENDEDOR', 'TECNICO'], label: 'Soluções', showInSidebar: true, sidebarRoles: ['ADMIN', 'VENDEDOR', 'TECNICO'] },
+  { path: '/solucoes', roles: ['ADMIN', 'GESTOR', 'VENDEDOR', 'TECNICO'], label: 'Propostas', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'VENDEDOR', 'TECNICO'] },
   { path: '/orcamentos', roles: ['ADMIN', 'GESTOR'], label: 'Orçamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR'] },
   { path: '/instalacoes', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Ordens de Serviço', showInSidebar: true },
   { path: '/equipamentos', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Equipamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'INFRA'] },
@@ -32,6 +31,7 @@ const routes: RouteConfig[] = [
   { path: '/modelos', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR'] },
   { path: '/usuarios', roles: ['ADMIN', 'INFRA'], label: 'Usuários', showInSidebar: true },
   { path: '/missoes', roles: allRoles, label: 'Missões', showInSidebar: true },
+  { path: '/sdr', roles: ['ADMIN', 'GESTOR', 'SDR'], label: 'SDR Log', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'SDR'] },
   { path: '/login', roles: allRoles },
 ];
 

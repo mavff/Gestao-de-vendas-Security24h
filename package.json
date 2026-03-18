@@ -2,12 +2,10 @@
   "name": "gestao-de-vendas-security24h",
   "private": true,
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
   "scripts": {
     "dev:backend": "npm --workspace @security24h/backend run start:dev",
-    "dev:mobile": "npm --workspace @security24h/mobile run start",
     "dev:web": "npm --workspace @security24h/web run dev",
     "lint": "npm --workspaces run lint --if-present",
     "test": "npm --workspaces run test --if-present"

@@ -61,13 +61,14 @@ export const mockLeads: Lead[] = [
 ];
 
 export const mockUsers: User[] = [
-  { id: 'U1', name: 'Admin Master', role: 'ADMIN', status: 'ativo' },
-  { id: 'U2', name: 'Paula Vendas', role: 'VENDEDOR', status: 'ativo' },
-  { id: 'U3', name: 'Marcos SDR', role: 'SDR', status: 'ativo' },
-  { id: 'U4', name: 'Téc. Bruno', role: 'TECNICO', status: 'inativo' },
-  { id: 'U5', name: 'Rafael Infra', role: 'INFRA', status: 'ativo' },
-  { id: 'U6', name: 'Carla Monitor', role: 'MONITOR', status: 'ativo' },
-  { id: 'U7', name: 'Renata Gestora', role: 'GESTOR', status: 'ativo' },
+  { id: 'U0', name: 'Admin Master', role: 'ADMIN', status: 'ativo' },
+  { id: 'U1', name: 'Administrador', role: 'ADMIN', status: 'ativo' },
+  { id: 'U2', name: 'Ana Silva', role: 'GESTOR', status: 'ativo' },
+  { id: 'U3', name: 'Carlos Oliveira', role: 'SDR', status: 'ativo' },
+  { id: 'U4', name: 'Julia Santos', role: 'VENDEDOR', status: 'ativo' },
+  { id: 'U5', name: 'Pedro Lima', role: 'TECNICO', status: 'ativo' },
+  { id: 'U6', name: 'Lucas Ferreira', role: 'INFRA', status: 'ativo' },
+  { id: 'U7', name: 'Maria Costa', role: 'MONITOR', status: 'ativo' },
 ];
 
 export const mockMissions: Mission[] = [
@@ -216,8 +217,9 @@ export const mockSolucoes: SolucaoTecnica[] = [
       { categoria: 'central_alarme', itens: [{ equipmentId: 'E3', quantidade: 1, observacao: '' }] },
       { categoria: 'acessorio', itens: [{ equipmentId: 'E15', quantidade: 1, observacao: '' }, { equipmentId: 'E30', quantidade: 2, observacao: '' }] },
     ],
+    servicos: [],
     observacaoGeral: 'Cliente quer câmeras com boa visão noturna. Priorizar fachada e estoque.',
-    status: 'pronta',
+    status: 'enviada',
     criadoPor: 'U2',
     createdAt: '2026-02-05',
     updatedAt: '2026-02-05',
