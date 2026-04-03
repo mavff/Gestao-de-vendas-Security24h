@@ -239,6 +239,40 @@ Acesso: ADMIN, GESTOR.
 - API: `ApiComissoesDataSource` em `apiDataSource.ts`
 - Mock: `MockComissoesDataSource` em `mockDataSource.ts`
 
+## Retenção de Clientes — Dashboard `/dashboard` (tab Financeiro)
+
+Análise de churn e retenção da base de clientes. A Security24h tem alto fluxo (~+80 novos, ~-60 saídas/ano).
+
+### Lógica de Negócio
+- **Cliente ativo** = `Clientes.Cancelamento IS NULL AND Clientes.ValorNF > 0`
+- **Cliente cancelado (churn)** = `Clientes.Cancelamento IS NOT NULL` (data = quando saiu)
+- **Cliente novo** = `Clientes.DataCadastro` no período
+- `EMPRESA_IDS = [2, 1002]`
+
+### Backend
+- Método: `DashboardRepository.getRetencao(dataInicio?, dataFim?)`
+- Endpoint: `GET /dashboard/retencao?dataInicio=YYYY-MM-DD&dataFim=YYYY-MM-DD`
+- 7 queries SQL em paralelo contra tabela `Clientes`:
+  - Snapshot base ativa (total + MRR)
+  - Novos no período (+ MRR ganho)
+  - Cancelados no período (+ MRR perdido + tempo médio permanência)
+  - Evolução mensal novos vs cancelados (últimos 12 meses)
+  - Churn por modalidade (Venda/Comodato/Rastreamento)
+  - Permanência por faixa (0-6m, 6-12m, 1-2a, 2+a)
+
+### Frontend
+- Tipo: `RetencaoDashboard` em `types.ts`
+- Interface: `IDashboardDataSource.getRetencao()`
+- Gráficos SVG: `RetencaoMensalChart` (barras +/- com linha de saldo) + `RetencaoDonutChart` (churn por modalidade)
+- Seção na tab Financeiro com 6 KPI cards, 2 gráficos, barras de permanência, modal de detalhe
+- Usa mesmo filtro de período do financeiro (7d/30d/90d/ano/custom)
+
+### Métricas
+- Taxa de Retenção: `ativos / (ativos + cancelados no período) × 100`
+- Churn Rate: `cancelados / (ativos + cancelados) × 100`
+- Saldo Líquido: `novos - cancelados`
+- Tempo Médio de Permanência: `AVG(DATEDIFF(month, DataCadastro, Cancelamento))`
+
 ## Data Source (dual mode)
 
 Env var `NEXT_PUBLIC_DATA_SOURCE`:
@@ -256,7 +290,7 @@ Abstração em `apps/web/src/lib/dataSource/`:
 
 | Rota            | Módulo                | Descrição                           |
 | --------------- | --------------------- | ----------------------------------- |
-| `/dashboard`    | dashboard/            | KPIs, gráficos SVG, financeiro      |
+| `/dashboard`    | dashboard/            | KPIs, gráficos SVG, financeiro, retenção |
 | `/kanban`       | kanban/               | Pipeline CRM (7 etapas, drag-drop)  |
 | `/vendas`       | vendas/               | Lista de vendas do vendedor         |
 | `/venda/[id]`   | venda/                | Fluxo completo de venda (steps)     |
@@ -317,6 +351,7 @@ Fonte de dados: CRM unificado (`GET /crm/leads`) — leads reais das planilhas G
 | CRUD   | `/app-state/:key`             | Key-value store (pipeline state) |
 | GET    | `/dashboard/stats?period=`    | KPIs do dashboard                |
 | GET    | `/dashboard/financeiro`       | Painel financeiro detalhado      |
+| GET    | `/dashboard/retencao`         | Análise de retenção de clientes  |
 | GET    | `/products`                   | Produtos/equipamentos            |
 | GET    | `/kits`                       | Kits                             |
 | GET    | `/prospects`                  | Prospects/leads                  |

@@ -15,6 +15,14 @@ export class DashboardController {
     return this.dashboardRepo.getFinanceiro(dataInicio, dataFim);
   }
 
+  @Get('retencao')
+  getRetencao(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    return this.dashboardRepo.getRetencao(dataInicio, dataFim);
+  }
+
   @Get('stats')
   getStats(@Query('period') period?: string) {
     const p: PeriodKey = VALID_PERIODS.includes(period as PeriodKey)

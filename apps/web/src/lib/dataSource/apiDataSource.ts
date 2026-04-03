@@ -14,6 +14,7 @@ import {
   EquipmentQuery,
   FinanceiroDashboard,
   FunnelStats,
+  RetencaoDashboard,
   KitApiDto,
   KitsQuery,
   MateriaisVendidosResult,
@@ -190,6 +191,11 @@ class ApiDashboardDataSource implements IDashboardDataSource {
 
   async getFinanceiro(query?: { dataInicio?: string; dataFim?: string }): Promise<FinanceiroDashboard> {
     const response = await apiClient.get<FinanceiroDashboard>('/dashboard/financeiro', { query, timeoutMs: 30000 });
+    return response.data;
+  }
+
+  async getRetencao(query?: { dataInicio?: string; dataFim?: string }): Promise<RetencaoDashboard> {
+    const response = await apiClient.get<RetencaoDashboard>('/dashboard/retencao', { query, timeoutMs: 30000 });
     return response.data;
   }
 }

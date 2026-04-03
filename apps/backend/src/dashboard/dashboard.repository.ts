@@ -499,4 +499,198 @@ export class DashboardRepository {
       leads: Number(r.leads),
     }));
   }
+
+  // ─── Retenção de Clientes ────────────────────────────────────
+
+  async getRetencao(dataInicio?: string, dataFim?: string) {
+    this.prisma.ensureConnection();
+
+    const di = dataInicio ? new Date(dataInicio + 'T00:00:00.000Z') : null;
+    const df = dataFim ? new Date(dataFim + 'T23:59:59.999Z') : null;
+    const doze = new Date(Date.now() - 365 * 86_400_000);
+
+    type CountRow = { total: number; mrr: number };
+    type CancelRow = { total: number; mrr: number; tempoMedio: number };
+    type MonthRow = { ano: number; mes: number; total: number };
+    type ModRow = { modalidade: string | null; total: number };
+    type FaixaRow = { faixa: string; total: number };
+
+    // 1. Snapshot base ativa (sem filtro de período)
+    const ativosPromise = this.prisma.$queryRaw<CountRow[]>`
+      SELECT COUNT(*) as total,
+             SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr
+      FROM [Clientes] c
+      WHERE c.[Cancelamento] IS NULL AND c.[ValorNF] > 0
+        AND c.[Empresa] IN (2, 1002)`;
+
+    // 6. Permanência por faixa (geral, sem filtro de período)
+    const faixaPromise = this.prisma.$queryRaw<FaixaRow[]>`
+      SELECT
+        CASE
+          WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 6 THEN '0-6 meses'
+          WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 12 THEN '6-12 meses'
+          WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 24 THEN '1-2 anos'
+          ELSE '2+ anos'
+        END as faixa,
+        COUNT(*) as total
+      FROM [Clientes] c
+      WHERE c.[Cancelamento] IS NOT NULL
+        AND c.[DataCadastro] IS NOT NULL
+        AND c.[Empresa] IN (2, 1002)
+      GROUP BY
+        CASE
+          WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 6 THEN '0-6 meses'
+          WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 12 THEN '6-12 meses'
+          WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 24 THEN '1-2 anos'
+          ELSE '2+ anos'
+        END`;
+
+    // Queries que dependem de período
+    const buildPeriodQueries = () => {
+      if (di && df) {
+        return {
+          novos: this.prisma.$queryRaw<CountRow[]>`
+            SELECT COUNT(*) as total,
+                   SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr
+            FROM [Clientes] c
+            WHERE c.[DataCadastro] >= ${di} AND c.[DataCadastro] <= ${df}
+              AND c.[Empresa] IN (2, 1002)`,
+          cancelados: this.prisma.$queryRaw<CancelRow[]>`
+            SELECT COUNT(*) as total,
+                   SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr,
+                   AVG(DATEDIFF(month, c.[DataCadastro], c.[Cancelamento])) as tempoMedio
+            FROM [Clientes] c
+            WHERE c.[Cancelamento] >= ${di} AND c.[Cancelamento] <= ${df}
+              AND c.[Empresa] IN (2, 1002)`,
+          churnMod: this.prisma.$queryRaw<ModRow[]>`
+            SELECT c.[Modalidade] as modalidade, COUNT(*) as total
+            FROM [Clientes] c
+            WHERE c.[Cancelamento] >= ${di} AND c.[Cancelamento] <= ${df}
+              AND c.[Empresa] IN (2, 1002)
+            GROUP BY c.[Modalidade]`,
+        };
+      }
+      // Sem período: usa últimos 12 meses como default
+      return {
+        novos: this.prisma.$queryRaw<CountRow[]>`
+          SELECT COUNT(*) as total,
+                 SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr
+          FROM [Clientes] c
+          WHERE c.[DataCadastro] >= ${doze}
+            AND c.[Empresa] IN (2, 1002)`,
+        cancelados: this.prisma.$queryRaw<CancelRow[]>`
+          SELECT COUNT(*) as total,
+                 SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr,
+                 AVG(DATEDIFF(month, c.[DataCadastro], c.[Cancelamento])) as tempoMedio
+          FROM [Clientes] c
+          WHERE c.[Cancelamento] >= ${doze}
+            AND c.[Empresa] IN (2, 1002)`,
+        churnMod: this.prisma.$queryRaw<ModRow[]>`
+          SELECT c.[Modalidade] as modalidade, COUNT(*) as total
+          FROM [Clientes] c
+          WHERE c.[Cancelamento] >= ${doze}
+            AND c.[Empresa] IN (2, 1002)
+          GROUP BY c.[Modalidade]`,
+      };
+    };
+
+    const periodQ = buildPeriodQueries();
+
+    // Evolução mensal — sempre últimos 12 meses
+    const novosMsg = this.prisma.$queryRaw<MonthRow[]>`
+      SELECT YEAR(c.[DataCadastro]) as ano, MONTH(c.[DataCadastro]) as mes, COUNT(*) as total
+      FROM [Clientes] c
+      WHERE c.[DataCadastro] >= ${doze} AND c.[DataCadastro] IS NOT NULL
+        AND c.[Empresa] IN (2, 1002)
+      GROUP BY YEAR(c.[DataCadastro]), MONTH(c.[DataCadastro])`;
+
+    const cancelMsg = this.prisma.$queryRaw<MonthRow[]>`
+      SELECT YEAR(c.[Cancelamento]) as ano, MONTH(c.[Cancelamento]) as mes, COUNT(*) as total
+      FROM [Clientes] c
+      WHERE c.[Cancelamento] >= ${doze} AND c.[Cancelamento] IS NOT NULL
+        AND c.[Empresa] IN (2, 1002)
+      GROUP BY YEAR(c.[Cancelamento]), MONTH(c.[Cancelamento])`;
+
+    const [ativosR, faixaR, novosR, canceladosR, churnModR, novosMes, cancelMes] =
+      await Promise.all([
+        ativosPromise, faixaPromise,
+        periodQ.novos, periodQ.cancelados, periodQ.churnMod,
+        novosMsg, cancelMsg,
+      ]);
+
+    const totalAtivos = Number(ativosR[0]?.total ?? 0);
+    const mrrAtual = Number(ativosR[0]?.mrr ?? 0);
+    const novosNoPeriodo = Number(novosR[0]?.total ?? 0);
+    const mrrNovos = Number(novosR[0]?.mrr ?? 0);
+    const canceladosNoPeriodo = Number(canceladosR[0]?.total ?? 0);
+    const mrrPerdido = Number(canceladosR[0]?.mrr ?? 0);
+    const tempoMedioPermanencia = Number(canceladosR[0]?.tempoMedio ?? 0);
+
+    const baseInicio = totalAtivos + canceladosNoPeriodo;
+    const taxaRetencao = baseInicio > 0
+      ? Math.round((totalAtivos / baseInicio) * 1000) / 10
+      : 100;
+    const churnRate = baseInicio > 0
+      ? Math.round((canceladosNoPeriodo / baseInicio) * 1000) / 10
+      : 0;
+
+    // Montar evolução mensal
+    const novoMap = new Map<string, number>();
+    for (const r of novosMes) {
+      const k = `${r.ano}-${String(Number(r.mes)).padStart(2, '0')}`;
+      novoMap.set(k, Number(r.total));
+    }
+    const cancelMap = new Map<string, number>();
+    for (const r of cancelMes) {
+      const k = `${r.ano}-${String(Number(r.mes)).padStart(2, '0')}`;
+      cancelMap.set(k, Number(r.total));
+    }
+    const allKeys = new Set([...novoMap.keys(), ...cancelMap.keys()]);
+    const evolucaoMensal = [...allKeys].sort().map((k) => {
+      const [ano, mes] = k.split('-');
+      const n = novoMap.get(k) ?? 0;
+      const c = cancelMap.get(k) ?? 0;
+      return {
+        mes: MES_NOMES[Number(mes) - 1] + '/' + ano.slice(2),
+        novos: n,
+        cancelados: c,
+        saldo: n - c,
+      };
+    });
+
+    const MODALIDADE_LABELS: Record<string, string> = {
+      V: 'Venda',
+      L: 'Comodato',
+      R: 'Rastreamento',
+      C: 'Comodato',
+    };
+    const churnPorModalidade = (churnModR as ModRow[]).map((r) => ({
+      modalidade: MODALIDADE_LABELS[r.modalidade ?? ''] ?? (r.modalidade || 'Não informado'),
+      total: Number(r.total),
+    }));
+
+    const FAIXA_ORDER = ['0-6 meses', '6-12 meses', '1-2 anos', '2+ anos'];
+    const permanenciaPorFaixa = FAIXA_ORDER
+      .map((f) => {
+        const found = (faixaR as FaixaRow[]).find((r) => r.faixa === f);
+        return { faixa: f, total: Number(found?.total ?? 0) };
+      })
+      .filter((f) => f.total > 0);
+
+    return {
+      totalAtivos,
+      mrrAtual: Math.round(mrrAtual),
+      novosNoPeriodo,
+      canceladosNoPeriodo,
+      mrrPerdido: Math.round(mrrPerdido),
+      mrrNovos: Math.round(mrrNovos),
+      taxaRetencao,
+      churnRate,
+      tempoMedioPermanencia: Math.round(tempoMedioPermanencia),
+      saldoLiquido: novosNoPeriodo - canceladosNoPeriodo,
+      evolucaoMensal,
+      churnPorModalidade,
+      permanenciaPorFaixa,
+    };
+  }
 }

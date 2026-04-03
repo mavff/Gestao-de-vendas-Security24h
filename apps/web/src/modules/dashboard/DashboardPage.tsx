@@ -14,12 +14,14 @@ import { CanalComparisonChart } from '../../components/charts/CanalComparisonCha
 import { TecnicoPerformanceChart } from '../../components/charts/TecnicoPerformanceChart';
 import { ReceitaCustosBarChart } from '../../components/charts/ReceitaCustosBarChart';
 import { CustosDonutChart } from '../../components/charts/CustosDonutChart';
+import { RetencaoMensalChart } from '../../components/charts/RetencaoMensalChart';
+import { RetencaoDonutChart } from '../../components/charts/RetencaoDonutChart';
 import { ChartDetailModal, InsightCard, DataTable } from '../../components/charts/ChartDetailModal';
 import { KpiCard } from '../../components/dashboard/KpiCard';
 import { CustosConfigModal } from '../../components/dashboard/CustosConfigModal';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
-import { DashboardStats, FinanceiroDashboard, PeriodKey, SheetsLeadStats, TecnicoRow, CustosEmpresaConfig, DEFAULT_CUSTOS_CONFIG } from '../../lib/dataSource/types';
+import { DashboardStats, FinanceiroDashboard, RetencaoDashboard, PeriodKey, SheetsLeadStats, TecnicoRow, CustosEmpresaConfig, DEFAULT_CUSTOS_CONFIG } from '../../lib/dataSource/types';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
 import { theme } from '../../components/common/theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,7 +30,7 @@ import { loadState } from '../../services/appState';
 type FinanceiroPeriodPreset = '7d' | '30d' | '90d' | 'ano' | 'custom';
 type DashTab = 'financeiro' | 'crm' | 'prospeccao' | 'marketing';
 type ModalKey = 'evolucao' | 'mix' | 'vendedor' | 'operacoes' | 'funil' | 'leads' | 'fechamentos' | 'origens'
-  | 'sh_funil' | 'sh_canal' | 'sh_mensal' | 'sh_status' | 'sh_recentes' | 'tecnico' | null;
+  | 'sh_funil' | 'sh_canal' | 'sh_mensal' | 'sh_status' | 'sh_recentes' | 'tecnico' | 'retencao' | null;
 
 const MOCK_FINANCEIRO: FinanceiroDashboard = {
   receitaEquipamentos: 185000,
@@ -652,6 +654,85 @@ function ShRecentesModalContent({ data }: { data: SheetsLeadStats['leadsRecentes
   );
 }
 
+function RetencaoModalContent({ data }: { data: RetencaoDashboard }) {
+  const totalCancel = data.permanenciaPorFaixa.reduce((s, f) => s + f.total, 0);
+  const worstMonth = data.evolucaoMensal.reduce((a, b) => b.cancelados > a.cancelados ? b : a, data.evolucaoMensal[0]);
+  const bestMonth = data.evolucaoMensal.reduce((a, b) => b.saldo > a.saldo ? b : a, data.evolucaoMensal[0]);
+  const avgNovos = data.evolucaoMensal.length > 0 ? data.evolucaoMensal.reduce((s, d) => s + d.novos, 0) / data.evolucaoMensal.length : 0;
+  const avgCancel = data.evolucaoMensal.length > 0 ? data.evolucaoMensal.reduce((s, d) => s + d.cancelados, 0) / data.evolucaoMensal.length : 0;
+
+  const rows = data.evolucaoMensal.map((d) => [
+    d.mes,
+    `+${d.novos}`,
+    `-${d.cancelados}`,
+    (d.saldo >= 0 ? '+' : '') + String(d.saldo),
+  ]);
+
+  const faixaRows = data.permanenciaPorFaixa.map((f) => [
+    f.faixa,
+    String(f.total),
+    totalCancel > 0 ? fmtPct((f.total / totalCancel) * 100) : '0%',
+  ]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+        <InsightCard label="Clientes Ativos" value={String(data.totalAtivos)} sub={`MRR: ${fmtCurrency(data.mrrAtual)}`} />
+        <InsightCard label="Taxa Retenção" value={fmtPct(data.taxaRetencao)} accent={data.taxaRetencao >= 90 ? '#43C17B' : '#E55B5B'} />
+        <InsightCard label="Maior Churn" value={worstMonth?.mes ?? '-'} sub={`${worstMonth?.cancelados ?? 0} cancelamentos`} accent="#E55B5B" />
+        <InsightCard label="Melhor Mês" value={bestMonth?.mes ?? '-'} sub={`saldo +${bestMonth?.saldo ?? 0}`} accent="#43C17B" />
+        <InsightCard label="Média Mensal Novos" value={avgNovos.toFixed(1)} sub="clientes/mês" />
+        <InsightCard label="Média Mensal Churn" value={avgCancel.toFixed(1)} sub="cancelamentos/mês" accent="#E55B5B" />
+      </div>
+
+      <div>
+        <p style={{ margin: '0 0 10px', fontSize: 13, color: theme.muted, fontWeight: 600 }}>
+          Evolução Mensal — Novos vs Cancelados
+        </p>
+        <DataTable headers={['Mês', 'Novos', 'Cancelados', 'Saldo']} rows={rows} />
+      </div>
+
+      {faixaRows.length > 0 && (
+        <div>
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: theme.muted, fontWeight: 600 }}>
+            Tempo de Permanência dos Cancelados
+          </p>
+          <DataTable headers={['Faixa', 'Clientes', '% do Total']} rows={faixaRows} />
+        </div>
+      )}
+
+      {data.churnPorModalidade.length > 0 && (
+        <div>
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: theme.muted, fontWeight: 600 }}>
+            Churn por Modalidade
+          </p>
+          <DataTable
+            headers={['Modalidade', 'Cancelados', '% do Total']}
+            rows={data.churnPorModalidade.map((m) => [
+              m.modalidade,
+              String(m.total),
+              totalCancel > 0 ? fmtPct((m.total / totalCancel) * 100) : '0%',
+            ])}
+          />
+        </div>
+      )}
+
+      <div style={{ background: theme.soft, borderRadius: 10, padding: 14, fontSize: 13, color: theme.muted, lineHeight: 1.7 }}>
+        <strong style={{ color: theme.text }}>Análise:</strong>{' '}
+        Nos últimos {data.evolucaoMensal.length} meses, a empresa ganhou em média{' '}
+        <strong style={{ color: '#43C17B' }}>{avgNovos.toFixed(1)}</strong> clientes/mês e perdeu{' '}
+        <strong style={{ color: '#E55B5B' }}>{avgCancel.toFixed(1)}</strong>.{' '}
+        {data.saldoLiquido >= 0
+          ? <>O saldo líquido é <strong style={{ color: '#43C17B' }}>positivo (+{data.saldoLiquido})</strong>, indicando crescimento da base.</>
+          : <>O saldo líquido é <strong style={{ color: '#E55B5B' }}>negativo ({data.saldoLiquido})</strong>, indicando encolhimento da base.</>
+        }{' '}
+        Tempo médio de permanência:{' '}
+        <strong style={{ color: theme.gold }}>{data.tempoMedioPermanencia} meses</strong>.
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main page ─── */
 
 export function DashboardPage() {
@@ -679,6 +760,10 @@ export function DashboardPage() {
 
   const [custosConfig, setCustosConfig] = useState<CustosEmpresaConfig>(DEFAULT_CUSTOS_CONFIG);
   const [showCustosModal, setShowCustosModal] = useState(false);
+
+  const [retencao, setRetencao] = useState<RetencaoDashboard | null>(null);
+  const [retLoading, setRetLoading] = useState(true);
+  const [retIsReal, setRetIsReal] = useState(false);
 
   const showPerformance = role === 'ADMIN' || role === 'GESTOR';
 
@@ -764,6 +849,29 @@ export function DashboardPage() {
         if (c.investimentoMarketing > 0) setInvestimento(c.investimentoMarketing);
       });
   }, []);
+
+  // Load retention data (same period filter as financeiro)
+  useEffect(() => {
+    if (preset === 'custom' && (!customStart || !customEnd)) return;
+    let cancelled = false;
+    setRetLoading(true);
+    const range = getDateRange(preset, customStart, customEnd);
+
+    async function loadRet() {
+      try {
+        const ds = createDataSource();
+        const ret = await ds.dashboard.getRetencao(range);
+        if (!cancelled) { setRetencao(ret); setRetIsReal(getDataSourceMode() === 'api'); }
+      } catch {
+        if (!cancelled) { setRetencao(null); setRetIsReal(false); }
+      } finally {
+        if (!cancelled) setRetLoading(false);
+      }
+    }
+
+    loadRet();
+    return () => { cancelled = true; };
+  }, [preset, customStart, customEnd]);
 
   // Compute profit/margin KPIs from revenue + config
   const financials = useMemo(() => {
@@ -1106,6 +1214,123 @@ export function DashboardPage() {
             </div>
             <TecnicoPerformanceChart data={data.porTecnico} />
           </section>
+        </div>
+      )}
+
+      {/* ── Análise de Retenção de Clientes ── */}
+      <SectionDivider label="Análise de Retenção de Clientes" />
+
+      {retLoading && !retencao ? (
+        <div style={{ padding: 40, textAlign: 'center', color: theme.muted, fontSize: 14 }}>Carregando dados de retenção...</div>
+      ) : retencao ? (<>
+        {/* Retention indicator */}
+        {!retIsReal && (
+          <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>Dados de demonstração</div>
+        )}
+
+        {/* KPI Row — Retenção */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 16, opacity: retLoading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+          <KpiCard label="Clientes Ativos" value={String(retencao.totalAtivos)} description={`MRR: ${fmtCurrency(retencao.mrrAtual)}/mês`} />
+          <KpiCard label="Novos no Período" value={`+${retencao.novosNoPeriodo}`} description={`MRR ganho: ${fmtCurrency(retencao.mrrNovos)}/mês`} accent="#43C17B" />
+          <KpiCard label="Cancelados" value={`-${retencao.canceladosNoPeriodo}`} description={`MRR perdido: ${fmtCurrency(retencao.mrrPerdido)}/mês`} accent="#E55B5B" />
+          <KpiCard
+            label="Taxa de Retenção"
+            value={fmtPct(retencao.taxaRetencao)}
+            description={retencao.taxaRetencao >= 90 ? 'Saudável' : retencao.taxaRetencao >= 75 ? 'Atenção' : 'Crítico'}
+            accent={retencao.taxaRetencao >= 90 ? '#43C17B' : retencao.taxaRetencao >= 75 ? '#C8A951' : '#E55B5B'}
+          />
+          <KpiCard
+            label="Churn Rate"
+            value={fmtPct(retencao.churnRate)}
+            description="No período selecionado"
+            accent={retencao.churnRate <= 5 ? '#43C17B' : retencao.churnRate <= 10 ? '#C8A951' : '#E55B5B'}
+          />
+          <KpiCard
+            label="Saldo Líquido"
+            value={(retencao.saldoLiquido >= 0 ? '+' : '') + String(retencao.saldoLiquido)}
+            description={`Permanência média: ${retencao.tempoMedioPermanencia} meses`}
+            accent={retencao.saldoLiquido >= 0 ? '#43C17B' : '#E55B5B'}
+          />
+        </div>
+
+        {/* Charts — Evolução + Churn por Modalidade */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(300px, 1fr))', gap: 16, marginBottom: 24, opacity: retLoading ? 0.5 : 1 }}>
+          <ChartClickable title="Evolução Mensal — Novos vs Cancelados" onClick={() => setModal('retencao')}>
+            {retencao.evolucaoMensal.length > 0
+              ? <RetencaoMensalChart data={retencao.evolucaoMensal} />
+              : <EmptyChart message="Sem dados de evolução" />}
+          </ChartClickable>
+
+          <ChartCard title="Churn por Modalidade">
+            {retencao.churnPorModalidade.length > 0
+              ? <RetencaoDonutChart data={retencao.churnPorModalidade} />
+              : <EmptyChart message="Sem dados de churn" />}
+          </ChartCard>
+        </div>
+
+        {/* Permanência por Faixa */}
+        {retencao.permanenciaPorFaixa.length > 0 && (
+          <div style={{
+            background: theme.panel, border: `1px solid ${theme.border}`,
+            borderRadius: 12, padding: 20, marginBottom: 24,
+            opacity: retLoading ? 0.5 : 1,
+          }}>
+            <h3 style={{ color: theme.gold, margin: '0 0 16px', fontSize: 14, fontWeight: 700 }}>
+              Tempo de Permanência dos Cancelados
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {retencao.permanenciaPorFaixa.map((f) => {
+                const maxFaixa = Math.max(...retencao.permanenciaPorFaixa.map((x) => x.total), 1);
+                const pct = (f.total / maxFaixa) * 100;
+                const isEarly = f.faixa.startsWith('0-6');
+                return (
+                  <div key={f.faixa}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
+                      <span style={{ color: theme.text }}>{f.faixa}</span>
+                      <span style={{ color: isEarly ? '#E55B5B' : theme.gold, fontWeight: 700 }}>
+                        {f.total} clientes
+                      </span>
+                    </div>
+                    <div style={{ height: 8, background: theme.soft, borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${pct}%`,
+                        background: isEarly ? '#E55B5B' : f.faixa.startsWith('6-12') ? '#FF9800' : '#43C17B',
+                        borderRadius: 4,
+                        transition: 'width 0.3s',
+                      }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{
+              marginTop: 14, padding: '10px 14px',
+              background: theme.soft, borderRadius: 8,
+              fontSize: 13, color: theme.muted, lineHeight: 1.7,
+            }}>
+              <strong style={{ color: theme.text }}>Insight:</strong>{' '}
+              {(() => {
+                const early = retencao.permanenciaPorFaixa.find((f) => f.faixa === '0-6 meses');
+                const totalCancel = retencao.permanenciaPorFaixa.reduce((s, f) => s + f.total, 0);
+                const earlyPct = early && totalCancel > 0 ? (early.total / totalCancel) * 100 : 0;
+                if (earlyPct > 30) {
+                  return <>
+                    <strong style={{ color: '#E55B5B' }}>{fmtPct(earlyPct)}</strong> dos cancelamentos acontecem nos primeiros 6 meses.
+                    Isso indica problemas no onboarding ou expectativas desalinhadas na venda.
+                  </>;
+                }
+                return <>
+                  A maioria dos cancelamentos acontece após 6 meses, indicando que o onboarding está funcionando.
+                  Foco em retenção de longo prazo e relacionamento.
+                </>;
+              })()}
+            </div>
+          </div>
+        )}
+      </>) : (
+        <div style={{ padding: 40, textAlign: 'center', color: theme.muted, fontSize: 14 }}>
+          Não foi possível carregar dados de retenção.
         </div>
       )}
 
@@ -1501,6 +1726,12 @@ export function DashboardPage() {
       )}
 
       {/* Custos Config Modal */}
+      {modal === 'retencao' && retencao && (
+        <ChartDetailModal title="Análise de Retenção — Detalhamento Mensal" onClose={() => setModal(null)}>
+          <RetencaoModalContent data={retencao} />
+        </ChartDetailModal>
+      )}
+
       {showCustosModal && (
         <CustosConfigModal
           onClose={() => setShowCustosModal(false)}

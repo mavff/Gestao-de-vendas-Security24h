@@ -1,5 +1,5 @@
 import { Equipment, Kit } from '../../types';
-import { ClientesAtivosResult, ComissoesVendedoresResult, CrmLeadsResult, CrmQuery, CrmSource, DashboardStats, DataSourceMode, EquipmentQuery, FinanceiroDashboard, FunnelStats, KitsQuery, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery, SdrQuery, SdrTabResult, SheetsLeadStats } from './types';
+import { ClientesAtivosResult, ComissoesVendedoresResult, CrmLeadsResult, CrmQuery, CrmSource, DashboardStats, DataSourceMode, EquipmentQuery, FinanceiroDashboard, FunnelStats, KitsQuery, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery, RetencaoDashboard, SdrQuery, SdrTabResult, SheetsLeadStats } from './types';
 
 export interface IEquipmentDataSource {
   list(query?: EquipmentQuery): Promise<PaginatedResult<Equipment>>;
@@ -19,6 +19,7 @@ export interface IProspectsDataSource {
 export interface IDashboardDataSource {
   getStats(period: PeriodKey): Promise<DashboardStats>;
   getFinanceiro(query?: { dataInicio?: string; dataFim?: string }): Promise<FinanceiroDashboard>;
+  getRetencao(query?: { dataInicio?: string; dataFim?: string }): Promise<RetencaoDashboard>;
 }
 
 export interface IOrcamentosDataSource {

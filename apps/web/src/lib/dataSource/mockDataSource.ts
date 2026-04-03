@@ -8,6 +8,7 @@ import {
   EquipmentQuery,
   FinanceiroDashboard,
   FunnelStats,
+  RetencaoDashboard,
   MateriaisVendidosResult,
   KitsQuery,
   OrcamentoApiDto,
@@ -139,6 +140,46 @@ class MockDashboardDataSource implements IDashboardDataSource {
         { name: 'Monitoramento MRR', value: 38500 },
       ],
       porTecnico: [],
+    };
+  }
+
+  async getRetencao(): Promise<RetencaoDashboard> {
+    return {
+      totalAtivos: 320,
+      mrrAtual: 54400,
+      novosNoPeriodo: 22,
+      canceladosNoPeriodo: 15,
+      mrrPerdido: 2550,
+      mrrNovos: 3740,
+      taxaRetencao: 95.5,
+      churnRate: 4.5,
+      tempoMedioPermanencia: 18,
+      saldoLiquido: 7,
+      evolucaoMensal: [
+        { mes: 'Mai/25', novos: 8, cancelados: 5, saldo: 3 },
+        { mes: 'Jun/25', novos: 6, cancelados: 4, saldo: 2 },
+        { mes: 'Jul/25', novos: 9, cancelados: 7, saldo: 2 },
+        { mes: 'Ago/25', novos: 7, cancelados: 6, saldo: 1 },
+        { mes: 'Set/25', novos: 5, cancelados: 3, saldo: 2 },
+        { mes: 'Out/25', novos: 8, cancelados: 5, saldo: 3 },
+        { mes: 'Nov/25', novos: 6, cancelados: 4, saldo: 2 },
+        { mes: 'Dez/25', novos: 4, cancelados: 6, saldo: -2 },
+        { mes: 'Jan/26', novos: 7, cancelados: 5, saldo: 2 },
+        { mes: 'Fev/26', novos: 8, cancelados: 4, saldo: 4 },
+        { mes: 'Mar/26', novos: 6, cancelados: 5, saldo: 1 },
+        { mes: 'Abr/26', novos: 7, cancelados: 6, saldo: 1 },
+      ],
+      churnPorModalidade: [
+        { modalidade: 'Comodato', total: 38 },
+        { modalidade: 'Venda', total: 18 },
+        { modalidade: 'Rastreamento', total: 4 },
+      ],
+      permanenciaPorFaixa: [
+        { faixa: '0-6 meses', total: 12 },
+        { faixa: '6-12 meses', total: 18 },
+        { faixa: '1-2 anos', total: 15 },
+        { faixa: '2+ anos', total: 15 },
+      ],
     };
   }
 }
