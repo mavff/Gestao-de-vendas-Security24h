@@ -1,15 +1,8 @@
 'use client';
 
-const isApiMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DATA_SOURCE === 'api';
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+import { apiClient } from '../lib/apiClient';
 
-function authHeaders(): Record<string, string> {
-  if (typeof window === 'undefined') return { 'Content-Type': 'application/json' };
-  const token = localStorage.getItem('sec24h_token');
-  return token
-    ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-}
+const isApiMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DATA_SOURCE === 'api';
 
 // In-memory cache to avoid repeated API calls within the same session
 const cache = new Map<string, { value: unknown; ts: number }>();
@@ -31,9 +24,7 @@ export async function loadState<T>(key: string, fallback: T): Promise<T> {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/app-state/${encodeURIComponent(key)}`, { headers: authHeaders() });
-    if (!res.ok) throw new Error('API error');
-    const data = await res.json();
+    const { data } = await apiClient.get<{ value?: T }>(`/app-state/${encodeURIComponent(key)}`);
     const value = data.value ?? fallback;
     cache.set(key, { value, ts: Date.now() });
     return value as T;
@@ -56,11 +47,7 @@ export async function saveState<T>(key: string, value: T): Promise<void> {
   if (!isApiMode) return;
 
   try {
-    await fetch(`${API_BASE}/app-state/${encodeURIComponent(key)}`, {
-      method: 'PUT',
-      headers: authHeaders(),
-      body: JSON.stringify({ value }),
-    });
+    await apiClient.put(`/app-state/${encodeURIComponent(key)}`, { body: { value } });
   } catch {
     console.warn(`[appState] Falha ao salvar "${key}" na API, mantido em localStorage`);
   }

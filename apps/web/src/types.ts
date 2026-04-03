@@ -104,6 +104,9 @@ export type Equipment = {
   price: number;
   estoque: number;
   descricao: string;
+  pontos?: number;
+  acrescimoMensal?: number;
+  acrescimoInstalacao?: number;
 };
 
 export type Kit = {
@@ -172,7 +175,9 @@ export type OrcamentoItem = {
   nome: string;
   quantidade: number;
   precoUnitario: number;
+  precoCusto: number;
   subtotal: number;
+  subtotalCusto: number;
   bloco: BlocoCategoria;
 };
 
@@ -195,6 +200,21 @@ export const FAIXAS_ZONA: FaixaZona[] = [
 
 export type OrcamentoStatus = 'rascunho' | 'finalizado' | 'escolhido';
 
+export type TipoCentral = 'pequena' | 'media' | 'grande';
+
+export const INCREMENTO_CAMERA = 15;
+export const INCREMENTO_CENTRAL: Record<TipoCentral, number> = {
+  pequena: 0,
+  media: 50,
+  grande: 120,
+};
+
+export type ComodatoConfig = {
+  prazo: 24 | 36 | 48;
+  numCameras: number;
+  tipoCentral: TipoCentral;
+};
+
 export type Orcamento = {
   id: string;
   numero: number;
@@ -205,6 +225,7 @@ export type Orcamento = {
   zonas: number;
   itens: OrcamentoItem[];
   subtotalEquipamentos: number;
+  subtotalCusto: number;
   fatorZona: number;
   totalEquipamentos: number;
   maoDeObra: number;
@@ -214,6 +235,8 @@ export type Orcamento = {
   observacoes: string;
   status: OrcamentoStatus;
   createdAt: string;
+  modalidade: 'venda' | 'comodato';
+  comodato?: ComodatoConfig;
 };
 
 // --- Solução Técnica ---

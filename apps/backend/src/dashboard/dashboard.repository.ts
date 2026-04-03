@@ -160,6 +160,7 @@ export class DashboardRepository {
       porVendedorRaw,
       evolucaoMensal,
       porTecnicoRaw,
+      comissaoDescontoAgg,
     ] = await Promise.all([
       // 1. Receita fechada no período
       this.prisma.orcamento.aggregate({
@@ -197,6 +198,11 @@ export class DashboardRepository {
       this.buildMonthlyEvolution(dataInicio, dataFim),
       // 8. Performance por técnico (OS fechadas + receita do orçamento vinculado)
       this.buildTecnicoPerformance(dataInicio, dataFim),
+      // 9. Comissões e descontos dos orçamentos fechados no período
+      this.prisma.orcamento.aggregate({
+        where: { ...baseOrc, ...orcPeriodo, status: { in: ['L', 'E'] } },
+        _sum: { comissao: true, desconto: true },
+      }),
     ]);
 
     const receitaEquipamentos = Number(receitaAgg._sum.totalProdutos ?? 0);
@@ -251,6 +257,8 @@ export class DashboardRepository {
       evolucaoMensal,
       mixReceita,
       porTecnico,
+      totalComissao: Math.round(Number(comissaoDescontoAgg._sum.comissao ?? 0)),
+      totalDesconto: Math.round(Number(comissaoDescontoAgg._sum.desconto ?? 0)),
     };
   }
 

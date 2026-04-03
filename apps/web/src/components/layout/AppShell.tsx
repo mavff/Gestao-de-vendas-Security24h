@@ -16,12 +16,11 @@ const iconByPath: Record<string, string> = {
   '/propostas': 'propostas',
   '/solucoes': 'solucoes',
   '/orcamentos': 'orcamentos',
-  '/instalacoes': 'instalacoes',
   '/equipamentos': 'equipamentos',
   '/kits': 'kits',
   '/usuarios': 'usuarios',
-  '/missoes': 'missoes',
   '/sdr': 'sdr',
+  '/comissoes': 'comissoes',
 };
 
 function NavIcon({ icon, active }: { icon: string; active: boolean }) {
@@ -80,18 +79,7 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
     );
   }
 
-  if (icon === 'instalacoes') {
-    return (
-      <svg {...common} aria-hidden="true">
-        <path d="M4.5 11.5L12 5l7.5 6.5" />
-        <path d="M6.5 10v8.5h11V10" />
-        <line x1="10" y1="18.5" x2="10" y2="13.5" />
-        <line x1="14" y1="18.5" x2="14" y2="13.5" />
-      </svg>
-    );
-  }
-
-  if (icon === 'equipamentos') {
+if (icon === 'equipamentos') {
     return (
       <svg {...common} aria-hidden="true">
         <rect x="3.5" y="8" width="17" height="8" rx="2.2" />
@@ -122,20 +110,18 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
     );
   }
 
-  if (icon === 'missoes') {
+if (icon === 'comissoes') {
     return (
       <svg {...common} aria-hidden="true">
-        <circle cx="12" cy="12" r="7.5" />
-        <circle cx="12" cy="12" r="3.2" />
-        <line x1="12" y1="4.5" x2="12" y2="6.7" />
-        <line x1="12" y1="17.3" x2="12" y2="19.5" />
-        <line x1="4.5" y1="12" x2="6.7" y2="12" />
-        <line x1="17.3" y1="12" x2="19.5" y2="12" />
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 8v4l2.5 1.5" />
+        <path d="M9 15.5l1.5-1.5h3l1.5 1.5" />
+        <line x1="12" y1="4" x2="12" y2="5.5" />
       </svg>
     );
   }
 
-  if (icon === 'sdr') {
+if (icon === 'sdr') {
     return (
       <svg {...common} aria-hidden="true">
         <path d="M4 7h16M4 12h10M4 17h7" />

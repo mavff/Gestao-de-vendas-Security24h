@@ -8,9 +8,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { mockUsers } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
 import { User, UserRole } from '../../types';
+import { apiClient } from '../../lib/apiClient';
 
 const isApiMode = process.env.NEXT_PUBLIC_DATA_SOURCE === 'api';
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
 
 const roles: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
 
@@ -34,11 +34,6 @@ type AppUserDraft = {
 };
 
 const emptyDraft: AppUserDraft = { id: '', username: '', password: '', name: '', role: 'VENDEDOR', active: true };
-
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('sec24h_token');
-  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapApiUser(u: any): User & { username: string } {
@@ -71,9 +66,7 @@ export function UsersPage() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/app-users`, { headers: authHeaders() });
-      if (!res.ok) throw new Error('Erro ao buscar usuários');
-      const data = await res.json();
+      const { data } = await apiClient.get<unknown[]>('/app-users');
       setUsers(data.map(mapApiUser));
     } catch {
       setUsers(loadMock('mock_users', mockUsers));
@@ -120,14 +113,12 @@ export function UsersPage() {
           // Editar
           const body: Record<string, unknown> = { username: draft.username, name: draft.name, role: draft.role, active: draft.active };
           if (draft.password) body.password = draft.password;
-          const res = await fetch(`${API_BASE}/app-users/${draft.id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
-          if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || 'Erro ao atualizar'); }
+          await apiClient.put(`/app-users/${draft.id}`, { body });
           showToast('Usuário atualizado.', 'success');
         } else {
           // Criar
           if (!draft.password) { showToast('Senha obrigatória para novo usuário.', 'warning'); setSaving(false); return; }
-          const res = await fetch(`${API_BASE}/app-users`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ username: draft.username, password: draft.password, name: draft.name, role: draft.role }) });
-          if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.message || 'Erro ao criar'); }
+          await apiClient.post('/app-users', { body: { username: draft.username, password: draft.password, name: draft.name, role: draft.role } });
           showToast('Usuário criado.', 'success');
         }
         setModalOpen(false);
@@ -153,8 +144,7 @@ export function UsersPage() {
   async function handleDelete(id: string) {
     if (isApiMode) {
       try {
-        const res = await fetch(`${API_BASE}/app-users/${id}`, { method: 'DELETE', headers: authHeaders() });
-        if (!res.ok) throw new Error('Erro ao excluir');
+        await apiClient.delete(`/app-users/${id}`);
         showToast('Usuário excluído.', 'warning');
         fetchUsers();
       } catch (err) {
@@ -170,8 +160,7 @@ export function UsersPage() {
     const newActive = u.status === 'ativo' ? false : true;
     if (isApiMode) {
       try {
-        const res = await fetch(`${API_BASE}/app-users/${u.id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ active: newActive }) });
-        if (!res.ok) throw new Error('Erro ao atualizar status');
+        await apiClient.put(`/app-users/${u.id}`, { body: { active: newActive } });
         showToast(`Usuário ${newActive ? 'ativado' : 'desativado'}.`, 'success');
         fetchUsers();
       } catch (err) {

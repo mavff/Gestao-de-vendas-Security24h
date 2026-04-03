@@ -1,16 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
+import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
 import { FunnelStats, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockOrcamentos, mockPropostas, mockSolucoes } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadState, saveState } from '../../services/appState';
 import {
-  BlocoCategoria, Equipment, FAIXAS_ZONA, FaixaZona, Marca,
-  Orcamento, OrcamentoItem, Proposta, SolucaoTecnica,
+  BlocoCategoria, ComodatoConfig, Equipment, FAIXAS_ZONA, FaixaZona,
+  INCREMENTO_CAMERA, INCREMENTO_CENTRAL, Marca,
+  Orcamento, OrcamentoItem, Proposta, SolucaoTecnica, TipoCentral,
 } from '../../types';
 
 /* ---- Helpers ---- */
@@ -108,12 +111,14 @@ function getDateRange(preset: PeriodPreset, start: string, end: string): { dataI
 
 export function OrcamentosPage() {
   const { showToast } = useToast();
+  const { role } = useAuth();
 
   // Local (generated from SolucaoTecnica flow)
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
   const [solucoes, setSolucoes] = useState<SolucaoTecnica[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [propostas, setPropostas] = useState<Proposta[]>([]);
+  const [precosCusto, setPrecosCusto] = useState<Record<string, number>>({});
 
   // DB orçamentos
   const isRealData = getDataSourceMode() === 'api';
@@ -145,23 +150,25 @@ export function OrcamentosPage() {
   const [showSolucaoModal, setShowSolucaoModal] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>('todas');
 
-  // Load local data
+  // Load local data + precos de custo
   useEffect(() => {
     setOrcamentos(loadMock('mock_orcamentos', mockOrcamentos));
     setSolucoes(loadMock('mock_solucoes', mockSolucoes));
     setEquipments(loadMock('mock_equipments', mockEquipments));
     setPropostas(loadMock('mock_propostas', mockPropostas));
+    loadState<Record<string, number>>('config:precos_custo', {}).then(setPrecosCusto);
 
     // Auto-open from query param
     const params = new URLSearchParams(window.location.search);
     const solId = params.get('solucaoId');
     if (solId) {
-      setTimeout(() => {
+      setTimeout(async () => {
         const sols = loadMock('mock_solucoes', mockSolucoes);
         const eqs = loadMock('mock_equipments', mockEquipments);
+        const custoMap = await loadState<Record<string, number>>('config:precos_custo', {});
         const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'enviada');
         if (sol) {
-          const orc = gerarOrcamentoDeSolucao(sol, eqs);
+          const orc = gerarOrcamentoDeSolucao(sol, eqs, custoMap);
           setOrcamentos((cur) => {
             const updated = [...cur, orc];
             saveMock('mock_orcamentos', updated);
@@ -241,27 +248,35 @@ export function OrcamentosPage() {
   useEffect(() => { saveMock('mock_solucoes', solucoes); }, [solucoes]);
   useEffect(() => { saveMock('mock_propostas', propostas); }, [propostas]);
 
-  function gerarOrcamentoDeSolucao(sol: SolucaoTecnica, eqs: Equipment[]): Orcamento {
+  function gerarOrcamentoDeSolucao(sol: SolucaoTecnica, eqs: Equipment[], custoMap: Record<string, number>): Orcamento {
     const itens: OrcamentoItem[] = [];
     for (const bloco of sol.blocos) {
       for (const item of bloco.itens) {
         const eq = eqs.find((e) => e.id === item.equipmentId);
         if (!eq) continue;
+        const custo = custoMap[item.equipmentId] ?? 0;
         itens.push({
           equipmentId: item.equipmentId,
           nome: eq.name,
           quantidade: item.quantidade,
           precoUnitario: eq.price,
+          precoCusto: custo,
           subtotal: eq.price * item.quantidade,
+          subtotalCusto: custo * item.quantidade,
           bloco: bloco.categoria,
         });
       }
     }
 
     const subtotalEquip = itens.reduce((s, i) => s + i.subtotal, 0);
+    const subtotalCusto = itens.reduce((s, i) => s + i.subtotalCusto, 0);
     const zonas = 4;
     const desconto = 0;
     const calc = calcularOrcamento(zonas, subtotalEquip, desconto);
+
+    const numCameras = itens
+      .filter((i) => ['camera_analogica', 'camera_ip', 'camera_ia'].includes(i.bloco))
+      .reduce((s, i) => s + i.quantidade, 0);
 
     return {
       id: 'ORC' + Date.now(),
@@ -273,6 +288,7 @@ export function OrcamentosPage() {
       zonas,
       itens,
       subtotalEquipamentos: subtotalEquip,
+      subtotalCusto,
       fatorZona: calc.fator,
       totalEquipamentos: calc.totalEquip,
       maoDeObra: calc.maoDeObra,
@@ -282,11 +298,13 @@ export function OrcamentosPage() {
       observacoes: '',
       status: 'rascunho',
       createdAt: new Date().toISOString().slice(0, 10),
+      modalidade: 'venda',
+      comodato: { prazo: 36, numCameras, tipoCentral: zonas <= 4 ? 'pequena' : zonas <= 12 ? 'media' : 'grande' },
     };
   }
 
   function handleGerarFromModal(sol: SolucaoTecnica) {
-    const orc = gerarOrcamentoDeSolucao(sol, equipments);
+    const orc = gerarOrcamentoDeSolucao(sol, equipments, precosCusto);
     setOrcamentos((cur) => [...cur, orc]);
     setShowSolucaoModal(false);
     setSelectedId(orc.id);
@@ -358,6 +376,8 @@ export function OrcamentosPage() {
           onSave={handleSaveOrcamento}
           onGerarProposta={handleGerarProposta}
           onBack={() => { setView('list'); setSelectedId(null); }}
+          precosCusto={precosCusto}
+          onSavePrecosCusto={(map) => { setPrecosCusto(map); saveState('config:precos_custo', map); }}
         />
       </AppShell>
     );
@@ -1012,61 +1032,91 @@ function SolucaoSelectorModal({ solucoes, onSelect, onClose }: {
 
 /* ---- Orcamento Detail/Edit (local records) ---- */
 
-function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
+function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack, precosCusto, onSavePrecosCusto }: {
   orcamento: Orcamento;
   onSave: (orc: Orcamento) => void;
   onGerarProposta: (orc: Orcamento) => void;
   onBack: () => void;
+  precosCusto: Record<string, number>;
+  onSavePrecosCusto: (map: Record<string, number>) => void;
 }) {
+  const { role } = useAuth();
   const [zonas, setZonas] = useState(orcamento.zonas);
   const [desconto, setDesconto] = useState(orcamento.desconto);
   const [observacoes, setObservacoes] = useState(orcamento.observacoes);
+  const [modalidade, setModalidade] = useState<'venda' | 'comodato'>(orcamento.modalidade ?? 'venda');
+  const [prazo, setPrazo] = useState<24 | 36 | 48>(orcamento.comodato?.prazo ?? 36);
+  const [numCameras, setNumCameras] = useState(orcamento.comodato?.numCameras ?? 0);
+  const [tipoCentral, setTipoCentral] = useState<TipoCentral>(orcamento.comodato?.tipoCentral ?? 'pequena');
+  const [showCustoEdit, setShowCustoEdit] = useState(false);
+  const [localCustos, setLocalCustos] = useState<Record<string, number>>({ ...precosCusto });
 
   const subtotalEquip = orcamento.subtotalEquipamentos;
+  const subtotalCusto = orcamento.itens.reduce((s, i) => s + (localCustos[i.equipmentId] ?? i.precoCusto ?? 0) * i.quantidade, 0);
   const calc = calcularOrcamento(zonas, subtotalEquip, desconto);
   const faixa = calc.faixa;
 
   const isProposta = orcamento.status === 'escolhido';
+  const isAdmin = role === 'ADMIN';
 
-  function handleSalvar() {
-    onSave({
+  // Auto-count cameras on mount
+  useMemo(() => {
+    if (orcamento.comodato?.numCameras === undefined || orcamento.comodato?.numCameras === 0) {
+      const count = orcamento.itens
+        .filter((i) => ['camera_analogica', 'camera_ip', 'camera_ia'].includes(i.bloco))
+        .reduce((s, i) => s + i.quantidade, 0);
+      if (count > 0) setNumCameras(count);
+    }
+  }, [orcamento.itens, orcamento.comodato?.numCameras]);
+
+  // Comodato calculations
+  const parcelaEquip = subtotalCusto > 0 ? subtotalCusto / prazo : 0;
+  const monitoramentoBase = faixa.mensalidade;
+  const incrementoCam = Math.max(0, numCameras - 4) * INCREMENTO_CAMERA;
+  const incrementoCen = INCREMENTO_CENTRAL[tipoCentral];
+  const mensalidadeComodato = parcelaEquip + monitoramentoBase + incrementoCam + incrementoCen;
+
+  // Compra: custo total no prazo = investimento único + mensalidade * prazo
+  const custoCompraTotal = calc.totalFinal + (calc.mensalidade * prazo);
+  const custoComodatoTotal = mensalidadeComodato * prazo;
+
+  // Margem
+  const margemPct = subtotalEquip > 0 ? ((subtotalEquip - subtotalCusto) / subtotalEquip) * 100 : 0;
+
+  function buildOrc(): Orcamento {
+    return {
       ...orcamento,
-      zonas,
-      desconto,
-      observacoes,
+      zonas, desconto, observacoes,
+      subtotalCusto,
       fatorZona: calc.fator,
       totalEquipamentos: calc.totalEquip,
       maoDeObra: calc.maoDeObra,
       mensalidade: calc.mensalidade,
       totalFinal: calc.totalFinal,
-      status: orcamento.status === 'rascunho' ? 'finalizado' : orcamento.status,
-    });
+      modalidade,
+      comodato: { prazo, numCameras, tipoCentral },
+    };
+  }
+
+  function handleSalvar() {
+    onSave({ ...buildOrc(), status: orcamento.status === 'rascunho' ? 'finalizado' : orcamento.status });
   }
 
   function handleGerarProposta() {
-    const orc: Orcamento = {
-      ...orcamento,
-      zonas,
-      desconto,
-      observacoes,
-      fatorZona: calc.fator,
-      totalEquipamentos: calc.totalEquip,
-      maoDeObra: calc.maoDeObra,
-      mensalidade: calc.mensalidade,
-      totalFinal: calc.totalFinal,
-    };
-    onGerarProposta(orc);
+    onGerarProposta(buildOrc());
+  }
+
+  function handleSaveCustos() {
+    onSavePrecosCusto(localCustos);
+    setShowCustoEdit(false);
   }
 
   // Group items by bloco
   const blocoGroups: { bloco: BlocoCategoria; items: OrcamentoItem[] }[] = [];
   for (const item of orcamento.itens) {
     const existing = blocoGroups.find((g) => g.bloco === item.bloco);
-    if (existing) {
-      existing.items.push(item);
-    } else {
-      blocoGroups.push({ bloco: item.bloco, items: [item] });
-    }
+    if (existing) existing.items.push(item);
+    else blocoGroups.push({ bloco: item.bloco, items: [item] });
   }
 
   const markupEquip = subtotalEquip * (calc.fator - 1);
@@ -1074,13 +1124,54 @@ function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
   const descontoValor = subtotalGeral * (desconto / 100);
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div style={{ maxWidth: 860 }}>
       {/* Header */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
         <strong style={{ fontSize: 16 }}>{orcamento.clienteNome}</strong>
         <MarcaBadge marca={orcamento.marca} />
         <OrcamentoStatusBadge status={orcamento.status} />
         <span style={{ fontSize: 12, color: theme.muted }}>Solução: {orcamento.solucaoId}</span>
+      </div>
+
+      {/* Modalidade Toggle */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+        {(['venda', 'comodato'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => !isProposta && setModalidade(m)}
+            disabled={isProposta}
+            style={{
+              padding: '8px 20px', borderRadius: 8, border: 'none', cursor: isProposta ? 'default' : 'pointer',
+              fontWeight: 700, fontSize: 14,
+              background: modalidade === m ? (m === 'venda' ? theme.gold : '#5B9BD5') : theme.soft,
+              color: modalidade === m ? '#0B0B0B' : theme.text,
+              transition: 'all 0.15s',
+            }}
+          >
+            {m === 'venda' ? 'Compra' : 'Comodato'}
+          </button>
+        ))}
+
+        {modalidade === 'comodato' && (
+          <>
+            <span style={{ fontSize: 12, color: theme.muted, marginLeft: 8 }}>Prazo:</span>
+            {([24, 36, 48] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => !isProposta && setPrazo(p)}
+                disabled={isProposta}
+                style={{
+                  padding: '6px 14px', borderRadius: 8, border: 'none', cursor: isProposta ? 'default' : 'pointer',
+                  fontWeight: 600, fontSize: 13,
+                  background: prazo === p ? '#5B9BD5' : theme.soft,
+                  color: prazo === p ? '#0B0B0B' : theme.text,
+                }}
+              >
+                {p}m
+              </button>
+            ))}
+          </>
+        )}
       </div>
 
       {/* Zonas */}
@@ -1090,10 +1181,7 @@ function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
             <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 4 }}>Número de Zonas</label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input
-                type="number"
-                min={1}
-                max={50}
-                value={zonas}
+                type="number" min={1} max={50} value={zonas}
                 onChange={(e) => setZonas(Math.max(1, Math.min(50, Number(e.target.value))))}
                 disabled={isProposta}
                 style={{ ...inputStyle, width: 80, marginBottom: 0, textAlign: 'center', fontSize: 18, fontWeight: 700 }}
@@ -1104,91 +1192,217 @@ function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack }: {
           <FaixaBadge label={faixa.label} large />
         </div>
         <div style={{ marginTop: 8, fontSize: 12, color: theme.muted }}>
-          Faixa {faixa.label} ({faixa.min}–{faixa.max === Infinity ? '∞' : faixa.max} zonas) — Fator {faixa.fator}x · Mão de obra R$ {formatCurrency(faixa.maoDeObra)} · Mensalidade R$ {formatCurrency(faixa.mensalidade)}
+          Faixa {faixa.label} ({faixa.min}–{faixa.max === Infinity ? '∞' : faixa.max} zonas) — Fator {faixa.fator}x · Mão de obra R$ {formatCurrency(faixa.maoDeObra)} · Monitoramento R$ {formatCurrency(faixa.mensalidade)}/mês
         </div>
       </div>
 
-      {/* Equipment table */}
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <h4 style={{ margin: '0 0 10px', fontSize: 14, color: theme.gold }}>Equipamentos da Solução</h4>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              {['Bloco', 'Equipamento', 'Qtd', 'Unit.', 'Subtotal'].map((h) => (
-                <th key={h} style={thStyle}>{h}</th>
+      {/* Comodato controls */}
+      {modalidade === 'comodato' && (
+        <div style={{ background: theme.panel, border: `1px solid #5B9BD533`, borderRadius: 10, padding: 14, marginBottom: 14, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 4 }}>Nº de Câmeras</label>
+            <input
+              type="number" min={0} max={100} value={numCameras}
+              onChange={(e) => setNumCameras(Math.max(0, Number(e.target.value)))}
+              disabled={isProposta}
+              style={{ ...inputStyle, width: 80, marginBottom: 0, textAlign: 'center', fontSize: 16, fontWeight: 700 }}
+            />
+            {numCameras > 4 && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#5B9BD5' }}>+{numCameras - 4} câm. × R${INCREMENTO_CAMERA} = R${formatCurrency(incrementoCam)}/mês</p>}
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 4 }}>Tipo de Central</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['pequena', 'media', 'grande'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => !isProposta && setTipoCentral(t)}
+                  disabled={isProposta}
+                  style={{
+                    padding: '6px 12px', borderRadius: 6, border: 'none', cursor: isProposta ? 'default' : 'pointer',
+                    fontWeight: 600, fontSize: 12,
+                    background: tipoCentral === t ? '#5B9BD5' : theme.soft,
+                    color: tipoCentral === t ? '#0B0B0B' : theme.text,
+                  }}
+                >
+                  {t.charAt(0).toUpperCase() + t.slice(1)}{INCREMENTO_CENTRAL[t] > 0 ? ` +R$${INCREMENTO_CENTRAL[t]}` : ''}
+                </button>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {blocoGroups.map((group) =>
-              group.items.map((item, idx) => (
-                <tr key={item.equipmentId}>
-                  {idx === 0 && (
-                    <td style={{ ...tdStyle, fontSize: 11, color: theme.muted }} rowSpan={group.items.length}>
-                      {blocoLabels[group.bloco]}
-                    </td>
-                  )}
-                  <td style={tdStyle}>{item.nome}</td>
-                  <td style={tdStyle}>{item.quantidade}</td>
-                  <td style={tdStyle}>R$ {formatCurrency(item.precoUnitario)}</td>
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>R$ {formatCurrency(item.subtotal)}</td>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Equipment table with Custo + Venda */}
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h4 style={{ margin: 0, fontSize: 14, color: theme.gold }}>Equipamentos da Solução</h4>
+          {isAdmin && (
+            <button onClick={() => setShowCustoEdit(!showCustoEdit)} style={{
+              padding: '4px 12px', borderRadius: 6, border: `1px solid ${theme.border}`,
+              background: showCustoEdit ? theme.gold : 'transparent',
+              color: showCustoEdit ? '#0B0B0B' : theme.gold,
+              cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            }}>
+              {showCustoEdit ? 'Salvar Custos' : 'Editar Custos'}
+            </button>
+          )}
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Bloco', 'Equipamento', 'Qtd', 'Custo Un.', 'Venda Un.', 'Sub. Custo', 'Sub. Venda'].map((h) => (
+                  <th key={h} style={thStyle}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {blocoGroups.map((group) =>
+                group.items.map((item, idx) => {
+                  const custo = localCustos[item.equipmentId] ?? item.precoCusto ?? 0;
+                  const subCusto = custo * item.quantidade;
+                  return (
+                    <tr key={item.equipmentId}>
+                      {idx === 0 && (
+                        <td style={{ ...tdStyle, fontSize: 11, color: theme.muted }} rowSpan={group.items.length}>
+                          {blocoLabels[group.bloco]}
+                        </td>
+                      )}
+                      <td style={tdStyle}>{item.nome}</td>
+                      <td style={tdStyle}>{item.quantidade}</td>
+                      <td style={tdStyle}>
+                        {showCustoEdit ? (
+                          <input
+                            type="number" min={0} step={1}
+                            value={custo || ''}
+                            placeholder="0"
+                            onChange={(e) => setLocalCustos((c) => ({ ...c, [item.equipmentId]: Number(e.target.value) || 0 }))}
+                            style={{ ...inputStyle, width: 90, marginBottom: 0, padding: '4px 6px', fontSize: 12 }}
+                          />
+                        ) : (
+                          <span style={{ color: custo > 0 ? '#E3B341' : theme.muted }}>
+                            {custo > 0 ? `R$ ${formatCurrency(custo)}` : '—'}
+                          </span>
+                        )}
+                      </td>
+                      <td style={tdStyle}>R$ {formatCurrency(item.precoUnitario)}</td>
+                      <td style={{ ...tdStyle, color: '#E3B341' }}>{subCusto > 0 ? `R$ ${formatCurrency(subCusto)}` : '—'}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>R$ {formatCurrency(item.subtotal)}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={5} style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontSize: 13 }}>Subtotais</td>
+                <td style={{ ...tdStyle, fontWeight: 700, color: '#E3B341' }}>{subtotalCusto > 0 ? `R$ ${formatCurrency(subtotalCusto)}` : '—'}</td>
+                <td style={{ ...tdStyle, fontWeight: 700, color: theme.text }}>R$ {formatCurrency(subtotalEquip)}</td>
+              </tr>
+              {subtotalCusto > 0 && (
+                <tr>
+                  <td colSpan={5} style={{ ...tdStyle, textAlign: 'right', fontSize: 12, color: theme.muted }}>Margem</td>
+                  <td colSpan={2} style={{ ...tdStyle, fontWeight: 700, color: margemPct >= 30 ? '#43C17B' : margemPct >= 15 ? theme.gold : '#E55B5B' }}>
+                    {margemPct.toFixed(1)}% (R$ {formatCurrency(subtotalEquip - subtotalCusto)})
+                  </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontSize: 13 }}>Subtotal equipamentos</td>
-              <td style={{ ...tdStyle, fontWeight: 700, color: theme.text }}>R$ {formatCurrency(subtotalEquip)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      {/* Costs panel */}
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))',
-        border: `2px solid ${theme.gold}44`,
-        borderRadius: 12, padding: 16, marginBottom: 14,
-      }}>
-        <h4 style={{ margin: '0 0 12px', fontSize: 14, color: theme.gold }}>Painel de Custos</h4>
-
-        <CostLine label="Subtotal equipamentos" value={subtotalEquip} />
-        <CostLine label={`Fator complexidade (${calc.fator}x)`} value={markupEquip} prefix="+" />
-        <CostLine label={`Mão de obra (Faixa ${faixa.label})`} value={calc.maoDeObra} />
-
-        <div style={{ borderTop: `1px solid ${theme.border}`, margin: '8px 0' }} />
-
-        <CostLine label="Subtotal" value={subtotalGeral} bold />
-
-        {desconto > 0 && (
-          <CostLine label={`Desconto (${desconto}%)`} value={-descontoValor} prefix="" danger />
+              )}
+            </tfoot>
+          </table>
+        </div>
+        {showCustoEdit && (
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={handleSaveCustos} style={{ ...btnGold, fontSize: 12, padding: '6px 16px' }}>Salvar Preços de Custo</button>
+          </div>
         )}
-
-        <div style={{ borderTop: `2px solid ${theme.gold}`, margin: '8px 0' }} />
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold }}>TOTAL FINAL</span>
-          <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(calc.totalFinal)}</span>
-        </div>
-
-        <div style={{ borderTop: `1px solid ${theme.border}`, margin: '8px 0' }} />
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: theme.muted }}>Mensalidade mensal</span>
-          <span style={{ fontSize: 16, fontWeight: 600, color: theme.text }}>R$ {formatCurrency(calc.mensalidade)}</span>
-        </div>
       </div>
+
+      {/* ── Comparativo Compra vs Comodato ── */}
+      {modalidade === 'comodato' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+          {/* Painel COMPRA */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))',
+            border: `2px solid ${theme.gold}44`, borderRadius: 12, padding: 16,
+          }}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14, color: theme.gold }}>Compra (à vista)</h4>
+            <CostLine label="Equipamentos (venda)" value={subtotalEquip} />
+            <CostLine label={`Markup (${calc.fator}x)`} value={markupEquip} prefix="+" />
+            <CostLine label={`Mão de obra (${faixa.label})`} value={calc.maoDeObra} />
+            {desconto > 0 && <CostLine label={`Desconto (${desconto}%)`} value={-descontoValor} danger />}
+            <div style={{ borderTop: `2px solid ${theme.gold}`, margin: '10px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: theme.gold }}>INVESTIMENTO</span>
+              <span style={{ fontSize: 20, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(calc.totalFinal)}</span>
+            </div>
+            <div style={{ borderTop: `1px solid ${theme.border}`, margin: '8px 0' }} />
+            <CostLine label="+ Monitoramento" value={calc.mensalidade} />
+            <p style={{ fontSize: 11, color: theme.muted, margin: '4px 0 0' }}>/mês</p>
+            <div style={{ borderTop: `1px dashed ${theme.border}`, margin: '8px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+              <span style={{ color: theme.muted }}>Custo em {prazo} meses:</span>
+              <span style={{ color: theme.text, fontWeight: 700 }}>R$ {formatCurrency(custoCompraTotal)}</span>
+            </div>
+          </div>
+
+          {/* Painel COMODATO */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(91,155,213,0.08), rgba(91,155,213,0.02))',
+            border: `2px solid #5B9BD544`, borderRadius: 12, padding: 16,
+          }}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14, color: '#5B9BD5' }}>Comodato ({prazo} meses)</h4>
+            <CostLine label={`Parcela equipamento`} value={parcelaEquip} />
+            <p style={{ fontSize: 10, color: theme.muted, margin: '-2px 0 4px', textAlign: 'right' }}>
+              (custo R$ {formatCurrency(subtotalCusto)} ÷ {prazo})
+            </p>
+            <CostLine label="Monitoramento base" value={monitoramentoBase} />
+            {incrementoCam > 0 && <CostLine label={`Câmeras (+${numCameras - 4} × R$${INCREMENTO_CAMERA})`} value={incrementoCam} />}
+            {incrementoCen > 0 && <CostLine label={`Central ${tipoCentral}`} value={incrementoCen} />}
+            <div style={{ borderTop: `2px solid #5B9BD5`, margin: '10px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#5B9BD5' }}>MENSALIDADE</span>
+              <span style={{ fontSize: 20, fontWeight: 700, color: '#5B9BD5' }}>R$ {formatCurrency(mensalidadeComodato)}</span>
+            </div>
+            <p style={{ fontSize: 11, color: theme.muted, margin: '2px 0 0', textAlign: 'right' }}>/mês (tudo incluso)</p>
+            <div style={{ borderTop: `1px dashed ${theme.border}`, margin: '8px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+              <span style={{ color: theme.muted }}>Custo em {prazo} meses:</span>
+              <span style={{ color: theme.text, fontWeight: 700 }}>R$ {formatCurrency(custoComodatoTotal)}</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Painel de Custos (venda — original) */
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(200,169,81,0.08), rgba(200,169,81,0.02))',
+          border: `2px solid ${theme.gold}44`, borderRadius: 12, padding: 16, marginBottom: 14,
+        }}>
+          <h4 style={{ margin: '0 0 12px', fontSize: 14, color: theme.gold }}>Painel de Custos</h4>
+          <CostLine label="Subtotal equipamentos" value={subtotalEquip} />
+          <CostLine label={`Fator complexidade (${calc.fator}x)`} value={markupEquip} prefix="+" />
+          <CostLine label={`Mão de obra (Faixa ${faixa.label})`} value={calc.maoDeObra} />
+          <div style={{ borderTop: `1px solid ${theme.border}`, margin: '8px 0' }} />
+          <CostLine label="Subtotal" value={subtotalGeral} bold />
+          {desconto > 0 && <CostLine label={`Desconto (${desconto}%)`} value={-descontoValor} danger />}
+          <div style={{ borderTop: `2px solid ${theme.gold}`, margin: '8px 0' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold }}>TOTAL FINAL</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {formatCurrency(calc.totalFinal)}</span>
+          </div>
+          <div style={{ borderTop: `1px solid ${theme.border}`, margin: '8px 0' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: theme.muted }}>Mensalidade mensal</span>
+            <span style={{ fontSize: 16, fontWeight: 600, color: theme.text }}>R$ {formatCurrency(calc.mensalidade)}</span>
+          </div>
+        </div>
+      )}
 
       {/* Discount */}
       <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 6 }}>Desconto (0–30%)</label>
+        <label style={{ fontSize: 12, color: theme.muted, display: 'block', marginBottom: 6 }}>Desconto (0–30%) {modalidade === 'comodato' ? '— aplicado na comparação de Compra' : ''}</label>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <input
-            type="range"
-            min={0}
-            max={30}
-            value={desconto}
+            type="range" min={0} max={30} value={desconto}
             onChange={(e) => setDesconto(Number(e.target.value))}
             disabled={isProposta}
             style={{ flex: 1 }}

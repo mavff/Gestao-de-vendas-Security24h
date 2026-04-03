@@ -47,6 +47,40 @@ export class ApiClientError extends Error {
 const DEFAULT_API_BASE_URL = 'http://localhost:3001';
 const DEFAULT_TIMEOUT_MS = 5000;
 
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefreshToken(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  const refresh = localStorage.getItem('sec24h_refresh');
+  if (!refresh) return false;
+
+  if (isRefreshing && refreshPromise) return refreshPromise;
+
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const base = resolveBaseUrl();
+      const res = await fetch(`${base}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: refresh }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json() as { accessToken: string };
+      localStorage.setItem('sec24h_token', data.accessToken);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 function resolveBaseUrl(): string {
   const value = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (!value) return DEFAULT_API_BASE_URL;
@@ -159,6 +193,39 @@ async function request<T>(method: string, path: string, options: ApiRequestOptio
       body: hasBody ? JSON.stringify(options.body) : undefined,
       signal: timeoutController.controller.signal,
     });
+
+    if (response.status === 401 && !path.includes('/auth/')) {
+      const refreshed = await tryRefreshToken();
+      if (refreshed) {
+        const newToken = localStorage.getItem('sec24h_token');
+        if (newToken) headers.set('Authorization', `Bearer ${newToken}`);
+        const retryResponse = await fetch(url, {
+          ...options,
+          method,
+          headers,
+          body: hasBody ? JSON.stringify(options.body) : undefined,
+          signal: timeoutController.controller.signal,
+        });
+        if (retryResponse.ok) {
+          const contentType2 = retryResponse.headers.get('content-type') || '';
+          if (!contentType2.includes('application/json')) {
+            const text2 = await retryResponse.text();
+            return { data: text2 as T };
+          }
+          const payload2 = await retryResponse.json();
+          return normalizeJsonPayload<T>(payload2);
+        }
+        const parsed2 = await parseErrorResponse(retryResponse);
+        throw new ApiClientError({
+          message: `${method} ${path} failed: ${parsed2.message}`,
+          code: 'HTTP_ERROR',
+          status: retryResponse.status,
+          method,
+          url,
+          details: parsed2.details,
+        });
+      }
+    }
 
     if (!response.ok) {
       const parsed = await parseErrorResponse(response);

@@ -118,6 +118,9 @@ export function mapProductToEquipment(product: ProductApiDto): Equipment {
     price: toNumber(product.preco),
     estoque: 0,
     descricao: product.descricao || '',
+    pontos: toNumber(product.pontos) || undefined,
+    acrescimoMensal: toNumber(product.acrescimoMensal) || undefined,
+    acrescimoInstalacao: toNumber(product.acrescimoInstalacao) || undefined,
   };
 }
 

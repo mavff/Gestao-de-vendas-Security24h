@@ -1,5 +1,5 @@
 import { Equipment, Kit } from '../../types';
-import { CrmLeadsResult, CrmQuery, CrmSource, DashboardStats, DataSourceMode, EquipmentQuery, FinanceiroDashboard, FunnelStats, KitsQuery, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery, SdrQuery, SdrTabResult, SheetsLeadStats } from './types';
+import { ClientesAtivosResult, ComissoesVendedoresResult, CrmLeadsResult, CrmQuery, CrmSource, DashboardStats, DataSourceMode, EquipmentQuery, FinanceiroDashboard, FunnelStats, KitsQuery, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto, OrcamentosQuery, PaginatedResult, PeriodKey, PreOrcamentoApiDto, PreOrcamentosQuery, ProspectApiDto, ProspectsQuery, SdrQuery, SdrTabResult, SheetsLeadStats } from './types';
 
 export interface IEquipmentDataSource {
   list(query?: EquipmentQuery): Promise<PaginatedResult<Equipment>>;
@@ -47,6 +47,12 @@ export interface ICrmDataSource {
   getSources(): Promise<CrmSource[]>;
 }
 
+export interface IComissoesDataSource {
+  getVendedores(): Promise<ComissoesVendedoresResult>;
+  getUsuariosDisponiveis(): Promise<{ usuarios: string[] }>;
+  getClientesAtivos(): Promise<ClientesAtivosResult>;
+}
+
 export type DataSourceRegistry = {
   mode: DataSourceMode;
   equipment: IEquipmentDataSource;
@@ -58,5 +64,6 @@ export type DataSourceRegistry = {
   sheets: ISheetsDataSource;
   sdr: ISdrDataSource;
   crm: ICrmDataSource;
+  comissoes: IComissoesDataSource;
 };
 

@@ -2,7 +2,7 @@ import { Equipment, Kit, Lead } from '../../types';
 import { mockEquipments, mockKits, mockLeads } from '../../mocks/data';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
 import { loadMock, saveMock } from '../../services/mockStorage';
-import { DataSourceRegistry, ICrmDataSource, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource, ISdrDataSource, ISheetsDataSource } from './interfaces';
+import { DataSourceRegistry, IComissoesDataSource, ICrmDataSource, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource, ISdrDataSource, ISheetsDataSource } from './interfaces';
 import {
   DashboardStats,
   EquipmentQuery,
@@ -328,6 +328,46 @@ class MockCrmDataSource implements ICrmDataSource {
   }
 }
 
+class MockComissoesDataSource implements IComissoesDataSource {
+  async getVendedores() {
+    return {
+      vendedores: [
+        {
+          usuario: 'Demo Vendedor',
+          clientes: [
+            {
+              codInterno: 1, numOrcamento: 1001, clienteNome: 'Cliente Exemplo',
+              cgcCpf: '000.000.000-00', status: 'F', modalidade: 'C',
+              fechamento: '2025-06-01', emissao: '2025-05-20',
+              totalProdutos: 3500, totalServicos: 800, valorMonitoramento: 170,
+              comissaoBd: 0, pontos: 12, mesesAtivos: 10,
+              diaVencimento: 10, primeiroFaturamento: '2025-06-10',
+            },
+          ],
+        },
+      ],
+      totalClientes: 1,
+    };
+  }
+
+  async getUsuariosDisponiveis() {
+    return { usuarios: ['Demo Vendedor'] };
+  }
+
+  async getClientesAtivos() {
+    return {
+      clientes: [{
+        codCliente: 1, nome: 'Cliente Demo', fantasia: null, cgcCpf: '000.000.000-00',
+        fone1: '(00) 0000-0000', cidade: 'Cidade', modalidade: 'V',
+        vendedorNome: 'Demo Vendedor', tecnicoNome: 'Demo Tecnico',
+        valorMonitoramento: 170, diaVencimento: 10, primeiroFaturamento: '2025-06-10',
+        dataFechamento: '2025-06-01',
+      }],
+      total: 1,
+    };
+  }
+}
+
 export function createMockDataSource(): DataSourceRegistry {
   return {
     mode: 'mock',
@@ -340,6 +380,7 @@ export function createMockDataSource(): DataSourceRegistry {
     sheets: new MockSheetsDataSource(),
     sdr: new MockSdrDataSource(),
     crm: new MockCrmDataSource(),
+    comissoes: new MockComissoesDataSource(),
   };
 }
 

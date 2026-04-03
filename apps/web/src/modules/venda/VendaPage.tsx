@@ -129,6 +129,31 @@ export function VendaPage() {
   useEffect(() => { saveMock('mock_ordens', ordens); }, [ordens]);
   useEffect(() => { saveMock('mock_vistorias', vistorias); }, [vistorias]);
 
+  // Merged equipments: include synthetic entries from kit items not in the products list
+  const mergedEquipments = useMemo<Equipment[]>(() => {
+    const existingIds = new Set(equipments.map((e) => e.id));
+    const synthetics: Equipment[] = [];
+    for (const kit of kits) {
+      for (const item of kit.items) {
+        if (!existingIds.has(item.equipmentId)) {
+          existingIds.add(item.equipmentId);
+          synthetics.push({
+            id: item.equipmentId,
+            name: item.itemName ?? item.equipmentId,
+            sku: item.equipmentId,
+            category: 'Acessório',
+            marca: kit.marca ?? 'Genérico',
+            bloco: 'acessorio',
+            price: item.unitPrice ?? 0,
+            estoque: 0,
+            descricao: item.itemName ?? '',
+          });
+        }
+      }
+    }
+    return synthetics.length > 0 ? [...equipments, ...synthetics] : equipments;
+  }, [equipments, kits]);
+
   /* --- derived for this lead --- */
   const lead = leads.find((l) => l.id === leadId) ?? null;
   const solucao = solucoes.find((s) => s.leadId === leadId) ?? null;
@@ -293,7 +318,7 @@ export function VendaPage() {
     let ckIdx = 0;
     const checklist = solucao.blocos.flatMap((bloco) =>
       bloco.itens.map((item) => {
-        const eq = equipments.find((e) => e.id === item.equipmentId);
+        const eq = mergedEquipments.find((e) => e.id === item.equipmentId);
         return {
           id: 'CK' + Date.now() + (ckIdx++),
           text: `Instalar ${item.quantidade}x ${eq?.name ?? item.equipmentId}`,
@@ -440,7 +465,7 @@ export function VendaPage() {
         <TabSolucao
           draft={solDraft} setDraft={setSolDraft}
           step={wizStep} setStep={setWizStep}
-          equipments={equipments}
+          equipments={mergedEquipments}
           kits={kits}
           solucaoExistente={solucao}
           onSave={handleSaveSolucao}
@@ -967,9 +992,6 @@ function StepOSResumo({ ordem }: { ordem: OrdemDeServico }) {
         {ordem.observacoes && <InfoRow label="Observações" value={ordem.observacoes} />}
       </div>
 
-      <div style={{ marginTop: 16, textAlign: 'center' }}>
-        <button onClick={() => { window.location.href = '/instalacoes'; }} style={btnGold}>Ver OS completa em Instalações →</button>
-      </div>
     </div>
   );
 }

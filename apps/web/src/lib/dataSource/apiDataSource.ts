@@ -1,7 +1,9 @@
 import { apiClient, ApiClientError, ApiMeta } from '../apiClient';
 import { Equipment, Kit } from '../../types';
-import { DataSourceRegistry, ICrmDataSource, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource, ISdrDataSource, ISheetsDataSource } from './interfaces';
+import { DataSourceRegistry, IComissoesDataSource, ICrmDataSource, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource, ISdrDataSource, ISheetsDataSource } from './interfaces';
 import {
+  ClientesAtivosResult,
+  ComissoesVendedoresResult,
   CrmLeadsResult,
   CrmQuery,
   CrmSource,
@@ -287,7 +289,12 @@ function parsePreOrcamentoDecimals(o: PreOrcamentoApiDto): PreOrcamentoApiDto {
       ...p,
       quantidade: p.quantidade != null ? Number(p.quantidade) : null,
       produto: p.produto
-        ? { ...p.produto, preco: p.produto.preco != null ? Number(p.produto.preco) : null }
+        ? {
+            ...p.produto,
+            preco: p.produto.preco != null ? Number(p.produto.preco) : null,
+            acrescimoMensal: p.produto.acrescimoMensal != null ? Number(p.produto.acrescimoMensal) : null,
+            acrescimoInstalacao: p.produto.acrescimoInstalacao != null ? Number(p.produto.acrescimoInstalacao) : null,
+          }
         : null,
     })),
   };
@@ -355,6 +362,32 @@ class ApiSdrDataSource implements ISdrDataSource {
   }
 }
 
+class ApiComissoesDataSource implements IComissoesDataSource {
+  async getVendedores(): Promise<ComissoesVendedoresResult> {
+    const response = await apiClient.get<ComissoesVendedoresResult>(
+      '/comissoes/vendedores',
+      { timeoutMs: 20000 },
+    );
+    return response.data;
+  }
+
+  async getUsuariosDisponiveis(): Promise<{ usuarios: string[] }> {
+    const response = await apiClient.get<{ usuarios: string[] }>(
+      '/comissoes/usuarios-disponiveis',
+      { timeoutMs: 10000 },
+    );
+    return response.data;
+  }
+
+  async getClientesAtivos(): Promise<ClientesAtivosResult> {
+    const response = await apiClient.get<ClientesAtivosResult>(
+      '/comissoes/clientes-ativos',
+      { timeoutMs: 20000 },
+    );
+    return response.data;
+  }
+}
+
 export function createApiDataSource(): DataSourceRegistry {
   return {
     mode: 'api',
@@ -367,6 +400,7 @@ export function createApiDataSource(): DataSourceRegistry {
     sheets: new ApiSheetsDataSource(),
     sdr: new ApiSdrDataSource(),
     crm: new ApiCrmDataSource(),
+    comissoes: new ApiComissoesDataSource(),
   };
 }
 

@@ -9,6 +9,7 @@ import { AppUser } from './app-users/app-user.entity';
 import { AppKv } from './app-users/app-kv.entity';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SheetsModule } from './sheets/sheets.module';
+import { ComissoesModule } from './comissoes/comissoes.module';
 import { CrmModule } from './crm/crm.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
@@ -118,6 +119,7 @@ function buildSqliteModule(): DynamicModule[] {
     PreOrcamentosModule,
     DashboardModule,
     SheetsModule,
+    ComissoesModule,
     CrmModule,
     ...(process.env.SQL_SERVER_HOST ? [AuthModule] : []),
   ],

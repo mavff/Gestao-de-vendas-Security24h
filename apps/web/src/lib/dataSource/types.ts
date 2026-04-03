@@ -56,6 +56,8 @@ export type ProductApiDto = {
   grupoOrcamento?: string | null;
   pontos?: number | null;
   ncm?: string | null;
+  acrescimoMensal?: number | string | null;
+  acrescimoInstalacao?: number | string | null;
 };
 
 export type ProductKitItemApiDto = {
@@ -174,6 +176,45 @@ export type FinanceiroDashboard = {
   evolucaoMensal: { mes: string; equipamentos: number; instalacao: number }[];
   mixReceita: { name: string; value: number }[];
   porTecnico: TecnicoRow[];
+  totalComissao?: number;
+  totalDesconto?: number;
+};
+
+export type CustoCategoriaOperacional = {
+  label: string;
+  valor: number;
+};
+
+export type CustosEmpresaConfig = {
+  folhaSalarial: {
+    tecnicos: number;
+    vendedores: number;
+    administrativo: number;
+    total: number;
+  };
+  custosOperacionais: CustoCategoriaOperacional[];
+  cmvPercentual: number;
+  cmvFixo: number;
+  cmvModo: 'percentual' | 'fixo';
+  investimentoMarketing: number;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export const DEFAULT_CUSTOS_CONFIG: CustosEmpresaConfig = {
+  folhaSalarial: { tecnicos: 0, vendedores: 0, administrativo: 0, total: 0 },
+  custosOperacionais: [
+    { label: 'Aluguel', valor: 0 },
+    { label: 'Energia/Água', valor: 0 },
+    { label: 'Veículos', valor: 0 },
+    { label: 'Combustível', valor: 0 },
+    { label: 'Seguros', valor: 0 },
+    { label: 'Licenças/Software', valor: 0 },
+  ],
+  cmvPercentual: 40,
+  cmvFixo: 0,
+  cmvModo: 'percentual',
+  investimentoMarketing: 2000,
 };
 
 export type FunnelStats = {
@@ -238,6 +279,9 @@ export type PreOrcamentoProdutoApiDto = {
     descricao: string;
     preco?: number | string | null;
     grupoOrcamento?: string | null;
+    pontos?: number | null;
+    acrescimoMensal?: number | string | null;
+    acrescimoInstalacao?: number | string | null;
   } | null;
 };
 
@@ -388,7 +432,82 @@ export interface CrmSource {
   label: string;
 }
 
-export type DataSourceEntity = 'equipment' | 'kits' | 'prospects' | 'dashboard' | 'orcamentos' | 'preOrcamentos' | 'sheets' | 'sdr' | 'crm';
+// ── Comissoes Types ─────────────────────────────────────────────────────────
+
+export type ComissaoClienteStatus = 'pendente' | 'carencia' | 'liberada' | 'paga' | 'estornada';
+export type PagamentoStatus = 'em_dia' | 'atrasado' | 'cancelado';
+
+export type ComissaoConfig = {
+  prazoMinimoMeses: number;        // default 12
+  qtdMensalidadesComissao: number; // 2 ou 3 mensalidades
+  multiplicadorAdesao: number;     // 1.25 ou 1.5
+};
+
+export const DEFAULT_COMISSAO_CONFIG: ComissaoConfig = {
+  prazoMinimoMeses: 12,
+  qtdMensalidadesComissao: 2,
+  multiplicadorAdesao: 1.25,
+};
+
+export type ComissaoClienteInfo = {
+  codInterno: number;
+  numOrcamento: number | null;
+  clienteNome: string;
+  cgcCpf: string | null;
+  status: string;
+  modalidade: string | null;
+  fechamento: string | null;
+  emissao: string | null;
+  totalProdutos: number;
+  totalServicos: number;
+  valorMonitoramento: number;
+  comissaoBd: number;
+  pontos: number | null;
+  mesesAtivos: number;
+  diaVencimento: number | null;
+  primeiroFaturamento: string | null;
+};
+
+export type ComissaoVendedor = {
+  usuario: string;
+  clientes: ComissaoClienteInfo[];
+};
+
+export type ComissaoOverride = {
+  status: ComissaoClienteStatus;
+  pagamento: PagamentoStatus;
+  observacoes?: string;
+  dataPagamento?: string;
+  motivoEstorno?: string;
+};
+
+export type ComissoesVendedoresResult = {
+  vendedores: ComissaoVendedor[];
+  totalClientes: number;
+};
+
+export type ClienteAtivo = {
+  codCliente: number;
+  nome: string;
+  fantasia: string | null;
+  cgcCpf: string | null;
+  fone1: string | null;
+  cidade: string | null;
+  modalidade: string | null;
+  vendedorNome: string | null;
+  tecnicoNome: string | null;
+  valorMonitoramento: number;
+  diaVencimento: number | null;
+  primeiroFaturamento: string | null;
+  dataFechamento: string | null;
+};
+
+export type ClientesAtivosResult = {
+  clientes: ClienteAtivo[];
+  total: number;
+};
+
+export type DataSourceEntity = 'equipment' | 'kits' | 'prospects' | 'dashboard' | 'orcamentos' | 'preOrcamentos' | 'sheets' | 'sdr' | 'crm' | 'comissoes';
 export type DataSourceOperation = 'list' | 'getById';
 
 export class DataSourceError extends Error {

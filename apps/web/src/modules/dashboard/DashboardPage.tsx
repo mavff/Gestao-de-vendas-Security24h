@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChartCard } from '../../components/charts/ChartCard';
 import { ReceitaMensalChart } from '../../components/charts/ReceitaMensalChart';
 import { ReceitaMixChart } from '../../components/charts/ReceitaMixChart';
@@ -12,14 +12,18 @@ import { LeadOriginDonutChart } from '../../components/charts/LeadOriginDonutCha
 import { ProspeccaoMensalChart } from '../../components/charts/ProspeccaoMensalChart';
 import { CanalComparisonChart } from '../../components/charts/CanalComparisonChart';
 import { TecnicoPerformanceChart } from '../../components/charts/TecnicoPerformanceChart';
+import { ReceitaCustosBarChart } from '../../components/charts/ReceitaCustosBarChart';
+import { CustosDonutChart } from '../../components/charts/CustosDonutChart';
 import { ChartDetailModal, InsightCard, DataTable } from '../../components/charts/ChartDetailModal';
 import { KpiCard } from '../../components/dashboard/KpiCard';
+import { CustosConfigModal } from '../../components/dashboard/CustosConfigModal';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
-import { DashboardStats, FinanceiroDashboard, PeriodKey, SheetsLeadStats, TecnicoRow } from '../../lib/dataSource/types';
+import { DashboardStats, FinanceiroDashboard, PeriodKey, SheetsLeadStats, TecnicoRow, CustosEmpresaConfig, DEFAULT_CUSTOS_CONFIG } from '../../lib/dataSource/types';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
 import { theme } from '../../components/common/theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { loadState } from '../../services/appState';
 
 type FinanceiroPeriodPreset = '7d' | '30d' | '90d' | 'ano' | 'custom';
 type DashTab = 'financeiro' | 'crm' | 'prospeccao' | 'marketing';
@@ -673,6 +677,9 @@ export function DashboardPage() {
   const [investimento, setInvestimento] = useState<number>(2000);
   const [invFocused, setInvFocused] = useState<boolean>(false);
 
+  const [custosConfig, setCustosConfig] = useState<CustosEmpresaConfig>(DEFAULT_CUSTOS_CONFIG);
+  const [showCustosModal, setShowCustosModal] = useState(false);
+
   const showPerformance = role === 'ADMIN' || role === 'GESTOR';
 
   useEffect(() => {
@@ -748,6 +755,51 @@ export function DashboardPage() {
   useEffect(() => {
     localStorage.setItem('inv_pago_mensal', String(investimento));
   }, [investimento]);
+
+  // Load custos config from AppKv
+  useEffect(() => {
+    loadState<CustosEmpresaConfig>('config:custos_empresa', DEFAULT_CUSTOS_CONFIG)
+      .then((c) => {
+        setCustosConfig(c);
+        if (c.investimentoMarketing > 0) setInvestimento(c.investimentoMarketing);
+      });
+  }, []);
+
+  // Compute profit/margin KPIs from revenue + config
+  const financials = useMemo(() => {
+    const c = custosConfig;
+    const rev = data.receitaTotal;
+    const cmv = c.cmvModo === 'percentual'
+      ? data.receitaEquipamentos * (c.cmvPercentual / 100)
+      : c.cmvFixo;
+    const lucroBruto = rev - cmv;
+    const margemBruta = rev > 0 ? (lucroBruto / rev) * 100 : 0;
+    const totalOperacional = c.custosOperacionais.reduce((s, o) => s + o.valor, 0);
+    const folhaTotal = c.folhaSalarial.total ||
+      (c.folhaSalarial.tecnicos + c.folhaSalarial.vendedores + c.folhaSalarial.administrativo);
+    const despesasTotal = totalOperacional + folhaTotal + c.investimentoMarketing;
+    const lucroOperacional = lucroBruto - despesasTotal - (data.totalComissao ?? 0);
+    const margemOperacional = rev > 0 ? (lucroOperacional / rev) * 100 : 0;
+    const custosFixos = folhaTotal + totalOperacional;
+    const margemContribuicao = rev > 0 ? (rev - cmv) / rev : 0;
+    const pontoEquilibrio = margemContribuicao > 0 ? custosFixos / margemContribuicao : 0;
+    const hasCustos = folhaTotal > 0 || totalOperacional > 0 || c.cmvFixo > 0 || c.cmvPercentual > 0;
+
+    return {
+      cmv: Math.round(cmv),
+      lucroBruto: Math.round(lucroBruto),
+      margemBruta,
+      totalOperacional,
+      folhaTotal,
+      despesasTotal,
+      lucroOperacional: Math.round(lucroOperacional),
+      margemOperacional,
+      pontoEquilibrio: Math.round(pontoEquilibrio),
+      custosFixos,
+      custoMensalTotal: Math.round(cmv + despesasTotal + (data.totalComissao ?? 0)),
+      hasCustos,
+    };
+  }, [data, custosConfig]);
 
   const maxOs = Math.max(data.osInstalacoes, data.osManutencoes, 1);
 
@@ -843,6 +895,20 @@ export function DashboardPage() {
               style={{ background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8, color: theme.text, padding: '5px 10px', fontSize: 13 }} />
           </>
         )}
+        {role === 'ADMIN' && (
+          <button
+            onClick={() => setShowCustosModal(true)}
+            style={{
+              marginLeft: 'auto', padding: '6px 14px', borderRadius: 8,
+              border: `1px solid ${theme.border}`, cursor: 'pointer',
+              fontWeight: 600, fontSize: 13,
+              background: theme.soft, color: theme.gold,
+              transition: 'all 0.15s',
+            }}
+          >
+            Configurar Custos
+          </button>
+        )}
       </div>
 
       {/* KPI Row 1 */}
@@ -859,6 +925,39 @@ export function DashboardPage() {
         <KpiCard label="Pipeline Aberto" value={fmtCurrency(data.pipelineAberto)} description="Orçamentos em aberto" />
       </div>
 
+      {/* KPI Row 3 — Rentabilidade (ADMIN/GESTOR, quando custos configurados) */}
+      {showPerformance && financials.hasCustos && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 24, opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+          <KpiCard
+            label="Lucro Bruto"
+            value={fmtCurrency(financials.lucroBruto)}
+            description={`Margem: ${fmtPct(financials.margemBruta)}`}
+            accent={financials.lucroBruto >= 0 ? '#43C17B' : '#E55B5B'}
+          />
+          <KpiCard
+            label="Lucro Operacional"
+            value={fmtCurrency(financials.lucroOperacional)}
+            description={`Margem: ${fmtPct(financials.margemOperacional)}`}
+            accent={financials.lucroOperacional >= 0 ? '#43C17B' : '#E55B5B'}
+          />
+          <KpiCard
+            label="Ponto de Equilíbrio"
+            value={fmtCurrency(financials.pontoEquilibrio)}
+            description="Receita mínima p/ cobrir custos fixos"
+          />
+          <KpiCard
+            label="Comissões"
+            value={fmtCurrency(data.totalComissao ?? 0)}
+            description="Total pago no período"
+          />
+          <KpiCard
+            label="Descontos"
+            value={fmtCurrency(data.totalDesconto ?? 0)}
+            description="Total concedido no período"
+          />
+        </div>
+      )}
+
       {/* Charts Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(300px, 1fr))', gap: 16, marginBottom: 24, opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
         <ChartClickable title="Evolução Mensal de Receita" onClick={() => setModal('evolucao')}>
@@ -873,6 +972,98 @@ export function DashboardPage() {
             : <EmptyChart message="Sem dados de receita" />}
         </ChartClickable>
       </div>
+
+      {/* ── Análise Financeira (ADMIN/GESTOR, quando custos configurados) ── */}
+      {showPerformance && financials.hasCustos && (<>
+        <SectionDivider label="Análise Financeira" />
+
+        {/* Charts: Receita vs Custos + Composição */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(300px, 1fr))', gap: 16, marginBottom: 24, opacity: loading ? 0.5 : 1 }}>
+          <ChartCard title="Receita vs Custos (Mensal)">
+            {data.evolucaoMensal.length > 0
+              ? <ReceitaCustosBarChart evolucao={data.evolucaoMensal} custoMensal={financials.custoMensalTotal} />
+              : <EmptyChart message="Sem dados no período" />}
+          </ChartCard>
+          <ChartCard title="Composição dos Custos">
+            <CustosDonutChart
+              cmv={financials.cmv}
+              folha={financials.folhaTotal}
+              operacional={financials.totalOperacional}
+              marketing={custosConfig.investimentoMarketing}
+            />
+          </ChartCard>
+        </div>
+
+        {/* DRE Simplificado */}
+        <div style={{
+          background: theme.panel, border: `1px solid ${theme.border}`,
+          borderRadius: 12, padding: 20, marginBottom: 24,
+          opacity: loading ? 0.5 : 1,
+        }}>
+          <h3 style={{ color: theme.gold, margin: '0 0 16px', fontSize: 14, fontWeight: 700 }}>
+            DRE Simplificado — Demonstrativo de Resultados
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {[
+              { label: '(+) Receita Equipamentos', valor: data.receitaEquipamentos, tipo: 'item' as const },
+              { label: '(+) Receita Instalação', valor: data.receitaInstalacao, tipo: 'item' as const },
+              { label: '(+) Monitoramento MRR', valor: data.mrrBase, tipo: 'item' as const },
+              { label: '(=) RECEITA TOTAL', valor: data.receitaTotal + data.mrrBase, tipo: 'total' as const },
+              { label: '(-) CMV', valor: financials.cmv, tipo: 'custo' as const },
+              { label: '(=) LUCRO BRUTO', valor: financials.lucroBruto + data.mrrBase, tipo: 'total' as const },
+              { label: '(-) Folha Salarial', valor: financials.folhaTotal, tipo: 'custo' as const },
+              { label: '(-) Custos Operacionais', valor: financials.totalOperacional, tipo: 'custo' as const },
+              { label: '(-) Marketing', valor: custosConfig.investimentoMarketing, tipo: 'custo' as const },
+              { label: '(-) Comissões', valor: data.totalComissao ?? 0, tipo: 'custo' as const },
+              { label: '(-) Descontos', valor: data.totalDesconto ?? 0, tipo: 'custo' as const },
+              { label: '(=) LUCRO OPERACIONAL', valor: financials.lucroOperacional + data.mrrBase, tipo: 'resultado' as const },
+            ].map((row, i) => {
+              const isTotal = row.tipo === 'total' || row.tipo === 'resultado';
+              const color = row.tipo === 'resultado'
+                ? (row.valor >= 0 ? '#43C17B' : '#E55B5B')
+                : row.tipo === 'total' ? theme.gold
+                : row.tipo === 'custo' ? '#E55B5B'
+                : theme.text;
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    borderTop: isTotal ? `1px solid ${theme.border}` : 'none',
+                    background: isTotal ? 'rgba(200,169,81,0.06)' : 'transparent',
+                    fontWeight: isTotal ? 700 : 400,
+                    fontSize: isTotal ? 14 : 13,
+                  }}
+                >
+                  <span style={{ color: isTotal ? theme.text : theme.muted }}>{row.label}</span>
+                  <span style={{ color, fontWeight: 600, fontFamily: 'monospace' }}>
+                    {row.tipo === 'custo' ? '- ' : ''}{fmtCurrency(Math.abs(row.valor))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{
+            marginTop: 12, padding: '10px 12px',
+            background: theme.soft, borderRadius: 8,
+            display: 'flex', gap: 24, fontSize: 13,
+          }}>
+            <span style={{ color: theme.muted }}>
+              Margem Bruta: <strong style={{ color: theme.gold }}>{fmtPct(financials.margemBruta)}</strong>
+            </span>
+            <span style={{ color: theme.muted }}>
+              Margem Operacional:{' '}
+              <strong style={{ color: financials.margemOperacional >= 0 ? '#43C17B' : '#E55B5B' }}>
+                {fmtPct(financials.margemOperacional)}
+              </strong>
+            </span>
+            <span style={{ color: theme.muted }}>
+              Ponto de Equilíbrio: <strong style={{ color: theme.text }}>{fmtCurrency(financials.pontoEquilibrio)}</strong>
+            </span>
+          </div>
+        </div>
+      </>)}
 
       {/* Vendor Performance */}
       {showPerformance && (
@@ -1307,6 +1498,14 @@ export function DashboardPage() {
         <ChartDetailModal title="Todos os Leads Recentes" onClose={() => setModal(null)}>
           <ShRecentesModalContent data={sheetsData.leadsRecentes} />
         </ChartDetailModal>
+      )}
+
+      {/* Custos Config Modal */}
+      {showCustosModal && (
+        <CustosConfigModal
+          onClose={() => setShowCustosModal(false)}
+          onSave={(c) => { setCustosConfig(c); setInvestimento(c.investimentoMarketing); }}
+        />
       )}
     </AppShell>
   );

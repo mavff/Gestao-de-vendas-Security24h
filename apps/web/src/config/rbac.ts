@@ -16,22 +16,31 @@ type RouteConfig = {
 const allRoles: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
 const publicPaths = ['/login'];
 
+/*
+  Sidebar order per role (chronological sales funnel):
+  ADMIN:     Dashboard → SDR → Pipeline → Propostas → Orçamentos → Kits → Equipamentos → Usuários
+  GESTOR:    Dashboard → Pipeline → Propostas → Orçamentos → Kits → SDR
+  VENDEDOR:  Pipeline → Propostas → Kits → Minhas Vendas
+  SDR:       SDR → Pipeline → Dashboard
+  TECNICO:   Propostas → Equipamentos
+  INFRA:     Pipeline → Equipamentos
+  MONITOR:   Dashboard
+*/
 const routes: RouteConfig[] = [
   { path: '/', roles: allRoles },
   { path: '/dashboard', roles: allRoles, label: 'Dashboard', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'SDR', 'MONITOR'] },
+  { path: '/sdr', roles: ['ADMIN', 'GESTOR', 'SDR'], label: 'SDR Log', showInSidebar: true, sidebarRoles: ['ADMIN', 'SDR'] },
   { path: '/kanban', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'INFRA'], label: 'Pipeline', showInSidebar: true },
   { path: '/vendas', roles: ['ADMIN', 'GESTOR', 'VENDEDOR'], label: 'Minhas Vendas', showInSidebar: true, sidebarRoles: ['VENDEDOR'] },
   { path: '/venda', roles: ['ADMIN', 'GESTOR', 'VENDEDOR'] },
   { path: '/leads', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR'] },
   { path: '/solucoes', roles: ['ADMIN', 'GESTOR', 'VENDEDOR', 'TECNICO'], label: 'Propostas', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'VENDEDOR', 'TECNICO'] },
   { path: '/orcamentos', roles: ['ADMIN', 'GESTOR'], label: 'Orçamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR'] },
-  { path: '/instalacoes', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Ordens de Serviço', showInSidebar: true },
-  { path: '/equipamentos', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Equipamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'INFRA'] },
   { path: '/kits', roles: ['ADMIN', 'GESTOR', 'INFRA', 'VENDEDOR', 'SDR'], label: 'Kits & Modelos', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'VENDEDOR'] },
   { path: '/modelos', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR'] },
+  { path: '/comissoes', roles: ['ADMIN', 'GESTOR'], label: 'Comissoes', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR'] },
+  { path: '/equipamentos', roles: ['ADMIN', 'TECNICO', 'INFRA'], label: 'Equipamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'INFRA', 'TECNICO'] },
   { path: '/usuarios', roles: ['ADMIN', 'INFRA'], label: 'Usuários', showInSidebar: true },
-  { path: '/missoes', roles: allRoles, label: 'Missões', showInSidebar: true },
-  { path: '/sdr', roles: ['ADMIN', 'GESTOR', 'SDR'], label: 'SDR Log', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'SDR'] },
   { path: '/login', roles: allRoles },
 ];
 

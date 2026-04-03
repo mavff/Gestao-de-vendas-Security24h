@@ -56,15 +56,41 @@ e quais aparecem na sidebar. Funções exportadas:
 - `getNavForRole(role)` — itens da sidebar
 - `getFallbackRouteForRole(role)` — redirect padrão
 
+Ordem da sidebar (funil cronológico):
+- **ADMIN**: Dashboard → SDR → Pipeline → Propostas → Orçamentos → Comissões → Kits → Equipamentos → Usuários
+- **GESTOR**: Dashboard → Pipeline → Propostas → Orçamentos → Comissões → Kits → SDR
+- **VENDEDOR**: Pipeline → Propostas → Kits → Minhas Vendas
+- **SDR**: SDR → Pipeline → Dashboard
+- **TECNICO**: Propostas → Equipamentos
+- **INFRA**: Pipeline → Equipamentos
+- **MONITOR**: Dashboard
+
 ## Autenticação
 
 - Frontend: `apps/web/src/contexts/AuthContext.tsx`
 - Backend: `apps/backend/src/auth/auth.service.ts`
-- JWT com access token (15min) + refresh token (7d)
+- JWT com access token (15min) + refresh token (7d) + **auto-refresh transparente** no `apiClient`
 - Fluxo de login: 1) Admin master `.env` → 2) SQLite `app_users` (bcrypt) → 3) SQL Server `Senhas` (ERP)
 - Login master via env vars `ADMIN_FALLBACK_USER` / `ADMIN_FALLBACK_PASS` (funciona sem banco)
 - Roles resolvidos do banco: `Senhas.AcessoCompleto` → GESTOR, `Clientes.Tipo` → V/Z/U
 - localStorage keys: `sec24h_token`, `sec24h_refresh`, `sec24h_user`
+- Auto-refresh: `apiClient` intercepta 401, renova token via `/auth/refresh` e repete a request
+- Todas as chamadas API devem usar `apiClient` (não `fetch` direto) para garantir auth + refresh
+
+### Usuários de teste (seed do .env → SQLite)
+
+| Usuário | Senha | Nome | Role |
+|---------|-------|------|------|
+| `admin` | `admin123` | Administrador | ADMIN |
+| `ana.gestora` | `test123` | Ana Silva | GESTOR |
+| `carlos.sdr` | `test123` | Carlos Oliveira | SDR |
+| `julia.vendas` | `test123` | Julia Santos | VENDEDOR |
+| `pedro.tecnico` | `test123` | Pedro Lima | TECNICO |
+| `lucas.infra` | `test123` | Lucas Ferreira | INFRA |
+| `maria.monitor` | `test123` | Maria Costa | MONITOR |
+
+Acesso master: definido em `ADMIN_FALLBACK_USER` / `ADMIN_FALLBACK_PASS` no `.env`
+Usuários do ERP: login com senha do sistema ERP (tabela `Senhas` do SQL Server), role auto-resolvido
 
 ## SQLite — Dados do App
 
@@ -104,6 +130,114 @@ Conexão nomeada `'sqlite'` no TypeORM.
 | `crm_pipeline_stages`    | `Record<id, StageId>`   | Posição dos leads no kanban       |
 | `crm_pipeline_dismissed` | `Record<id, motivo>`    | Leads descartados + motivo        |
 | `crm_pipeline_lost`      | `string[]`              | IDs de leads marcados como perdidos|
+| `config:monitoramento`   | `MonitoramentoConfig`   | Faixas de preço monitoramento (admin) |
+| `config:precos_custo`    | `Record<id, number>`    | Preço de custo por equipamento (admin)|
+| `config:comissoes`       | `ComissaoConfig`        | Regras de comissão (prazo, qtd mensalidades, multiplicador adesão) |
+| `comissoes:overrides`    | `Record<id, ComissaoOverride>` | Override individual de status/pagamento por cliente |
+| `comissoes:vendedores_ativos` | `string[]`         | Lista de vendedores ativos selecionados pelo admin |
+
+## Propostas — `/solucoes`
+
+Fluxo simplificado para o vendedor criar propostas técnicas rapidamente.
+
+### Fluxo
+1. **Cadastro rápido do lead**: nome, telefone, endereço, tipo de local (auto-fill via pipeline `?leadId=`)
+2. **Escolha de marca → kit base**: pills de marca com contagem de kits, grid filtrado por marca selecionada
+3. **Personalização**: adicionar/remover equipamentos por bloco (sensor, câmera, etc.)
+4. **Modalidade**: toggle Venda vs Comodato com comparativo lado a lado
+5. **Gerar PDF**: proposta profissional dark com waves SVG, identidade Security24h
+
+### Status da proposta
+- `rascunho` → vendedor edita livremente
+- `enviada` → aguardando aprovação (ADMIN/GESTOR)
+- `aprovada` → OS criada automaticamente
+- **Cancelar aprovação**: ADMIN/GESTOR pode reverter `aprovada` → `enviada`, removendo a OS vinculada
+
+### Dados de referência (READ-ONLY do SQL Server)
+- Pré-orçamentos: `GET /pre-orcamentos` — 7 modelos (LINHA SEM FIO, KIT SMART, etc.)
+- Equipamentos: `GET /products` — 409 produtos com preço de venda
+- Prospects: `GET /prospects` — leads existentes para vincular
+
+### Dados do app (AppKv — SQLite)
+- `config:monitoramento` — faixas de preço por tamanho do local (admin configura)
+  - Cada faixa: `{ nome, base, minimo }` (ex: Residencial base=170, min=150)
+  - Mão de obra por faixa (ex: Residencial=250, Comercial Grande=900)
+  - Vendedor ajusta monitoramento via slider entre mínimo e base
+- `config:precos_custo` — preço de custo por equipmentId (admin configura)
+  - Fallback: usa preço do BD (`Equipment.price`) quando não cadastrado
+
+### Dados locais (localStorage)
+- `mock_propostas_v2` — lista de propostas criadas (`PropostaLocal[]`)
+- Migração automática de `mock_solucoes` (formato antigo) para v2
+
+### Cálculos
+- **Venda**: subtotal equipamentos (preço venda × qtd) + mão de obra + acréscimo instalação + CREA
+- **Comodato**: parcela = subtotalCusto ÷ prazo (24/36/48m) + monitoramento mensal
+- **Taxa de Adesão**: 1ª mensalidade × `ComissaoConfig.multiplicadorAdesao` (1.25 ou 1.5, admin configura)
+- **Comparativo**: custo total = taxa adesão + mensalidade × (prazo − 1) vs Compra: total + monitoramento × prazo
+- **Merged equipments**: produtos de kits com `grupoOrcamento` vazio não aparecem em `/products`; o frontend cria entradas sintéticas (`mergedEquipments`) a partir dos dados do kit para que sejam exibidos corretamente
+
+### Fluxo Pipeline → Proposta (integração)
+- **Pipeline** (`/kanban`): botão "Criar Proposta" no card (hover) e painel lateral do lead
+- Botão navega para `/solucoes?leadId=X&nome=X&tel=X&endereco=X&empresa=X&tipoLocal=X`
+- **SolucoesPage** lê `searchParams` e auto-abre editor com dados do lead preenchidos
+- Botão "Agendar Visita" no painel lateral move lead para etapa "Visita / Reunião"
+
+### Seleção de Kit por Marca
+- Seção 2 do editor: vendedor escolhe marca primeiro (pills com contagem de kits)
+- Kits filtrados pela marca selecionada aparecem em grid de cards
+- Kits de outras marcas ficam em `<details>` colapsável
+- Ao clicar, carrega os itens do kit na proposta
+
+### PDF de Proposta
+- Componente: `apps/web/src/components/proposal/PropostaPDF.tsx`
+- Função `openPropostaPDF(data)` abre nova aba com layout profissional para impressão
+- Identidade visual Security24h: logo, dourado (#C8A951), marca d'água, rodapé
+- Seções: cabeçalho, dados do cliente, tabela de equipamentos por bloco, investimento (compra + comodato)
+- Botão "Gerar PDF" disponível na lista de propostas e dentro do editor
+- Usa `window.print()` nativo (sem lib externa)
+
+### Componentes internos (em SolucoesPage.tsx)
+- `PropostaEditor` — editor single-page com 4 seções (cliente, marca/kit, equipamentos, modalidade)
+- `MonitoramentoConfigModal` — modal ADMIN para editar faixas de preço e mão de obra
+- `KitOption` — tipo unificado para modelos DB + kits locais
+
+## Comissões — `/comissoes`
+
+Gestão de comissões de vendedores sobre vendas em comodato (monitoramento).
+Acesso: ADMIN, GESTOR.
+
+### Regras de Negócio
+- **Comissão** = N mensalidades do monitoramento (2 ou 3, configurável pelo admin)
+- **Taxa de adesão** = 1ª mensalidade × multiplicador (1.25 ou 1.5, configurável)
+- **Prazo mínimo** = 12 meses de retenção do cliente para liberar comissão
+- Vendedores com taxa de retenção < 50% perdem comissão em futuras vendas
+- Admin seleciona vendedores ativos (nem todos os usuários do ERP são vendedores)
+
+### Configuração (AppKv)
+- `config:comissoes` → `ComissaoConfig { prazoMinimoMeses, qtdMensalidadesComissao, multiplicadorAdesao }`
+- `comissoes:vendedores_ativos` → `string[]` (lista de usuários selecionados)
+- `comissoes:overrides` → `Record<codInterno, ComissaoOverride>` (override de status/pagamento)
+- Default: `{ prazoMinimoMeses: 12, qtdMensalidadesComissao: 2, multiplicadorAdesao: 1.25 }`
+
+### Backend
+- Módulo: `apps/backend/src/comissoes/` (repository + controller + module)
+- Raw SQL contra SQL Server (Prisma column names com acentos: `[NumOrçamento]`, `[Comissão]`, `[CGCCPF]`)
+- `getOrcamentosComodato()`: orçamentos com modalidade L/C, status F/L/E
+- `getClientesAtivos()`: Clientes ativos com JOIN em Senhas (vendedor/técnico) e Orçamentos (monitoramento)
+- `getUsuariosDisponiveis()`: DISTINCT usuarios da tabela Senhas
+
+### Frontend (ComissoesPage.tsx)
+- **Tab 1 — Comissões por Vendedor**: vendedores filtrados, cards com clientes comodato, cálculo de comissão/retenção
+- **Tab 2 — Clientes Ativos**: lista completa com filtros (busca, vendedor, modalidade, faixa de valor, cidade, ordenação)
+- **ConfigModal**: admin define regras + seleciona vendedores ativos
+- **OverrideModal**: admin ajusta status/pagamento de cliente individual
+
+### Data Source
+- Interface: `IComissoesDataSource` em `interfaces.ts`
+- Tipos: `ComissaoConfig`, `ComissaoVendedor`, `ComissaoClienteInfo`, `ClienteAtivo`, `ComissoesVendedoresResult`, `ClientesAtivosResult`
+- API: `ApiComissoesDataSource` em `apiDataSource.ts`
+- Mock: `MockComissoesDataSource` em `mockDataSource.ts`
 
 ## Data Source (dual mode)
 
@@ -126,7 +260,7 @@ Abstração em `apps/web/src/lib/dataSource/`:
 | `/kanban`       | kanban/               | Pipeline CRM (7 etapas, drag-drop)  |
 | `/vendas`       | vendas/               | Lista de vendas do vendedor         |
 | `/venda/[id]`   | venda/                | Fluxo completo de venda (steps)     |
-| `/solucoes`     | solucoes/             | Soluções técnicas / propostas       |
+| `/solucoes`     | solucoes/             | Propostas simplificadas (vendedor)  |
 | `/orcamentos`   | orcamentos/           | Orçamentos: funil, abas status, faixa preço, materiais |
 | `/instalacoes`  | installations/        | Ordens de serviço                   |
 | `/equipamentos` | equipment/            | CRUD de equipamentos/produtos       |
@@ -134,6 +268,7 @@ Abstração em `apps/web/src/lib/dataSource/`:
 | `/usuarios`     | users/                | Gestão de usuários do app (SQLite)  |
 | `/missoes`      | missions/             | Board de missões/tarefas            |
 | `/sdr`          | sdr/                  | CRM Unificado (Painel, Leads, Por Fonte) |
+| `/comissoes`    | comissoes/            | Comissões vendedores + clientes ativos |
 | `/login`        | (AuthContext)         | Tela de login                       |
 
 Cada módulo vive em `apps/web/src/modules/<nome>/`.
@@ -158,12 +293,14 @@ Fonte de dados: CRM unificado (`GET /crm/leads`) — leads reais das planilhas G
 ### Funcionalidades
 
 - **Drag-drop** entre colunas (persiste no SQLite via `crm_pipeline_stages`)
+- **Criar Proposta** (quick action no card + painel lateral) → navega para `/solucoes?leadId=...` com dados preenchidos
+- **Agendar Visita** (painel lateral) → move lead para etapa "Visita / Reunião"
 - **Descartar lead** individual (motivo selecionável) ou em lote (por dias sem evolução)
 - **Marcar como perdido** — move para seção Perdidos colapsável
 - **Restaurar** — leads descartados/perdidos podem ser restaurados
 - **Filtros**: busca, origem, responsável, prioridade, período (7d a todo)
-- **Cards**: nome, empresa, telefone, score, prioridade, dias, origem, responsável
-- **Detalhe**: painel lateral com todas as infos + botões WhatsApp/Ligar
+- **Cards**: nome, empresa, telefone, score, prioridade, dias, origem, responsável + botão proposta
+- **Detalhe**: painel lateral com todas as infos + WhatsApp/Ligar + Criar Proposta + Agendar Visita
 - Acesso: ADMIN, GESTOR, SDR, VENDEDOR, INFRA
 - Permissão de ações: ADMIN, GESTOR, SDR, VENDEDOR
 
@@ -194,6 +331,9 @@ Fonte de dados: CRM unificado (`GET /crm/leads`) — leads reais das planilhas G
 | GET    | `/crm/leads`                  | Leads normalizados (10 fontes)   |
 | GET    | `/crm/stats`                  | KPIs agregados do CRM            |
 | GET    | `/crm/sources`                | Lista de fontes disponíveis      |
+| GET    | `/comissoes/vendedores`       | Orçamentos comodato agrupados por vendedor |
+| GET    | `/comissoes/usuarios-disponiveis` | Todos os usuários do SQL Server  |
+| GET    | `/comissoes/clientes-ativos`  | Clientes ativos com vendedor/técnico |
 
 ## Backend — Fail-soft
 

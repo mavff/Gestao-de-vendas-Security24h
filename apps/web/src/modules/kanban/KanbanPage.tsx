@@ -2,6 +2,7 @@
 
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
@@ -74,6 +75,7 @@ type LeadWithStage = CrmLead & { _stage: StageId };
 export function KanbanPage() {
   const { role } = useAuth();
   const { showToast } = useToast();
+  const router = useRouter();
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -327,6 +329,16 @@ export function KanbanPage() {
                 onDismiss={(id) => dismissLead(id, 'Descartado manualmente')}
                 onMarkLost={markAsLost}
                 onBulkDismiss={(days) => setConfirmBulk({ stageId: stage.id, days })}
+                onCriarProposta={canManage ? (lead) => {
+                  const params = new URLSearchParams();
+                  params.set('leadId', lead.id);
+                  params.set('nome', lead.nome);
+                  if (lead.telefone) params.set('tel', lead.telefone);
+                  if (lead.endereco) params.set('endereco', lead.endereco);
+                  if (lead.empresa) params.set('empresa', lead.empresa);
+                  if (lead.tipoLocal) params.set('tipoLocal', lead.tipoLocal);
+                  router.push(`/solucoes?${params.toString()}`);
+                } : undefined}
               />
             );
           })}
@@ -397,6 +409,23 @@ export function KanbanPage() {
           onRestore={() => { restoreLead(selectedLead.id); setSelectedLead(null); }}
           isDismissed={!!dismissed[selectedLead.id]}
           isLost={selectedLead.statusNorm === 'Perdido' || lostOverrides.has(selectedLead.id)}
+          onCriarProposta={canManage ? () => {
+            const params = new URLSearchParams();
+            params.set('leadId', selectedLead.id);
+            params.set('nome', selectedLead.nome);
+            if (selectedLead.telefone) params.set('tel', selectedLead.telefone);
+            if (selectedLead.endereco) params.set('endereco', selectedLead.endereco);
+            if (selectedLead.empresa) params.set('empresa', selectedLead.empresa);
+            if (selectedLead.tipoLocal) params.set('tipoLocal', selectedLead.tipoLocal);
+            router.push(`/solucoes?${params.toString()}`);
+          } : undefined}
+          onAgendarVisita={canManage ? () => {
+            const updated = { ...stageOverrides, [selectedLead.id]: 'visita' as StageId };
+            setStageOverrides(updated);
+            saveState(STAGE_OVERRIDES_KEY, updated);
+            setSelectedLead(null);
+            showToast('Lead movido para "Visita / Reunião".', 'success');
+          } : undefined}
         />
       )}
     </AppShell>
@@ -405,7 +434,7 @@ export function KanbanPage() {
 
 // ── Stage Column ────────────────────────────────────────────────────────────
 
-function StageColumn({ stage, leads, canDrag, canManage, onClickLead, onDismiss, onMarkLost, onBulkDismiss }: {
+function StageColumn({ stage, leads, canDrag, canManage, onClickLead, onDismiss, onMarkLost, onBulkDismiss, onCriarProposta }: {
   stage: typeof PIPELINE_STAGES[number];
   leads: LeadWithStage[];
   canDrag: boolean;
@@ -414,6 +443,7 @@ function StageColumn({ stage, leads, canDrag, canManage, onClickLead, onDismiss,
   onDismiss: (id: string) => void;
   onMarkLost: (id: string) => void;
   onBulkDismiss: (days: number) => void;
+  onCriarProposta?: (lead: CrmLead) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   const [showMenu, setShowMenu] = useState(false);
@@ -471,6 +501,7 @@ function StageColumn({ stage, leads, canDrag, canManage, onClickLead, onDismiss,
             canManage={canManage}
             onDismiss={() => onDismiss(lead.id)}
             onMarkLost={() => onMarkLost(lead.id)}
+            onCriarProposta={onCriarProposta ? () => onCriarProposta(lead) : undefined}
           />
         ))}
       </div>
@@ -486,7 +517,7 @@ function StageColumn({ stage, leads, canDrag, canManage, onClickLead, onDismiss,
 
 // ── Draggable Card ──────────────────────────────────────────────────────────
 
-function DraggableCard({ lead, onClick, disabled, stageColor, canManage, onDismiss, onMarkLost }: {
+function DraggableCard({ lead, onClick, disabled, stageColor, canManage, onDismiss, onMarkLost, onCriarProposta }: {
   lead: CrmLead;
   onClick: () => void;
   disabled?: boolean;
@@ -494,6 +525,7 @@ function DraggableCard({ lead, onClick, disabled, stageColor, canManage, onDismi
   canManage: boolean;
   onDismiss: () => void;
   onMarkLost: () => void;
+  onCriarProposta?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id, disabled });
   const [hover, setHover] = useState(false);
@@ -523,21 +555,32 @@ function DraggableCard({ lead, onClick, disabled, stageColor, canManage, onDismi
       }}
     >
       {/* Quick actions on hover */}
-      {hover && canManage && !isDragging && (
+      {hover && !isDragging && (
         <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 2, zIndex: 5 }}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <button
-            onClick={(e) => { e.stopPropagation(); onMarkLost(); }}
-            title="Marcar como perdido"
-            style={quickActionBtn}
-          >✕</button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
-            title="Descartar"
-            style={{ ...quickActionBtn, color: theme.muted }}
-          >🗑</button>
+          {onCriarProposta && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCriarProposta(); }}
+              title="Criar Proposta"
+              style={{ ...quickActionBtn, color: theme.gold, borderColor: theme.gold + '66', fontSize: 10, fontWeight: 600, padding: '1px 6px' }}
+            >$</button>
+          )}
+          {canManage && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onMarkLost(); }}
+                title="Marcar como perdido"
+                style={quickActionBtn}
+              >✕</button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+                title="Descartar"
+                style={{ ...quickActionBtn, color: theme.muted }}
+              >🗑</button>
+            </>
+          )}
         </div>
       )}
 
@@ -629,7 +672,7 @@ function DismissedCard({ lead, motivo, onClick, onRestore }: { lead: CrmLead; mo
 
 // ── Lead Detail Panel ───────────────────────────────────────────────────────
 
-function LeadDetailPanel({ lead, onClose, canManage, onDismiss, onMarkLost, onRestore, isDismissed, isLost }: {
+function LeadDetailPanel({ lead, onClose, canManage, onDismiss, onMarkLost, onRestore, isDismissed, isLost, onCriarProposta, onAgendarVisita }: {
   lead: CrmLead;
   onClose: () => void;
   canManage: boolean;
@@ -638,6 +681,8 @@ function LeadDetailPanel({ lead, onClose, canManage, onDismiss, onMarkLost, onRe
   onRestore: () => void;
   isDismissed: boolean;
   isLost: boolean;
+  onCriarProposta?: () => void;
+  onAgendarVisita?: () => void;
 }) {
   const prio = prioridadeLabel(lead.prioridade);
   const dias = diasDesdeEntrada(lead.dataEntrada);
@@ -723,6 +768,22 @@ function LeadDetailPanel({ lead, onClose, canManage, onDismiss, onMarkLost, onRe
             style={{ ...btnStyle, background: '#25D366', textDecoration: 'none', textAlign: 'center', flex: 1 }}>WhatsApp</a>
           <a href={`tel:${lead.telefone.replace(/\D/g, '')}`}
             style={{ ...btnStyle, background: theme.soft, color: theme.text, border: `1px solid ${theme.border}`, textDecoration: 'none', textAlign: 'center', flex: 1 }}>Ligar</a>
+        </div>
+      )}
+
+      {/* Quick actions — Proposta & Visita */}
+      {canManage && !isDismissed && !isLost && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          {onCriarProposta && (
+            <button onClick={onCriarProposta} style={{ ...btnStyle, background: theme.gold, flex: 1 }}>
+              Criar Proposta
+            </button>
+          )}
+          {onAgendarVisita && (
+            <button onClick={onAgendarVisita} style={{ ...btnStyle, background: '#5B9BD5', flex: 1 }}>
+              Agendar Visita
+            </button>
+          )}
         </div>
       )}
 
