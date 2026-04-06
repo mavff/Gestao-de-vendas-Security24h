@@ -239,9 +239,34 @@ Acesso: ADMIN, GESTOR.
 - API: `ApiComissoesDataSource` em `apiDataSource.ts`
 - Mock: `MockComissoesDataSource` em `mockDataSource.ts`
 
-## Retenção de Clientes — Dashboard `/dashboard` (tab Financeiro)
+## Dashboard — `/dashboard` (5 abas)
 
-Análise de churn e retenção da base de clientes. A Security24h tem alto fluxo (~+80 novos, ~-60 saídas/ano).
+O dashboard é organizado em 5 tabs com foco separado:
+
+| Tab | Foco | Conteúdo principal |
+|-----|------|--------------------|
+| **Financeiro** | Receita e custos | KPIs receita, evolução mensal, mix receita, DRE, custos operacionais |
+| **Operacional** | Performance humana | Vendedor, Técnico, OS instalação/manutenção |
+| **Retenção** | Churn detalhado | Análise completa de entrada/saída de clientes, segmentado por modalidade |
+| **CRM** | Pipeline e leads | Funil, leads por origem, conversão, fechamentos |
+| **Prospecção** | Sheets + Marketing | Prospecção ativa (WhatsApp/IG/Visitas) + ROI tráfego pago |
+
+### Tab pattern
+- Tipo: `DashTab = 'financeiro' | 'operacional' | 'retencao' | 'crm' | 'prospeccao'`
+- Cada tab renderiza condicionalmente: `{dashTab === 'x' && (<>...</>)}`
+- Financeiro e Operacional compartilham o mesmo filtro de período (preset state)
+- Retenção usa o mesmo filtro mas carrega dados via `getRetencao()` separado
+
+## Retenção de Clientes — Tab Retenção
+
+Análise de churn e retenção da base de clientes, **segmentada por modalidade**.
+A Security24h tem alto fluxo (~+80 novos, ~-60 saídas/ano).
+
+### Modalidades de Cliente
+- **L/C** → Monitoramento (Comodato) — cliente paga mensalidade de monitoramento
+- **V** → Venda — cliente comprou equipamento (sem recorrência)
+- **R** → Rastreamento — cliente paga mensalidade de rastreamento
+- Backend merge L e C em "Monitoramento" via `modCode()` helper
 
 ### Lógica de Negócio
 - **Cliente ativo** = `Clientes.Cancelamento IS NULL AND Clientes.ValorNF > 0`
@@ -252,25 +277,55 @@ Análise de churn e retenção da base de clientes. A Security24h tem alto fluxo
 ### Backend
 - Método: `DashboardRepository.getRetencao(dataInicio?, dataFim?)`
 - Endpoint: `GET /dashboard/retencao?dataInicio=YYYY-MM-DD&dataFim=YYYY-MM-DD`
-- 7 queries SQL em paralelo contra tabela `Clientes`:
-  - Snapshot base ativa (total + MRR)
-  - Novos no período (+ MRR ganho)
-  - Cancelados no período (+ MRR perdido + tempo médio permanência)
-  - Evolução mensal novos vs cancelados (últimos 12 meses)
-  - Churn por modalidade (Venda/Comodato/Rastreamento)
-  - Permanência por faixa (0-6m, 6-12m, 1-2a, 2+a)
+- 7 queries SQL em paralelo contra tabela `Clientes`, **todas agrupadas por `Modalidade`**:
+  1. Ativos por modalidade (total + MRR)
+  2. Novos por modalidade no período (+ MRR ganho)
+  3. Cancelados por modalidade no período (+ MRR perdido + tempo médio)
+  4. Evolução mensal novos por modalidade (últimos 12 meses)
+  5. Evolução mensal cancelados por modalidade (últimos 12 meses)
+  6. Permanência por faixa por modalidade (0-6m, 6-12m, 1-2a, 2+a)
+  7. Churn por vendedor (JOIN `Senhas` para nome do vendedor)
+- `MOD_LABELS` map: `{ V: 'Venda', L: 'Monitoramento', R: 'Rastreamento', C: 'Monitoramento' }`
 
-### Frontend
-- Tipo: `RetencaoDashboard` em `types.ts`
-- Interface: `IDashboardDataSource.getRetencao()`
-- Gráficos SVG: `RetencaoMensalChart` (barras +/- com linha de saldo) + `RetencaoDonutChart` (churn por modalidade)
-- Seção na tab Financeiro com 6 KPI cards, 2 gráficos, barras de permanência, modal de detalhe
-- Usa mesmo filtro de período do financeiro (7d/30d/90d/ano/custom)
+### Tipos (Frontend)
+```typescript
+type RetencaoModalidade = {
+  modalidade: string; codigo: string;
+  ativos: number; mrrAtivos: number;
+  novos: number; mrrNovos: number;
+  cancelados: number; mrrPerdido: number;
+  tempoMedio: number; churnRate: number;
+};
+
+type RetencaoDashboard = {
+  totalAtivos: number; mrrAtual: number;
+  novosNoPeriodo: number; canceladosNoPeriodo: number;
+  mrrPerdido: number; mrrNovos: number;
+  taxaRetencao: number; churnRate: number;
+  tempoMedioPermanencia: number; saldoLiquido: number; mrrLiquido: number;
+  porModalidade: RetencaoModalidade[];
+  evolucaoMensal: { mes; novos; cancelados; saldo; porModalidade: { modalidade; novos; cancelados }[] }[];
+  permanenciaPorFaixa: { faixa; total; porModalidade: { modalidade; total }[] }[];
+  churnPorVendedor: { vendedor; cancelados; mrrPerdido }[];
+};
+```
+
+### Frontend — Conteúdo da Tab Retenção (5 seções)
+1. **Visão Geral**: 8 KPI cards (Base Ativa, Novos, Cancelados, Saldo, Taxa Retenção, Churn Rate, Tempo Médio, MRR Líquido)
+2. **Segmentação por Modalidade**: Cards por tipo (Monitoramento/Venda/Rastreamento) com ativos, novos, cancelados, churn rate, MRR
+3. **Evolução Mensal**: Gráfico SVG barras +/- (`RetencaoMensalChart`) + tabela detalhada com breakdown por modalidade
+4. **Análise de Churn Detalhada**: Donut churn por modalidade (`RetencaoDonutChart`) + barras de permanência por faixa (empilhadas por modalidade) + tabela churn por vendedor
+5. **Insights Automáticos**: Pior/melhor modalidade, churn precoce (0-6m), vendedor com mais churn, saldo líquido
+
+### Gráficos SVG
+- `RetencaoMensalChart` — barras verdes (novos) para cima, vermelhas (cancelados) para baixo, linha dourada (saldo)
+- `RetencaoDonutChart` — donut com slices por modalidade, legenda lateral com barras e percentuais
 
 ### Métricas
 - Taxa de Retenção: `ativos / (ativos + cancelados no período) × 100`
 - Churn Rate: `cancelados / (ativos + cancelados) × 100`
 - Saldo Líquido: `novos - cancelados`
+- MRR Líquido: `mrrNovos - mrrPerdido`
 - Tempo Médio de Permanência: `AVG(DATEDIFF(month, DataCadastro, Cancelamento))`
 
 ## Data Source (dual mode)
@@ -290,7 +345,7 @@ Abstração em `apps/web/src/lib/dataSource/`:
 
 | Rota            | Módulo                | Descrição                           |
 | --------------- | --------------------- | ----------------------------------- |
-| `/dashboard`    | dashboard/            | KPIs, gráficos SVG, financeiro, retenção |
+| `/dashboard`    | dashboard/            | 5 tabs: Financeiro, Operacional, Retenção, CRM, Prospecção |
 | `/kanban`       | kanban/               | Pipeline CRM (7 etapas, drag-drop)  |
 | `/vendas`       | vendas/               | Lista de vendas do vendedor         |
 | `/venda/[id]`   | venda/                | Fluxo completo de venda (steps)     |

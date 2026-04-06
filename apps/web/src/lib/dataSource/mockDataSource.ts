@@ -144,6 +144,11 @@ class MockDashboardDataSource implements IDashboardDataSource {
   }
 
   async getRetencao(): Promise<RetencaoDashboard> {
+    const pm = [
+      { modalidade: 'Monitoramento', novos: 5, cancelados: 3 },
+      { modalidade: 'Venda', novos: 2, cancelados: 1 },
+      { modalidade: 'Rastreamento', novos: 1, cancelados: 1 },
+    ];
     return {
       totalAtivos: 320,
       mrrAtual: 54400,
@@ -155,30 +160,38 @@ class MockDashboardDataSource implements IDashboardDataSource {
       churnRate: 4.5,
       tempoMedioPermanencia: 18,
       saldoLiquido: 7,
-      evolucaoMensal: [
-        { mes: 'Mai/25', novos: 8, cancelados: 5, saldo: 3 },
-        { mes: 'Jun/25', novos: 6, cancelados: 4, saldo: 2 },
-        { mes: 'Jul/25', novos: 9, cancelados: 7, saldo: 2 },
-        { mes: 'Ago/25', novos: 7, cancelados: 6, saldo: 1 },
-        { mes: 'Set/25', novos: 5, cancelados: 3, saldo: 2 },
-        { mes: 'Out/25', novos: 8, cancelados: 5, saldo: 3 },
-        { mes: 'Nov/25', novos: 6, cancelados: 4, saldo: 2 },
-        { mes: 'Dez/25', novos: 4, cancelados: 6, saldo: -2 },
-        { mes: 'Jan/26', novos: 7, cancelados: 5, saldo: 2 },
-        { mes: 'Fev/26', novos: 8, cancelados: 4, saldo: 4 },
-        { mes: 'Mar/26', novos: 6, cancelados: 5, saldo: 1 },
-        { mes: 'Abr/26', novos: 7, cancelados: 6, saldo: 1 },
+      mrrLiquido: 1190,
+      porModalidade: [
+        { modalidade: 'Monitoramento', codigo: 'L', ativos: 240, mrrAtivos: 40800, novos: 16, mrrNovos: 2720, cancelados: 10, mrrPerdido: 1700, tempoMedio: 16, churnRate: 4.0 },
+        { modalidade: 'Venda', codigo: 'V', ativos: 60, mrrAtivos: 10200, novos: 4, mrrNovos: 680, cancelados: 3, mrrPerdido: 510, tempoMedio: 22, churnRate: 4.8 },
+        { modalidade: 'Rastreamento', codigo: 'R', ativos: 20, mrrAtivos: 3400, novos: 2, mrrNovos: 340, cancelados: 2, mrrPerdido: 340, tempoMedio: 12, churnRate: 9.1 },
       ],
-      churnPorModalidade: [
-        { modalidade: 'Comodato', total: 38 },
-        { modalidade: 'Venda', total: 18 },
-        { modalidade: 'Rastreamento', total: 4 },
+      evolucaoMensal: [
+        { mes: 'Mai/25', novos: 8, cancelados: 5, saldo: 3, porModalidade: pm },
+        { mes: 'Jun/25', novos: 6, cancelados: 4, saldo: 2, porModalidade: pm },
+        { mes: 'Jul/25', novos: 9, cancelados: 7, saldo: 2, porModalidade: pm },
+        { mes: 'Ago/25', novos: 7, cancelados: 6, saldo: 1, porModalidade: pm },
+        { mes: 'Set/25', novos: 5, cancelados: 3, saldo: 2, porModalidade: pm },
+        { mes: 'Out/25', novos: 8, cancelados: 5, saldo: 3, porModalidade: pm },
+        { mes: 'Nov/25', novos: 6, cancelados: 4, saldo: 2, porModalidade: pm },
+        { mes: 'Dez/25', novos: 4, cancelados: 6, saldo: -2, porModalidade: pm },
+        { mes: 'Jan/26', novos: 7, cancelados: 5, saldo: 2, porModalidade: pm },
+        { mes: 'Fev/26', novos: 8, cancelados: 4, saldo: 4, porModalidade: pm },
+        { mes: 'Mar/26', novos: 6, cancelados: 5, saldo: 1, porModalidade: pm },
+        { mes: 'Abr/26', novos: 7, cancelados: 6, saldo: 1, porModalidade: pm },
       ],
       permanenciaPorFaixa: [
-        { faixa: '0-6 meses', total: 12 },
-        { faixa: '6-12 meses', total: 18 },
-        { faixa: '1-2 anos', total: 15 },
-        { faixa: '2+ anos', total: 15 },
+        { faixa: '0-6 meses', total: 12, porModalidade: [{ modalidade: 'Monitoramento', total: 8 }, { modalidade: 'Venda', total: 2 }, { modalidade: 'Rastreamento', total: 2 }] },
+        { faixa: '6-12 meses', total: 18, porModalidade: [{ modalidade: 'Monitoramento', total: 12 }, { modalidade: 'Venda', total: 4 }, { modalidade: 'Rastreamento', total: 2 }] },
+        { faixa: '1-2 anos', total: 15, porModalidade: [{ modalidade: 'Monitoramento', total: 10 }, { modalidade: 'Venda', total: 4 }, { modalidade: 'Rastreamento', total: 1 }] },
+        { faixa: '2+ anos', total: 15, porModalidade: [{ modalidade: 'Monitoramento', total: 10 }, { modalidade: 'Venda', total: 5 }, { modalidade: 'Rastreamento', total: 0 }] },
+      ],
+      churnPorVendedor: [
+        { vendedor: 'Ana Silva', cancelados: 5, mrrPerdido: 850 },
+        { vendedor: 'Carlos Oliveira', cancelados: 4, mrrPerdido: 680 },
+        { vendedor: 'Julia Santos', cancelados: 3, mrrPerdido: 510 },
+        { vendedor: 'Pedro Lima', cancelados: 2, mrrPerdido: 340 },
+        { vendedor: 'Lucas Ferreira', cancelados: 1, mrrPerdido: 170 },
       ],
     };
   }

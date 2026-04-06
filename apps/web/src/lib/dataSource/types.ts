@@ -180,6 +180,19 @@ export type FinanceiroDashboard = {
   totalDesconto?: number;
 };
 
+export type RetencaoModalidade = {
+  modalidade: string;
+  codigo: string;
+  ativos: number;
+  mrrAtivos: number;
+  novos: number;
+  mrrNovos: number;
+  cancelados: number;
+  mrrPerdido: number;
+  tempoMedio: number;
+  churnRate: number;
+};
+
 export type RetencaoDashboard = {
   totalAtivos: number;
   mrrAtual: number;
@@ -191,9 +204,11 @@ export type RetencaoDashboard = {
   churnRate: number;
   tempoMedioPermanencia: number;
   saldoLiquido: number;
-  evolucaoMensal: { mes: string; novos: number; cancelados: number; saldo: number }[];
-  churnPorModalidade: { modalidade: string; total: number }[];
-  permanenciaPorFaixa: { faixa: string; total: number }[];
+  mrrLiquido: number;
+  porModalidade: RetencaoModalidade[];
+  evolucaoMensal: { mes: string; novos: number; cancelados: number; saldo: number; porModalidade: { modalidade: string; novos: number; cancelados: number }[] }[];
+  permanenciaPorFaixa: { faixa: string; total: number; porModalidade: { modalidade: string; total: number }[] }[];
+  churnPorVendedor: { vendedor: string; cancelados: number; mrrPerdido: number }[];
 };
 
 export type CustoCategoriaOperacional = {

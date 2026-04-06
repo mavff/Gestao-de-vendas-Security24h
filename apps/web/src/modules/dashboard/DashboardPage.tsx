@@ -28,7 +28,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { loadState } from '../../services/appState';
 
 type FinanceiroPeriodPreset = '7d' | '30d' | '90d' | 'ano' | 'custom';
-type DashTab = 'financeiro' | 'crm' | 'prospeccao' | 'marketing';
+type DashTab = 'financeiro' | 'operacional' | 'retencao' | 'crm' | 'prospeccao';
 type ModalKey = 'evolucao' | 'mix' | 'vendedor' | 'operacoes' | 'funil' | 'leads' | 'fechamentos' | 'origens'
   | 'sh_funil' | 'sh_canal' | 'sh_mensal' | 'sh_status' | 'sh_recentes' | 'tecnico' | 'retencao' | null;
 
@@ -701,17 +701,34 @@ function RetencaoModalContent({ data }: { data: RetencaoDashboard }) {
         </div>
       )}
 
-      {data.churnPorModalidade.length > 0 && (
+      {data.porModalidade.length > 0 && (
         <div>
           <p style={{ margin: '0 0 10px', fontSize: 13, color: theme.muted, fontWeight: 600 }}>
             Churn por Modalidade
           </p>
           <DataTable
-            headers={['Modalidade', 'Cancelados', '% do Total']}
-            rows={data.churnPorModalidade.map((m) => [
+            headers={['Modalidade', 'Cancelados', 'MRR Perdido', 'Churn Rate']}
+            rows={data.porModalidade.map((m) => [
               m.modalidade,
-              String(m.total),
-              totalCancel > 0 ? fmtPct((m.total / totalCancel) * 100) : '0%',
+              String(m.cancelados),
+              fmtCurrency(m.mrrPerdido),
+              fmtPct(m.churnRate),
+            ])}
+          />
+        </div>
+      )}
+
+      {data.churnPorVendedor.length > 0 && (
+        <div>
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: theme.muted, fontWeight: 600 }}>
+            Churn por Vendedor
+          </p>
+          <DataTable
+            headers={['Vendedor', 'Cancelados', 'MRR Perdido']}
+            rows={data.churnPorVendedor.map((v) => [
+              v.vendedor,
+              String(v.cancelados),
+              fmtCurrency(v.mrrPerdido),
             ])}
           />
         </div>
@@ -942,8 +959,8 @@ export function DashboardPage() {
 
       {/* ─── Tab Navigation ─── */}
       <div style={{ display: 'flex', gap: 2, marginBottom: 24, borderBottom: `1px solid ${theme.border}` }}>
-        {(['financeiro', 'crm', 'prospeccao', 'marketing'] as DashTab[]).map((tab) => {
-          const labels: Record<DashTab, string> = { financeiro: 'Financeiro', crm: 'CRM', prospeccao: 'Prospecção', marketing: 'Marketing' };
+        {(['financeiro', 'operacional', 'retencao', 'crm', 'prospeccao'] as DashTab[]).map((tab) => {
+          const labels: Record<DashTab, string> = { financeiro: 'Financeiro', operacional: 'Operacional', retencao: 'Retenção', crm: 'CRM', prospeccao: 'Prospecção' };
           const active = dashTab === tab;
           return (
             <button
@@ -1173,9 +1190,59 @@ export function DashboardPage() {
         </div>
       </>)}
 
+      </>)}
+
+      {/* ─── Tab: Operacional ─── */}
+      {dashTab === 'operacional' && (<>
+
+      {/* Period filter (same as financeiro) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        <span style={{ color: theme.muted, fontSize: 13, fontWeight: 600 }}>Período:</span>
+        {PRESETS.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => setPreset(opt.key)}
+            style={{
+              padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontWeight: 600, fontSize: 13,
+              background: preset === opt.key ? theme.gold : theme.soft,
+              color: preset === opt.key ? '#0B0B0B' : theme.text,
+              transition: 'background 0.15s',
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+        {preset === 'custom' && (
+          <>
+            <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+              style={{ background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8, color: theme.text, padding: '5px 10px', fontSize: 13 }} />
+            <span style={{ color: theme.muted, fontSize: 13 }}>até</span>
+            <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+              style={{ background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8, color: theme.text, padding: '5px 10px', fontSize: 13 }} />
+          </>
+        )}
+      </div>
+
+      {/* Operations KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16, marginBottom: 24, opacity: loading ? 0.5 : 1 }}>
+        <KpiCard label="Instalações" value={String(data.osInstalacoes)} description="OS de instalação no período" accent="#43C17B" />
+        <KpiCard label="Manutenções" value={String(data.osManutencoes)} description="OS de manutenção no período" accent={theme.gold} />
+        <KpiCard label="Fechados" value={String(data.orcamentosFechados)} description="Contratos fechados" />
+        <KpiCard label="Ticket Médio" value={fmtCurrency(data.ticketMedio)} description="Por contrato fechado" />
+      </div>
+
+      {/* Operations Bars */}
+      <ChartClickable title="Operações no Período" onClick={() => setModal('operacoes')}>
+        <div style={{ padding: '8px 0', opacity: loading ? 0.5 : 1 }}>
+          <OperationBar label="Instalações realizadas" value={data.osInstalacoes} max={maxOs} color="#43C17B" />
+          <OperationBar label="Manutenções realizadas" value={data.osManutencoes} max={maxOs} color={theme.gold} />
+        </div>
+      </ChartClickable>
+
       {/* Vendor Performance */}
       {showPerformance && (
-        <div style={{ marginBottom: 24, opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+        <div style={{ marginBottom: 24, opacity: loading ? 0.5 : 1 }}>
           <SectionDivider label="Performance por Vendedor" />
           <ChartClickable title="Equipamentos + Instalação por Vendedor" onClick={() => setModal('vendedor')}>
             <VendedorPerformanceChart financeiro={data.porVendedor} />
@@ -1183,17 +1250,9 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Operations */}
-      <ChartClickable title="Operações no Período" onClick={() => setModal('operacoes')}>
-        <div style={{ padding: '8px 0', opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
-          <OperationBar label="Instalações realizadas" value={data.osInstalacoes} max={maxOs} color="#43C17B" />
-          <OperationBar label="Manutenções realizadas" value={data.osManutencoes} max={maxOs} color={theme.gold} />
-        </div>
-      </ChartClickable>
-
       {/* Técnico Performance */}
       {showPerformance && data.porTecnico.length > 0 && (
-        <div style={{ marginBottom: 24, opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+        <div style={{ marginBottom: 24, opacity: loading ? 0.5 : 1 }}>
           <SectionDivider label="Performance dos Técnicos" />
           <section
             onClick={() => setModal('tecnico')}
@@ -1217,122 +1276,296 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* ── Análise de Retenção de Clientes ── */}
-      <SectionDivider label="Análise de Retenção de Clientes" />
+      </>)}
 
-      {retLoading && !retencao ? (
-        <div style={{ padding: 40, textAlign: 'center', color: theme.muted, fontSize: 14 }}>Carregando dados de retenção...</div>
-      ) : retencao ? (<>
-        {/* Retention indicator */}
-        {!retIsReal && (
-          <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>Dados de demonstração</div>
+      {/* ─── Tab: Retenção ─── */}
+      {dashTab === 'retencao' && (<>
+
+      {/* Period filter */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        <span style={{ color: theme.muted, fontSize: 13, fontWeight: 600 }}>Período:</span>
+        {PRESETS.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => setPreset(opt.key)}
+            style={{
+              padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontWeight: 600, fontSize: 13,
+              background: preset === opt.key ? theme.gold : theme.soft,
+              color: preset === opt.key ? '#0B0B0B' : theme.text,
+              transition: 'background 0.15s',
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+        {preset === 'custom' && (
+          <>
+            <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+              style={{ background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8, color: theme.text, padding: '5px 10px', fontSize: 13 }} />
+            <span style={{ color: theme.muted, fontSize: 13 }}>até</span>
+            <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+              style={{ background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8, color: theme.text, padding: '5px 10px', fontSize: 13 }} />
+          </>
         )}
+        {!retIsReal && retencao && (
+          <span style={{ fontSize: 11, color: '#E55B5B', marginLeft: 8 }}>⚠ dados de demonstração</span>
+        )}
+      </div>
 
-        {/* KPI Row — Retenção */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 16, opacity: retLoading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
-          <KpiCard label="Clientes Ativos" value={String(retencao.totalAtivos)} description={`MRR: ${fmtCurrency(retencao.mrrAtual)}/mês`} />
-          <KpiCard label="Novos no Período" value={`+${retencao.novosNoPeriodo}`} description={`MRR ganho: ${fmtCurrency(retencao.mrrNovos)}/mês`} accent="#43C17B" />
-          <KpiCard label="Cancelados" value={`-${retencao.canceladosNoPeriodo}`} description={`MRR perdido: ${fmtCurrency(retencao.mrrPerdido)}/mês`} accent="#E55B5B" />
-          <KpiCard
-            label="Taxa de Retenção"
-            value={fmtPct(retencao.taxaRetencao)}
-            description={retencao.taxaRetencao >= 90 ? 'Saudável' : retencao.taxaRetencao >= 75 ? 'Atenção' : 'Crítico'}
-            accent={retencao.taxaRetencao >= 90 ? '#43C17B' : retencao.taxaRetencao >= 75 ? '#C8A951' : '#E55B5B'}
-          />
-          <KpiCard
-            label="Churn Rate"
-            value={fmtPct(retencao.churnRate)}
-            description="No período selecionado"
-            accent={retencao.churnRate <= 5 ? '#43C17B' : retencao.churnRate <= 10 ? '#C8A951' : '#E55B5B'}
-          />
-          <KpiCard
-            label="Saldo Líquido"
-            value={(retencao.saldoLiquido >= 0 ? '+' : '') + String(retencao.saldoLiquido)}
-            description={`Permanência média: ${retencao.tempoMedioPermanencia} meses`}
-            accent={retencao.saldoLiquido >= 0 ? '#43C17B' : '#E55B5B'}
-          />
+      {retLoading ? (
+        <div style={{ textAlign: 'center', padding: 60, color: theme.muted }}>Carregando dados de retenção...</div>
+      ) : !retencao ? (
+        <div style={{ textAlign: 'center', padding: 60, color: theme.muted }}>Sem dados de retenção disponíveis.</div>
+      ) : (<>
+
+      {/* ── Seção 1: KPIs Gerais ── */}
+      <SectionDivider label="Visão Geral" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 24 }}>
+        <KpiCard label="Base Ativa" value={String(retencao.totalAtivos)} description={`MRR: ${fmtCurrency(retencao.mrrAtual)}`} />
+        <KpiCard label="Novos no Período" value={`+${retencao.novosNoPeriodo}`} description={`MRR ganho: ${fmtCurrency(retencao.mrrNovos)}`} accent="#43C17B" />
+        <KpiCard label="Cancelados" value={`-${retencao.canceladosNoPeriodo}`} description={`MRR perdido: ${fmtCurrency(retencao.mrrPerdido)}`} accent="#E55B5B" />
+        <KpiCard label="Saldo Líquido" value={(retencao.saldoLiquido >= 0 ? '+' : '') + String(retencao.saldoLiquido)} description={retencao.saldoLiquido >= 0 ? 'Base crescendo' : 'Base encolhendo'} accent={retencao.saldoLiquido >= 0 ? '#43C17B' : '#E55B5B'} />
+        <KpiCard label="Taxa de Retenção" value={fmtPct(retencao.taxaRetencao)} description="Clientes mantidos" accent={retencao.taxaRetencao >= 90 ? '#43C17B' : retencao.taxaRetencao >= 80 ? theme.gold : '#E55B5B'} />
+        <KpiCard label="Churn Rate" value={fmtPct(retencao.churnRate)} description="Taxa de cancelamento" accent={retencao.churnRate <= 5 ? '#43C17B' : retencao.churnRate <= 10 ? theme.gold : '#E55B5B'} />
+        <KpiCard label="Tempo Médio" value={`${retencao.tempoMedioPermanencia}m`} description="Permanência (meses)" accent={theme.gold} />
+        <KpiCard label="MRR Líquido" value={(retencao.mrrLiquido >= 0 ? '+' : '') + fmtCurrency(retencao.mrrLiquido)} description="Ganho - Perdido" accent={retencao.mrrLiquido >= 0 ? '#43C17B' : '#E55B5B'} />
+      </div>
+
+      {/* ── Seção 2: Segmentação por Modalidade ── */}
+      {retencao.porModalidade.length > 0 && (<>
+        <SectionDivider label="Segmentação por Modalidade" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
+          {retencao.porModalidade.map((mod) => {
+            const modChurn = mod.ativos + mod.cancelados > 0 ? (mod.cancelados / (mod.ativos + mod.cancelados)) * 100 : 0;
+            return (
+              <div key={mod.codigo} style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <div style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: mod.codigo === 'L' ? '#5B9BD5' : mod.codigo === 'V' ? '#43C17B' : '#C077DB',
+                  }} />
+                  <h4 style={{ margin: 0, color: theme.text, fontSize: 14 }}>{mod.modalidade}</h4>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: theme.muted, background: theme.soft, padding: '2px 8px', borderRadius: 6 }}>{mod.codigo}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 11, color: theme.muted }}>Ativos</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: theme.text }}>{mod.ativos}</div>
+                    {mod.mrrAtivos > 0 && <div style={{ fontSize: 10, color: theme.muted }}>MRR: {fmtCurrency(mod.mrrAtivos)}</div>}
+                  </div>
+                  <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 11, color: theme.muted }}>Novos</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#43C17B' }}>+{mod.novos}</div>
+                    {mod.mrrNovos > 0 && <div style={{ fontSize: 10, color: theme.muted }}>MRR: {fmtCurrency(mod.mrrNovos)}</div>}
+                  </div>
+                  <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 11, color: theme.muted }}>Cancelados</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#E55B5B' }}>-{mod.cancelados}</div>
+                    {mod.mrrPerdido > 0 && <div style={{ fontSize: 10, color: theme.muted }}>MRR: {fmtCurrency(mod.mrrPerdido)}</div>}
+                  </div>
+                  <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 11, color: theme.muted }}>Churn Rate</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: modChurn <= 5 ? '#43C17B' : modChurn <= 10 ? theme.gold : '#E55B5B' }}>{fmtPct(mod.churnRate)}</div>
+                    {mod.tempoMedio > 0 && <div style={{ fontSize: 10, color: theme.muted }}>Tempo médio: {mod.tempoMedio}m</div>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
+      </>)}
 
-        {/* Charts — Evolução + Churn por Modalidade */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(300px, 1fr))', gap: 16, marginBottom: 24, opacity: retLoading ? 0.5 : 1 }}>
-          <ChartClickable title="Evolução Mensal — Novos vs Cancelados" onClick={() => setModal('retencao')}>
-            {retencao.evolucaoMensal.length > 0
-              ? <RetencaoMensalChart data={retencao.evolucaoMensal} />
-              : <EmptyChart message="Sem dados de evolução" />}
-          </ChartClickable>
+      {/* ── Seção 3: Evolução Mensal ── */}
+      {retencao.evolucaoMensal.length > 0 && (<>
+        <SectionDivider label="Evolução Mensal — Novos vs Cancelados" />
+        <ChartClickable title="Entradas e Saídas de Clientes" onClick={() => setModal('retencao')}>
+          <RetencaoMensalChart data={retencao.evolucaoMensal} />
+        </ChartClickable>
 
-          <ChartCard title="Churn por Modalidade">
-            {retencao.churnPorModalidade.length > 0
-              ? <RetencaoDonutChart data={retencao.churnPorModalidade} />
-              : <EmptyChart message="Sem dados de churn" />}
-          </ChartCard>
+        {/* Breakdown by modalidade per month */}
+        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 24 }}>
+          <h4 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Detalhamento Mensal por Modalidade</h4>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', color: theme.muted, borderBottom: `1px solid ${theme.border}` }}>Mês</th>
+                  {retencao.porModalidade.map((m) => (
+                    <th key={m.codigo + '_n'} style={{ textAlign: 'center', padding: '6px 4px', color: '#43C17B', borderBottom: `1px solid ${theme.border}`, fontSize: 11 }}>
+                      +{m.modalidade.slice(0, 5)}
+                    </th>
+                  ))}
+                  {retencao.porModalidade.map((m) => (
+                    <th key={m.codigo + '_c'} style={{ textAlign: 'center', padding: '6px 4px', color: '#E55B5B', borderBottom: `1px solid ${theme.border}`, fontSize: 11 }}>
+                      -{m.modalidade.slice(0, 5)}
+                    </th>
+                  ))}
+                  <th style={{ textAlign: 'center', padding: '6px 8px', color: theme.gold, borderBottom: `1px solid ${theme.border}` }}>Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {retencao.evolucaoMensal.map((mes) => (
+                  <tr key={mes.mes}>
+                    <td style={{ padding: '5px 8px', color: theme.text, borderBottom: `1px solid ${theme.border}22` }}>{mes.mes}</td>
+                    {retencao.porModalidade.map((m) => {
+                      const pm = mes.porModalidade?.find((p) => p.modalidade === m.modalidade);
+                      return <td key={m.codigo + '_n'} style={{ textAlign: 'center', padding: '5px 4px', color: '#43C17B', borderBottom: `1px solid ${theme.border}22` }}>{pm?.novos ?? 0}</td>;
+                    })}
+                    {retencao.porModalidade.map((m) => {
+                      const pm = mes.porModalidade?.find((p) => p.modalidade === m.modalidade);
+                      return <td key={m.codigo + '_c'} style={{ textAlign: 'center', padding: '5px 4px', color: '#E55B5B', borderBottom: `1px solid ${theme.border}22` }}>{pm?.cancelados ?? 0}</td>;
+                    })}
+                    <td style={{ textAlign: 'center', padding: '5px 8px', fontWeight: 700, color: mes.saldo >= 0 ? '#43C17B' : '#E55B5B', borderBottom: `1px solid ${theme.border}22` }}>
+                      {mes.saldo >= 0 ? '+' : ''}{mes.saldo}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>)}
+
+      {/* ── Seção 4: Churn Detalhado ── */}
+      <SectionDivider label="Análise de Churn Detalhada" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginBottom: 24 }}>
+        {/* Donut: churn por modalidade */}
+        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16 }}>
+          <h4 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Churn por Modalidade</h4>
+          <RetencaoDonutChart
+            data={retencao.porModalidade.filter((m) => m.cancelados > 0).map((m) => ({ modalidade: m.modalidade, total: m.cancelados }))}
+            label="CHURN"
+          />
         </div>
 
         {/* Permanência por Faixa */}
         {retencao.permanenciaPorFaixa.length > 0 && (
-          <div style={{
-            background: theme.panel, border: `1px solid ${theme.border}`,
-            borderRadius: 12, padding: 20, marginBottom: 24,
-            opacity: retLoading ? 0.5 : 1,
-          }}>
-            <h3 style={{ color: theme.gold, margin: '0 0 16px', fontSize: 14, fontWeight: 700 }}>
-              Tempo de Permanência dos Cancelados
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {retencao.permanenciaPorFaixa.map((f) => {
-                const maxFaixa = Math.max(...retencao.permanenciaPorFaixa.map((x) => x.total), 1);
-                const pct = (f.total / maxFaixa) * 100;
-                const isEarly = f.faixa.startsWith('0-6');
-                return (
-                  <div key={f.faixa}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
-                      <span style={{ color: theme.text }}>{f.faixa}</span>
-                      <span style={{ color: isEarly ? '#E55B5B' : theme.gold, fontWeight: 700 }}>
-                        {f.total} clientes
-                      </span>
-                    </div>
-                    <div style={{ height: 8, background: theme.soft, borderRadius: 4, overflow: 'hidden' }}>
-                      <div style={{
-                        height: '100%',
-                        width: `${pct}%`,
-                        background: isEarly ? '#E55B5B' : f.faixa.startsWith('6-12') ? '#FF9800' : '#43C17B',
-                        borderRadius: 4,
-                        transition: 'width 0.3s',
-                      }} />
-                    </div>
+          <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16 }}>
+            <h4 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Permanência dos Cancelados</h4>
+            {retencao.permanenciaPorFaixa.map((faixa) => {
+              const maxFaixa = Math.max(...retencao.permanenciaPorFaixa.map((f) => f.total), 1);
+              const pct = (faixa.total / maxFaixa) * 100;
+              return (
+                <div key={faixa.faixa} style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: theme.text, marginBottom: 4 }}>
+                    <span>{faixa.faixa}</span>
+                    <span style={{ fontWeight: 700 }}>{faixa.total}</span>
                   </div>
-                );
-              })}
-            </div>
-            <div style={{
-              marginTop: 14, padding: '10px 14px',
-              background: theme.soft, borderRadius: 8,
-              fontSize: 13, color: theme.muted, lineHeight: 1.7,
-            }}>
-              <strong style={{ color: theme.text }}>Insight:</strong>{' '}
-              {(() => {
-                const early = retencao.permanenciaPorFaixa.find((f) => f.faixa === '0-6 meses');
-                const totalCancel = retencao.permanenciaPorFaixa.reduce((s, f) => s + f.total, 0);
-                const earlyPct = early && totalCancel > 0 ? (early.total / totalCancel) * 100 : 0;
-                if (earlyPct > 30) {
-                  return <>
-                    <strong style={{ color: '#E55B5B' }}>{fmtPct(earlyPct)}</strong> dos cancelamentos acontecem nos primeiros 6 meses.
-                    Isso indica problemas no onboarding ou expectativas desalinhadas na venda.
-                  </>;
-                }
-                return <>
-                  A maioria dos cancelamentos acontece após 6 meses, indicando que o onboarding está funcionando.
-                  Foco em retenção de longo prazo e relacionamento.
-                </>;
-              })()}
-            </div>
+                  <div style={{ display: 'flex', gap: 2, height: 14, borderRadius: 7, overflow: 'hidden', background: theme.soft }}>
+                    {faixa.porModalidade && faixa.porModalidade.length > 0 ? (
+                      faixa.porModalidade.map((pm, i) => {
+                        const segW = faixa.total > 0 ? (pm.total / maxFaixa) * 100 : 0;
+                        const colors = ['#5B9BD5', '#43C17B', '#C077DB', '#E55B5B', '#FF9800'];
+                        return <div key={pm.modalidade} style={{ width: `${segW}%`, background: colors[i % colors.length], borderRadius: i === 0 ? '7px 0 0 7px' : i === faixa.porModalidade.length - 1 ? '0 7px 7px 0' : 0, transition: 'width 0.3s' }} title={`${pm.modalidade}: ${pm.total}`} />;
+                      })
+                    ) : (
+                      <div style={{ width: `${pct}%`, background: '#E55B5B', borderRadius: 7, transition: 'width 0.3s' }} />
+                    )}
+                  </div>
+                  {faixa.porModalidade && faixa.porModalidade.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+                      {faixa.porModalidade.map((pm, i) => {
+                        const colors = ['#5B9BD5', '#43C17B', '#C077DB', '#E55B5B', '#FF9800'];
+                        return <span key={pm.modalidade} style={{ fontSize: 10, color: colors[i % colors.length] }}>{pm.modalidade}: {pm.total}</span>;
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
-      </>) : (
-        <div style={{ padding: 40, textAlign: 'center', color: theme.muted, fontSize: 14 }}>
-          Não foi possível carregar dados de retenção.
+      </div>
+
+      {/* Churn por Vendedor */}
+      {retencao.churnPorVendedor.length > 0 && (
+        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 24 }}>
+          <h4 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Churn por Vendedor</h4>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: theme.muted, borderBottom: `1px solid ${theme.border}` }}>Vendedor</th>
+                <th style={{ textAlign: 'center', padding: '6px 8px', color: theme.muted, borderBottom: `1px solid ${theme.border}` }}>Cancelados</th>
+                <th style={{ textAlign: 'right', padding: '6px 8px', color: theme.muted, borderBottom: `1px solid ${theme.border}` }}>MRR Perdido</th>
+                <th style={{ textAlign: 'right', padding: '6px 8px', color: theme.muted, borderBottom: `1px solid ${theme.border}` }}>Barra</th>
+              </tr>
+            </thead>
+            <tbody>
+              {retencao.churnPorVendedor.map((v) => {
+                const maxV = Math.max(...retencao.churnPorVendedor.map((x) => x.cancelados), 1);
+                return (
+                  <tr key={v.vendedor}>
+                    <td style={{ padding: '6px 8px', color: theme.text, borderBottom: `1px solid ${theme.border}22` }}>{v.vendedor}</td>
+                    <td style={{ textAlign: 'center', padding: '6px 8px', color: '#E55B5B', fontWeight: 700, borderBottom: `1px solid ${theme.border}22` }}>{v.cancelados}</td>
+                    <td style={{ textAlign: 'right', padding: '6px 8px', color: theme.muted, borderBottom: `1px solid ${theme.border}22` }}>{fmtCurrency(v.mrrPerdido)}</td>
+                    <td style={{ padding: '6px 8px', borderBottom: `1px solid ${theme.border}22`, width: '30%' }}>
+                      <div style={{ width: `${(v.cancelados / maxV) * 100}%`, height: 8, borderRadius: 4, background: '#E55B5B', opacity: 0.6, transition: 'width 0.3s' }} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
+
+      {/* ── Seção 5: Insights Automáticos ── */}
+      {(() => {
+        const worstMod = [...retencao.porModalidade].sort((a, b) => b.churnRate - a.churnRate)[0];
+        const bestMod = [...retencao.porModalidade].sort((a, b) => a.churnRate - b.churnRate)[0];
+        const worstVendedor = retencao.churnPorVendedor[0];
+        const earlyChurn = retencao.permanenciaPorFaixa.find((f) => f.faixa.includes('0-6'));
+        const totalCancelFaixa = retencao.permanenciaPorFaixa.reduce((s, f) => s + f.total, 0);
+        const earlyPct = earlyChurn && totalCancelFaixa > 0 ? (earlyChurn.total / totalCancelFaixa) * 100 : 0;
+
+        return (
+          <div style={{ background: theme.soft, borderRadius: 12, padding: 16, marginBottom: 24, fontSize: 13, color: theme.muted, lineHeight: 1.8 }}>
+            <h4 style={{ color: theme.gold, margin: '0 0 8px', fontSize: 14 }}>Insights</h4>
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              {worstMod && (
+                <li>
+                  Modalidade com <strong style={{ color: '#E55B5B' }}>maior churn</strong>:{' '}
+                  <strong style={{ color: theme.text }}>{worstMod.modalidade}</strong> ({fmtPct(worstMod.churnRate)})
+                  {worstMod.mrrPerdido > 0 && <> — MRR perdido: <strong style={{ color: '#E55B5B' }}>{fmtCurrency(worstMod.mrrPerdido)}</strong></>}
+                </li>
+              )}
+              {bestMod && bestMod.codigo !== worstMod?.codigo && (
+                <li>
+                  Modalidade com <strong style={{ color: '#43C17B' }}>melhor retenção</strong>:{' '}
+                  <strong style={{ color: theme.text }}>{bestMod.modalidade}</strong> (churn {fmtPct(bestMod.churnRate)})
+                </li>
+              )}
+              {earlyPct > 30 && (
+                <li>
+                  <strong style={{ color: '#E55B5B' }}>{earlyPct.toFixed(0)}%</strong> dos cancelamentos ocorrem nos primeiros 6 meses
+                  — indica problema na <strong style={{ color: theme.text }}>ativação/onboarding</strong>
+                </li>
+              )}
+              {worstVendedor && (
+                <li>
+                  Vendedor com mais churn: <strong style={{ color: theme.text }}>{worstVendedor.vendedor}</strong> ({worstVendedor.cancelados} cancelamentos, MRR perdido: {fmtCurrency(worstVendedor.mrrPerdido)})
+                </li>
+              )}
+              <li>
+                Saldo líquido no período:{' '}
+                <strong style={{ color: retencao.saldoLiquido >= 0 ? '#43C17B' : '#E55B5B' }}>
+                  {retencao.saldoLiquido >= 0 ? '+' : ''}{retencao.saldoLiquido} clientes
+                </strong>{' '}
+                | MRR líquido:{' '}
+                <strong style={{ color: retencao.mrrLiquido >= 0 ? '#43C17B' : '#E55B5B' }}>
+                  {retencao.mrrLiquido >= 0 ? '+' : ''}{fmtCurrency(retencao.mrrLiquido)}
+                </strong>
+              </li>
+              <li>
+                Tempo médio de permanência: <strong style={{ color: theme.gold }}>{retencao.tempoMedioPermanencia} meses</strong>
+              </li>
+            </ul>
+          </div>
+        );
+      })()}
+
+      </>)}
 
       </>)}
 
@@ -1539,22 +1772,10 @@ export function DashboardPage() {
         </div>
       )}
 
-      </>)}
+      {/* ── Marketing / ROI (dentro de Prospecção) ── */}
+      {sheetsData && (<>
+        <SectionDivider label="Marketing — ROI por Canal" />
 
-      {/* ─── Tab: Marketing ─── */}
-      {dashTab === 'marketing' && (<>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: theme.gold }}>Análise de Investimento em Marketing</h2>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: theme.muted }}>ROI do tráfego pago vs canais orgânicos — dados da planilha de prospecção</p>
-          </div>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: theme.muted, background: theme.soft, padding: '3px 8px', borderRadius: 6 }}>
-            {sheetsIsReal ? '● Google Sheets ao vivo' : sheetsData ? '● dados reais (cache)' : 'modo demonstração'}
-          </span>
-        </div>
-
-        {/* Investimento Input */}
         <div style={{ background: theme.soft, borderRadius: 10, padding: 16, marginBottom: 24 }}>
           <label style={{ fontSize: 13, color: theme.muted, fontWeight: 600, display: 'block', marginBottom: 8 }}>
             Investimento Mensal em Tráfego Pago
@@ -1586,71 +1807,59 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {!sheetsData && sheetsLoading && (
-          <div style={{ padding: 24, textAlign: 'center', color: theme.muted, fontSize: 13 }}>Carregando dados de marketing…</div>
-        )}
-        {!sheetsData && !sheetsLoading && (
-          <div style={{ padding: 24, textAlign: 'center', color: theme.muted, fontSize: 13, background: theme.soft, borderRadius: 12 }}>
-            Não foi possível carregar dados de prospecção. Verifique a conexão com o backend.
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 24 }}>
+          <KpiCard label="Leads Pagos (ADS)" value={String(mktLeadsPagos)} description="Gerados por tráfego pago" />
+          <KpiCard label="CPL — Custo por Lead" value={mktCpl > 0 ? fmtCurrency(mktCpl) : '—'} description="Investimento ÷ leads pagos" />
+          <KpiCard label="Leads Orgânicos" value={String(mktTotal - mktLeadsPagos)} description="Canais sem investimento direto" />
+          <KpiCard label="Visitas (Tráfego Pago)" value={String(mktVisitasPagas)} description="Agendamentos do ADS" />
+          <KpiCard label="Conv. Lead → Visita" value={mktTaxaConv.toFixed(1) + '%'} description="Taxa do tráfego pago" />
+          <KpiCard label="CPA — Custo por Aquisição" value={mktCpa !== null ? fmtCurrency(mktCpa) : '—'} description={mktCpa !== null ? 'Invest. ÷ fechamentos pagos' : 'Sem fechamentos no pago'} />
+        </div>
+
+        <section style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 24 }}>
+          <h3 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Leads e Visitas por Canal</h3>
+          <div style={{ height: 260 }}>
+            <CanalComparisonChart data={mktCanal} />
           </div>
-        )}
+        </section>
 
-        {sheetsData && (<>
-          {/* KPI Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 24 }}>
-            <KpiCard label="Leads Pagos (ADS)" value={String(mktLeadsPagos)} description="Gerados por tráfego pago" />
-            <KpiCard label="CPL — Custo por Lead" value={mktCpl > 0 ? fmtCurrency(mktCpl) : '—'} description="Investimento ÷ leads pagos" />
-            <KpiCard label="Leads Orgânicos" value={String(mktTotal - mktLeadsPagos)} description="Canais sem investimento direto" />
-            <KpiCard label="Visitas (Tráfego Pago)" value={String(mktVisitasPagas)} description="Agendamentos do ADS" />
-            <KpiCard label="Conv. Lead → Visita" value={mktTaxaConv.toFixed(1) + '%'} description="Taxa do tráfego pago" />
-            <KpiCard label="CPA — Custo por Aquisição" value={mktCpa !== null ? fmtCurrency(mktCpa) : '—'} description={mktCpa !== null ? 'Invest. ÷ fechamentos pagos' : 'Sem fechamentos no pago'} />
+        <section style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 8 }}>
+          <h3 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Análise Detalhada por Canal</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {['Canal', 'Leads', '% Total', 'Visitas', 'Conv.%', 'Fechamentos', 'CPL', 'CPA'].map((h) => (
+                    <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: theme.muted, fontSize: 11, fontWeight: 600, borderBottom: `1px solid ${theme.border}`, textTransform: 'uppercase' as const, letterSpacing: 0.3 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {mktCanal.map((c, i) => {
+                  const pctTotal = mktTotal > 0 ? ((c.leads / mktTotal) * 100).toFixed(1) + '%' : '—';
+                  const convPct = c.leads > 0 ? ((c.visitas / c.leads) * 100).toFixed(1) + '%' : '—';
+                  const isPago = c.canal === 'Tráfego Pago';
+                  const cplVal = isPago && c.leads > 0 ? fmtCurrency(investimento / c.leads) : '—';
+                  const cpaVal = isPago && c.fechamentos > 0 ? fmtCurrency(investimento / c.fechamentos) : '—';
+                  return (
+                    <tr key={c.canal} style={{ borderBottom: `1px solid ${i === mktCanal.length - 1 ? 'transparent' : '#1E1E1E'}` }}>
+                      <td style={{ padding: '7px 10px', color: theme.text, fontWeight: 600 }}>{c.canal}</td>
+                      <td style={{ padding: '7px 10px', color: theme.gold }}>{c.leads}</td>
+                      <td style={{ padding: '7px 10px', color: theme.muted }}>{pctTotal}</td>
+                      <td style={{ padding: '7px 10px', color: '#43C17B' }}>{c.visitas}</td>
+                      <td style={{ padding: '7px 10px', color: theme.muted }}>{convPct}</td>
+                      <td style={{ padding: '7px 10px', color: '#5B9BD5' }}>{c.fechamentos}</td>
+                      <td style={{ padding: '7px 10px', color: theme.muted }}>{cplVal}</td>
+                      <td style={{ padding: '7px 10px', color: theme.muted }}>{cpaVal}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+        </section>
+      </>)}
 
-          {/* Canal Comparison Chart */}
-          <section style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 24 }}>
-            <h3 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Leads e Visitas por Canal</h3>
-            <div style={{ height: 260 }}>
-              <CanalComparisonChart data={mktCanal} />
-            </div>
-          </section>
-
-          {/* Canal Analysis Table */}
-          <section style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 8 }}>
-            <h3 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14 }}>Análise Detalhada por Canal</h3>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr>
-                    {['Canal', 'Leads', '% Total', 'Visitas', 'Conv.%', 'Fechamentos', 'CPL', 'CPA'].map((h) => (
-                      <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: theme.muted, fontSize: 11, fontWeight: 600, borderBottom: `1px solid ${theme.border}`, textTransform: 'uppercase' as const, letterSpacing: 0.3 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {mktCanal.map((c, i) => {
-                    const pctTotal = mktTotal > 0 ? ((c.leads / mktTotal) * 100).toFixed(1) + '%' : '—';
-                    const convPct = c.leads > 0 ? ((c.visitas / c.leads) * 100).toFixed(1) + '%' : '—';
-                    const isPago = c.canal === 'Tráfego Pago';
-                    const cplVal = isPago && c.leads > 0 ? fmtCurrency(investimento / c.leads) : '—';
-                    const cpaVal = isPago && c.fechamentos > 0 ? fmtCurrency(investimento / c.fechamentos) : '—';
-                    return (
-                      <tr key={c.canal} style={{ borderBottom: `1px solid ${i === mktCanal.length - 1 ? 'transparent' : '#1E1E1E'}` }}>
-                        <td style={{ padding: '7px 10px', color: theme.text, fontWeight: 600 }}>{c.canal}</td>
-                        <td style={{ padding: '7px 10px', color: theme.gold }}>{c.leads}</td>
-                        <td style={{ padding: '7px 10px', color: theme.muted }}>{pctTotal}</td>
-                        <td style={{ padding: '7px 10px', color: '#43C17B' }}>{c.visitas}</td>
-                        <td style={{ padding: '7px 10px', color: theme.muted }}>{convPct}</td>
-                        <td style={{ padding: '7px 10px', color: '#5B9BD5' }}>{c.fechamentos}</td>
-                        <td style={{ padding: '7px 10px', color: theme.muted }}>{cplVal}</td>
-                        <td style={{ padding: '7px 10px', color: theme.muted }}>{cpaVal}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>)}
       </>)}
 
       {/* ─── Detail Modals ─── */}
