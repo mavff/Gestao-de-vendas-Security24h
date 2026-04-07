@@ -190,6 +190,7 @@ export type RetencaoModalidade = {
   cancelados: number;
   mrrPerdido: number;
   tempoMedio: number;
+  tempoMedioAtivos: number;
   churnRate: number;
 };
 
@@ -203,6 +204,7 @@ export type RetencaoDashboard = {
   taxaRetencao: number;
   churnRate: number;
   tempoMedioPermanencia: number;
+  tempoMedioPermanenciaAtivos: number;
   saldoLiquido: number;
   mrrLiquido: number;
   porModalidade: RetencaoModalidade[];
@@ -530,6 +532,7 @@ export type ClienteAtivo = {
   valorMonitoramento: number;
   diaVencimento: number | null;
   primeiroFaturamento: string | null;
+  dataCadastro: string | null;
   dataFechamento: string | null;
 };
 

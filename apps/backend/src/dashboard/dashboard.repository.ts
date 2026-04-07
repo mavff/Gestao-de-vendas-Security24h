@@ -506,6 +506,18 @@ export class DashboardRepository {
     V: 'Venda', L: 'Monitoramento', R: 'Rastreamento', C: 'Monitoramento',
   };
 
+  /**
+   * Modalidade efetiva: clientes com Modalidade='V' mas DiaVencimento IN (5,10,15,20,25)
+   * pagam monitoramento mensal — devem ser contados como 'L' (Monitoramento).
+   * Esse CASE é usado em todas as queries de retenção para agrupar corretamente.
+   */
+  private static readonly MOD_EFETIVA = `
+    CASE
+      WHEN c.[Modalidade] = 'V' AND ISNULL(c.[DiaVencimento], 0) IN (5, 10, 15, 20, 25) THEN 'L'
+      WHEN c.[Modalidade] = 'C' THEN 'L'
+      ELSE ISNULL(c.[Modalidade], '')
+    END`;
+
   async getRetencao(dataInicio?: string, dataFim?: string) {
     this.prisma.ensureConnection();
 
@@ -515,61 +527,65 @@ export class DashboardRepository {
     const pDi = di ?? doze;
     const pDf = df ?? new Date();
 
+    // Alias para a expressão de modalidade efetiva (SQL Server não aceita interpolação Prisma para fragmentos)
+    const ME = DashboardRepository.MOD_EFETIVA;
+
     type ModCountRow = { modalidade: string | null; total: number; mrr: number };
     type ModCancelRow = { modalidade: string | null; total: number; mrr: number; tempoMedio: number };
     type MonthModRow = { ano: number; mes: number; modalidade: string | null; total: number };
     type FaixaModRow = { modalidade: string | null; faixa: string; total: number };
     type VendedorChurnRow = { vendedor: string; cancelados: number; mrrPerdido: number };
+    type ModTempoAtivosRow = { modalidade: string | null; tempoMedioAtivos: number; total: number };
 
     const [
       ativosMod, novosMod, canceladosMod,
       novosEvol, cancelEvol,
-      faixaMod, churnVendedor,
+      faixaMod, churnVendedor, tempoAtivos,
     ] = await Promise.all([
-      // 1. Ativos por modalidade (snapshot, sem período)
-      this.prisma.$queryRaw<ModCountRow[]>`
-        SELECT ISNULL(c.[Modalidade], '') as modalidade, COUNT(*) as total,
+      // 1. Ativos por modalidade efetiva (snapshot, sem período)
+      this.prisma.$queryRawUnsafe<ModCountRow[]>(`
+        SELECT ${ME} as modalidade, COUNT(*) as total,
                SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr
         FROM [Clientes] c
         WHERE c.[Cancelamento] IS NULL AND c.[ValorNF] > 0 AND c.[Empresa] IN (2, 1002)
-        GROUP BY c.[Modalidade]`,
+        GROUP BY ${ME}`),
 
-      // 2. Novos por modalidade no período
-      this.prisma.$queryRaw<ModCountRow[]>`
-        SELECT ISNULL(c.[Modalidade], '') as modalidade, COUNT(*) as total,
+      // 2. Novos por modalidade efetiva no período
+      this.prisma.$queryRawUnsafe<ModCountRow[]>(`
+        SELECT ${ME} as modalidade, COUNT(*) as total,
                SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr
         FROM [Clientes] c
-        WHERE c.[DataCadastro] >= ${pDi} AND c.[DataCadastro] <= ${pDf} AND c.[Empresa] IN (2, 1002)
-        GROUP BY c.[Modalidade]`,
+        WHERE c.[DataCadastro] >= @P1 AND c.[DataCadastro] <= @P2 AND c.[Empresa] IN (2, 1002)
+        GROUP BY ${ME}`, pDi, pDf),
 
-      // 3. Cancelados por modalidade no período
-      this.prisma.$queryRaw<ModCancelRow[]>`
-        SELECT ISNULL(c.[Modalidade], '') as modalidade, COUNT(*) as total,
+      // 3. Cancelados por modalidade efetiva no período
+      this.prisma.$queryRawUnsafe<ModCancelRow[]>(`
+        SELECT ${ME} as modalidade, COUNT(*) as total,
                SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr,
                AVG(DATEDIFF(month, c.[DataCadastro], c.[Cancelamento])) as tempoMedio
         FROM [Clientes] c
-        WHERE c.[Cancelamento] >= ${pDi} AND c.[Cancelamento] <= ${pDf} AND c.[Empresa] IN (2, 1002)
-        GROUP BY c.[Modalidade]`,
+        WHERE c.[Cancelamento] >= @P1 AND c.[Cancelamento] <= @P2 AND c.[Empresa] IN (2, 1002)
+        GROUP BY ${ME}`, pDi, pDf),
 
-      // 4. Evolução mensal novos POR MODALIDADE (12 meses)
-      this.prisma.$queryRaw<MonthModRow[]>`
+      // 4. Evolução mensal novos POR MODALIDADE efetiva (12 meses)
+      this.prisma.$queryRawUnsafe<MonthModRow[]>(`
         SELECT YEAR(c.[DataCadastro]) as ano, MONTH(c.[DataCadastro]) as mes,
-               ISNULL(c.[Modalidade], '') as modalidade, COUNT(*) as total
+               ${ME} as modalidade, COUNT(*) as total
         FROM [Clientes] c
-        WHERE c.[DataCadastro] >= ${doze} AND c.[DataCadastro] IS NOT NULL AND c.[Empresa] IN (2, 1002)
-        GROUP BY YEAR(c.[DataCadastro]), MONTH(c.[DataCadastro]), c.[Modalidade]`,
+        WHERE c.[DataCadastro] >= @P1 AND c.[DataCadastro] IS NOT NULL AND c.[Empresa] IN (2, 1002)
+        GROUP BY YEAR(c.[DataCadastro]), MONTH(c.[DataCadastro]), ${ME}`, doze),
 
-      // 5. Evolução mensal cancelados POR MODALIDADE (12 meses)
-      this.prisma.$queryRaw<MonthModRow[]>`
+      // 5. Evolução mensal cancelados POR MODALIDADE efetiva (12 meses)
+      this.prisma.$queryRawUnsafe<MonthModRow[]>(`
         SELECT YEAR(c.[Cancelamento]) as ano, MONTH(c.[Cancelamento]) as mes,
-               ISNULL(c.[Modalidade], '') as modalidade, COUNT(*) as total
+               ${ME} as modalidade, COUNT(*) as total
         FROM [Clientes] c
-        WHERE c.[Cancelamento] >= ${doze} AND c.[Cancelamento] IS NOT NULL AND c.[Empresa] IN (2, 1002)
-        GROUP BY YEAR(c.[Cancelamento]), MONTH(c.[Cancelamento]), c.[Modalidade]`,
+        WHERE c.[Cancelamento] >= @P1 AND c.[Cancelamento] IS NOT NULL AND c.[Empresa] IN (2, 1002)
+        GROUP BY YEAR(c.[Cancelamento]), MONTH(c.[Cancelamento]), ${ME}`, doze),
 
-      // 6. Permanência por faixa POR MODALIDADE
-      this.prisma.$queryRaw<FaixaModRow[]>`
-        SELECT ISNULL(c.[Modalidade], '') as modalidade,
+      // 6. Permanência por faixa POR MODALIDADE efetiva
+      this.prisma.$queryRawUnsafe<FaixaModRow[]>(`
+        SELECT ${ME} as modalidade,
           CASE
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 6 THEN '0-6 meses'
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 12 THEN '6-12 meses'
@@ -579,24 +595,36 @@ export class DashboardRepository {
           COUNT(*) as total
         FROM [Clientes] c
         WHERE c.[Cancelamento] IS NOT NULL AND c.[DataCadastro] IS NOT NULL AND c.[Empresa] IN (2, 1002)
-        GROUP BY c.[Modalidade],
+        GROUP BY ${ME},
           CASE
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 6 THEN '0-6 meses'
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 12 THEN '6-12 meses'
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 24 THEN '1-2 anos'
             ELSE '2+ anos'
-          END`,
+          END`),
 
       // 7. Churn por vendedor
-      this.prisma.$queryRaw<VendedorChurnRow[]>`
+      this.prisma.$queryRawUnsafe<VendedorChurnRow[]>(`
         SELECT COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])), 'Sem vendedor') as vendedor,
                COUNT(*) as cancelados,
                SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrrPerdido
         FROM [Clientes] c
         LEFT JOIN [Senhas] s ON s.[IDUsuário] = c.[Vendedor]
-        WHERE c.[Cancelamento] >= ${pDi} AND c.[Cancelamento] <= ${pDf} AND c.[Empresa] IN (2, 1002)
+        WHERE c.[Cancelamento] >= @P1 AND c.[Cancelamento] <= @P2 AND c.[Empresa] IN (2, 1002)
         GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])), 'Sem vendedor')
-        ORDER BY COUNT(*) DESC`,
+        ORDER BY COUNT(*) DESC`, pDi, pDf),
+
+      // 8. Tempo médio de permanência dos clientes ATIVOS por modalidade efetiva
+      this.prisma.$queryRawUnsafe<ModTempoAtivosRow[]>(`
+        SELECT ${ME} as modalidade,
+               AVG(DATEDIFF(month, c.[DataCadastro], GETDATE())) as tempoMedioAtivos,
+               COUNT(*) as total
+        FROM [Clientes] c
+        WHERE c.[Cancelamento] IS NULL
+          AND c.[ValorNF] > 0
+          AND c.[DataCadastro] IS NOT NULL
+          AND c.[Empresa] IN (2, 1002)
+        GROUP BY ${ME}`),
     ]);
 
     const modLabel = (m: string | null) => DashboardRepository.MOD_LABELS[m ?? ''] ?? (m || 'Não informado');
@@ -632,10 +660,22 @@ export class DashboardRepository {
       });
     }
 
+    const tempoAtivosMap = new Map<string, { tempoMedio: number; total: number }>();
+    for (const r of tempoAtivos) {
+      const k = modCode(r.modalidade);
+      const prev = tempoAtivosMap.get(k) ?? { tempoMedio: 0, total: 0 };
+      const newTotal = prev.total + Number(r.total);
+      tempoAtivosMap.set(k, {
+        tempoMedio: newTotal > 0 ? Math.round((prev.tempoMedio * prev.total + Number(r.tempoMedioAtivos ?? 0) * Number(r.total)) / newTotal) : 0,
+        total: newTotal,
+      });
+    }
+
     const porModalidade = [...allMods].filter(Boolean).sort().map((codigo) => {
       const a = ativosMap.get(codigo) ?? { total: 0, mrr: 0 };
       const n = novosMap.get(codigo) ?? { total: 0, mrr: 0 };
       const c = cancelMap.get(codigo) ?? { total: 0, mrr: 0, tempoMedio: 0 };
+      const ta = tempoAtivosMap.get(codigo) ?? { tempoMedio: 0, total: 0 };
       const base = a.total + c.total;
       return {
         modalidade: modLabel(codigo),
@@ -647,6 +687,7 @@ export class DashboardRepository {
         cancelados: c.total,
         mrrPerdido: Math.round(c.mrr),
         tempoMedio: c.tempoMedio,
+        tempoMedioAtivos: ta.tempoMedio,
         churnRate: base > 0 ? Math.round((c.total / base) * 1000) / 10 : 0,
       };
     });
@@ -664,6 +705,10 @@ export class DashboardRepository {
     const tempoTotal = porModalidade.filter((m) => m.cancelados > 0);
     const tempoMedioPermanencia = tempoTotal.length > 0
       ? Math.round(tempoTotal.reduce((s, m) => s + m.tempoMedio * m.cancelados, 0) / tempoTotal.reduce((s, m) => s + m.cancelados, 0))
+      : 0;
+    const tempoAtivosComDados = porModalidade.filter((m) => m.tempoMedioAtivos > 0);
+    const tempoMedioPermanenciaAtivos = tempoAtivosComDados.length > 0
+      ? Math.round(tempoAtivosComDados.reduce((s, m) => s + m.tempoMedioAtivos * m.ativos, 0) / tempoAtivosComDados.reduce((s, m) => s + m.ativos, 0))
       : 0;
 
     // ── Evolução mensal com breakdown por modalidade ──
@@ -743,6 +788,7 @@ export class DashboardRepository {
       taxaRetencao,
       churnRate,
       tempoMedioPermanencia,
+      tempoMedioPermanenciaAtivos,
       saldoLiquido: novosNoPeriodo - canceladosNoPeriodo,
       mrrLiquido: mrrNovos - mrrPerdido,
       porModalidade,

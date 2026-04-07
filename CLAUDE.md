@@ -224,7 +224,7 @@ Acesso: ADMIN, GESTOR.
 - Módulo: `apps/backend/src/comissoes/` (repository + controller + module)
 - Raw SQL contra SQL Server (Prisma column names com acentos: `[NumOrçamento]`, `[Comissão]`, `[CGCCPF]`)
 - `getOrcamentosComodato()`: orçamentos com modalidade L/C, status F/L/E
-- `getClientesAtivos()`: Clientes ativos com JOIN em Senhas (vendedor/técnico) e Orçamentos (monitoramento)
+- `getClientesAtivos()`: Clientes ativos com JOIN em Senhas (vendedor/técnico) e Orçamentos (monitoramento) — inclui `dataCadastro`
 - `getUsuariosDisponiveis()`: DISTINCT usuarios da tabela Senhas
 
 ### Frontend (ComissoesPage.tsx)
@@ -264,9 +264,10 @@ A Security24h tem alto fluxo (~+80 novos, ~-60 saídas/ano).
 
 ### Modalidades de Cliente
 - **L/C** → Monitoramento (Comodato) — cliente paga mensalidade de monitoramento
-- **V** → Venda — cliente comprou equipamento (sem recorrência)
+- **V** → Venda — cliente comprou equipamento. **ATENÇÃO**: ~486 clientes V com `DiaVencimento IN (5,10,15,20,25)` pagam monitoramento mensal — são tratados como Monitoramento
 - **R** → Rastreamento — cliente paga mensalidade de rastreamento
-- Backend merge L e C em "Monitoramento" via `modCode()` helper
+- Backend usa **modalidade efetiva** (`MOD_EFETIVA` SQL CASE): V com dia vencimento 5/10/15/20/25 → L, C → L
+- Frontend filtra comodato com: `modalidade === 'L' || modalidade === 'C' || (modalidade === 'V' && [5,10,15,20,25].includes(diaVencimento))`
 
 ### Lógica de Negócio
 - **Cliente ativo** = `Clientes.Cancelamento IS NULL AND Clientes.ValorNF > 0`
@@ -277,7 +278,7 @@ A Security24h tem alto fluxo (~+80 novos, ~-60 saídas/ano).
 ### Backend
 - Método: `DashboardRepository.getRetencao(dataInicio?, dataFim?)`
 - Endpoint: `GET /dashboard/retencao?dataInicio=YYYY-MM-DD&dataFim=YYYY-MM-DD`
-- 7 queries SQL em paralelo contra tabela `Clientes`, **todas agrupadas por `Modalidade`**:
+- 8 queries SQL em paralelo contra tabela `Clientes`, **todas agrupadas por modalidade efetiva** (`MOD_EFETIVA`):
   1. Ativos por modalidade (total + MRR)
   2. Novos por modalidade no período (+ MRR ganho)
   3. Cancelados por modalidade no período (+ MRR perdido + tempo médio)
@@ -285,6 +286,7 @@ A Security24h tem alto fluxo (~+80 novos, ~-60 saídas/ano).
   5. Evolução mensal cancelados por modalidade (últimos 12 meses)
   6. Permanência por faixa por modalidade (0-6m, 6-12m, 1-2a, 2+a)
   7. Churn por vendedor (JOIN `Senhas` para nome do vendedor)
+  8. Tempo médio de permanência dos clientes ATIVOS por modalidade (`AVG(DATEDIFF(month, DataCadastro, GETDATE()))`)
 - `MOD_LABELS` map: `{ V: 'Venda', L: 'Monitoramento', R: 'Rastreamento', C: 'Monitoramento' }`
 
 ### Tipos (Frontend)
@@ -294,7 +296,7 @@ type RetencaoModalidade = {
   ativos: number; mrrAtivos: number;
   novos: number; mrrNovos: number;
   cancelados: number; mrrPerdido: number;
-  tempoMedio: number; churnRate: number;
+  tempoMedio: number; tempoMedioAtivos: number; churnRate: number;
 };
 
 type RetencaoDashboard = {
@@ -302,7 +304,8 @@ type RetencaoDashboard = {
   novosNoPeriodo: number; canceladosNoPeriodo: number;
   mrrPerdido: number; mrrNovos: number;
   taxaRetencao: number; churnRate: number;
-  tempoMedioPermanencia: number; saldoLiquido: number; mrrLiquido: number;
+  tempoMedioPermanencia: number; tempoMedioPermanenciaAtivos: number;
+  saldoLiquido: number; mrrLiquido: number;
   porModalidade: RetencaoModalidade[];
   evolucaoMensal: { mes; novos; cancelados; saldo; porModalidade: { modalidade; novos; cancelados }[] }[];
   permanenciaPorFaixa: { faixa; total; porModalidade: { modalidade; total }[] }[];
@@ -310,12 +313,20 @@ type RetencaoDashboard = {
 };
 ```
 
-### Frontend — Conteúdo da Tab Retenção (5 seções)
-1. **Visão Geral**: 8 KPI cards (Base Ativa, Novos, Cancelados, Saldo, Taxa Retenção, Churn Rate, Tempo Médio, MRR Líquido)
-2. **Segmentação por Modalidade**: Cards por tipo (Monitoramento/Venda/Rastreamento) com ativos, novos, cancelados, churn rate, MRR
-3. **Evolução Mensal**: Gráfico SVG barras +/- (`RetencaoMensalChart`) + tabela detalhada com breakdown por modalidade
-4. **Análise de Churn Detalhada**: Donut churn por modalidade (`RetencaoDonutChart`) + barras de permanência por faixa (empilhadas por modalidade) + tabela churn por vendedor
-5. **Insights Automáticos**: Pior/melhor modalidade, churn precoce (0-6m), vendedor com mais churn, saldo líquido
+### Frontend — Conteúdo da Tab Retenção (7 seções)
+1. **Visão Geral**: 9 KPI cards (Base Ativa, Novos, Cancelados, Saldo, Taxa Retenção, Churn Rate, Perm. Cancelados, Perm. Ativos, MRR Líquido)
+2. **Segmentação por Modalidade**: Cards por tipo (Monitoramento/Venda/Rastreamento) com ativos, novos, cancelados, churn rate, MRR + permanência dos ativos
+3. **Clientes Comodato**: KPIs resumidos (total, MRR, ticket médio, permanência, churn) + botão "Ver todos" → modal `ComodatoModal`
+4. **Evolução Mensal**: Gráfico SVG barras +/- (`RetencaoMensalChart`) + tabela detalhada com breakdown por modalidade
+5. **Análise de Churn Detalhada**: Donut churn por modalidade (`RetencaoDonutChart`) + barras de permanência por faixa (empilhadas por modalidade) + tabela churn por vendedor
+6. **Insights Automáticos**: Pior/melhor modalidade, churn precoce (0-6m), vendedor com mais churn, saldo líquido
+
+### ComodatoModal (DashboardPage.tsx)
+- Modal fullscreen com lista de clientes comodato (modalidade L/C) carregados via `ds.comissoes.getClientesAtivos()`
+- Filtros: busca (nome/CPF/telefone/cidade), vendedor, ordenação (nome/valor/tempo)
+- Tabela: cliente, cidade, vendedor, técnico, valor mensal, data cadastro, permanência (meses), telefone
+- KPIs no topo: total, MRR, ticket médio
+- Usa `dataCadastro` (preferido) ou `primeiroFaturamento` para calcular permanência
 
 ### Gráficos SVG
 - `RetencaoMensalChart` — barras verdes (novos) para cima, vermelhas (cancelados) para baixo, linha dourada (saldo)
@@ -326,7 +337,8 @@ type RetencaoDashboard = {
 - Churn Rate: `cancelados / (ativos + cancelados) × 100`
 - Saldo Líquido: `novos - cancelados`
 - MRR Líquido: `mrrNovos - mrrPerdido`
-- Tempo Médio de Permanência: `AVG(DATEDIFF(month, DataCadastro, Cancelamento))`
+- Tempo Médio Permanência (cancelados): `AVG(DATEDIFF(month, DataCadastro, Cancelamento))`
+- Tempo Médio Permanência (ativos): `AVG(DATEDIFF(month, DataCadastro, GETDATE()))` — clientes ativos
 
 ## Data Source (dual mode)
 

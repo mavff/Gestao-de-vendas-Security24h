@@ -100,6 +100,7 @@ export class ComissoesRepository {
       valorMonitoramento: number;
       diaVencimento: number | null;
       primeiroFaturamento: string | null;
+      dataCadastro: string | null;
       dataFechamento: string | null;
     };
 
@@ -117,6 +118,7 @@ export class ComissoesRepository {
         CAST(ISNULL(c.[ValorNF], 0) AS FLOAT) AS valorMonitoramento,
         c.[DiaVencimento] AS diaVencimento,
         c.[PrimeiroFaturamento] AS primeiroFaturamento,
+        c.[DataCadastro] AS dataCadastro,
         (
           SELECT TOP 1 o.[Fechamento]
           FROM [Orçamentos] o

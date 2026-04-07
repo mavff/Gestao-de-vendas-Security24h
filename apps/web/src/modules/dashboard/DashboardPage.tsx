@@ -21,7 +21,7 @@ import { KpiCard } from '../../components/dashboard/KpiCard';
 import { CustosConfigModal } from '../../components/dashboard/CustosConfigModal';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
-import { DashboardStats, FinanceiroDashboard, RetencaoDashboard, PeriodKey, SheetsLeadStats, TecnicoRow, CustosEmpresaConfig, DEFAULT_CUSTOS_CONFIG } from '../../lib/dataSource/types';
+import { DashboardStats, FinanceiroDashboard, RetencaoDashboard, PeriodKey, SheetsLeadStats, TecnicoRow, CustosEmpresaConfig, DEFAULT_CUSTOS_CONFIG, ClienteAtivo } from '../../lib/dataSource/types';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
 import { theme } from '../../components/common/theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -750,6 +750,189 @@ function RetencaoModalContent({ data }: { data: RetencaoDashboard }) {
   );
 }
 
+/* ─── Modal Clientes Comodato ─── */
+
+function ComodatoModal({ clientes, loading, onClose }: { clientes: ClienteAtivo[]; loading: boolean; onClose: () => void }) {
+  const [search, setSearch] = useState('');
+  const [filtroVendedor, setFiltroVendedor] = useState('');
+  const [ordenacao, setOrdenacao] = useState<'nome' | 'valor_desc' | 'valor_asc' | 'tempo_desc' | 'tempo_asc'>('nome');
+
+  const vendedores = useMemo(() => {
+    const set = new Set(clientes.map((c) => c.vendedorNome || 'Sem vendedor'));
+    return Array.from(set).sort();
+  }, [clientes]);
+
+  const filtered = useMemo(() => {
+    let result = clientes;
+    if (filtroVendedor) result = result.filter((c) => (c.vendedorNome || 'Sem vendedor') === filtroVendedor);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter((c) =>
+        c.nome.toLowerCase().includes(q) ||
+        c.fantasia?.toLowerCase().includes(q) ||
+        c.cgcCpf?.toLowerCase().includes(q) ||
+        c.fone1?.includes(q) ||
+        c.vendedorNome?.toLowerCase().includes(q) ||
+        c.cidade?.toLowerCase().includes(q)
+      );
+    }
+    const sorted = [...result];
+    const getMeses = (c: ClienteAtivo) => {
+      const ref = c.dataCadastro || c.primeiroFaturamento || c.dataFechamento;
+      if (!ref) return 0;
+      const d = new Date(ref);
+      const now = new Date();
+      return Math.max(0, (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth()));
+    };
+    switch (ordenacao) {
+      case 'valor_desc': sorted.sort((a, b) => b.valorMonitoramento - a.valorMonitoramento); break;
+      case 'valor_asc': sorted.sort((a, b) => a.valorMonitoramento - b.valorMonitoramento); break;
+      case 'tempo_desc': sorted.sort((a, b) => getMeses(b) - getMeses(a)); break;
+      case 'tempo_asc': sorted.sort((a, b) => getMeses(a) - getMeses(b)); break;
+      default: sorted.sort((a, b) => a.nome.localeCompare(b.nome)); break;
+    }
+    return sorted;
+  }, [clientes, search, filtroVendedor, ordenacao]);
+
+  const mrrTotal = filtered.reduce((s, c) => s + c.valorMonitoramento, 0);
+  const ticketMedio = filtered.length > 0 ? mrrTotal / filtered.length : 0;
+
+  const getMeses = (c: ClienteAtivo) => {
+    const ref = c.dataCadastro || c.primeiroFaturamento || c.dataFechamento;
+    if (!ref) return 0;
+    const d = new Date(ref);
+    const now = new Date();
+    return Math.max(0, (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth()));
+  };
+
+  const fmtDate = (d: string | null) => {
+    if (!d) return '—';
+    const dt = new Date(d);
+    return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`;
+  };
+
+  const inputStyle: React.CSSProperties = {
+    background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8,
+    color: theme.text, padding: '7px 10px', fontSize: 13, width: '100%',
+  };
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: theme.bg, border: `1px solid ${theme.border}`, borderRadius: 16, width: '95vw', maxWidth: 1200, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${theme.border}` }}>
+          <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Clientes Comodato — Monitoramento</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: theme.muted, fontSize: 22, cursor: 'pointer', padding: '4px 8px' }}>✕</button>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 60, textAlign: 'center', color: theme.muted }}>Carregando clientes...</div>
+        ) : (
+          <>
+            {/* KPIs */}
+            <div style={{ display: 'flex', gap: 16, padding: '16px 20px', flexWrap: 'wrap', borderBottom: `1px solid ${theme.border}22` }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: theme.muted, textTransform: 'uppercase' }}>Total</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: theme.text }}>{filtered.length}</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: theme.muted, textTransform: 'uppercase' }}>MRR</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: theme.gold }}>R$ {mrrTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: theme.muted, textTransform: 'uppercase' }}>Ticket Médio</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: theme.text }}>R$ {ticketMedio.toFixed(2)}</div>
+              </div>
+            </div>
+
+            {/* Filters */}
+            <div style={{ display: 'flex', gap: 10, padding: '12px 20px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: '1 1 200px', maxWidth: 280 }}>
+                <div style={{ fontSize: 10, color: theme.muted, textTransform: 'uppercase', marginBottom: 2 }}>Buscar</div>
+                <input placeholder="Nome, CPF, telefone, cidade..." value={search} onChange={(e) => setSearch(e.target.value)} style={inputStyle} />
+              </div>
+              <div style={{ flex: '0 1 180px' }}>
+                <div style={{ fontSize: 10, color: theme.muted, textTransform: 'uppercase', marginBottom: 2 }}>Vendedor</div>
+                <select value={filtroVendedor} onChange={(e) => setFiltroVendedor(e.target.value)} style={inputStyle}>
+                  <option value="">Todos</option>
+                  {vendedores.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '0 1 180px' }}>
+                <div style={{ fontSize: 10, color: theme.muted, textTransform: 'uppercase', marginBottom: 2 }}>Ordenar por</div>
+                <select value={ordenacao} onChange={(e) => setOrdenacao(e.target.value as typeof ordenacao)} style={inputStyle}>
+                  <option value="nome">Nome A-Z</option>
+                  <option value="valor_desc">Maior valor</option>
+                  <option value="valor_asc">Menor valor</option>
+                  <option value="tempo_desc">Mais antigo</option>
+                  <option value="tempo_asc">Mais recente</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 16px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ fontSize: 10, color: theme.muted, textTransform: 'uppercase', letterSpacing: 0.5, position: 'sticky', top: 0, background: theme.bg }}>
+                    <th style={{ padding: '10px 8px', textAlign: 'left' }}>Cliente</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left' }}>Cidade</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left' }}>Vendedor</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left' }}>Técnico</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'right' }}>Valor Mensal</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'center' }}>Cadastro</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'center' }}>Permanência</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left' }}>Telefone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((c) => {
+                    const meses = getMeses(c);
+                    return (
+                      <tr key={c.codCliente} style={{ borderTop: `1px solid ${theme.border}22` }}>
+                        <td style={{ padding: '8px' }}>
+                          <div style={{ fontWeight: 500, color: theme.text }}>{c.nome}</div>
+                          {c.fantasia && <div style={{ fontSize: 11, color: theme.muted }}>{c.fantasia}</div>}
+                          {c.cgcCpf && <div style={{ fontSize: 11, color: theme.muted }}>{c.cgcCpf}</div>}
+                        </td>
+                        <td style={{ padding: '8px', color: theme.muted }}>{c.cidade || '—'}</td>
+                        <td style={{ padding: '8px', fontWeight: 600, color: c.vendedorNome ? theme.text : theme.muted }}>{c.vendedorNome || 'Sem vendedor'}</td>
+                        <td style={{ padding: '8px', color: theme.muted }}>{c.tecnicoNome || '—'}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600, color: theme.gold }}>
+                          R$ {c.valorMonitoramento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'center', fontSize: 12, color: theme.muted }}>{fmtDate(c.dataCadastro || c.primeiroFaturamento)}</td>
+                        <td style={{ padding: '8px', textAlign: 'center' }}>
+                          <span style={{ fontWeight: 700, color: meses >= 24 ? '#43C17B' : meses >= 12 ? theme.gold : '#E55B5B' }}>
+                            {meses > 0 ? `${meses}m` : '—'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px', fontSize: 12, color: theme.muted }}>{c.fone1 || '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {filtered.length === 0 && (
+                <div style={{ color: theme.muted, textAlign: 'center', padding: 30 }}>Nenhum cliente comodato encontrado</div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '10px 20px', borderTop: `1px solid ${theme.border}`, fontSize: 12, color: theme.muted, display: 'flex', justifyContent: 'space-between' }}>
+              <span>{filtered.length} clientes comodato</span>
+              <span>MRR: <strong style={{ color: theme.gold }}>R$ {mrrTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main page ─── */
 
 export function DashboardPage() {
@@ -781,6 +964,9 @@ export function DashboardPage() {
   const [retencao, setRetencao] = useState<RetencaoDashboard | null>(null);
   const [retLoading, setRetLoading] = useState(true);
   const [retIsReal, setRetIsReal] = useState(false);
+  const [showComodatoModal, setShowComodatoModal] = useState(false);
+  const [comodatoClientes, setComodatoClientes] = useState<ClienteAtivo[]>([]);
+  const [comodatoLoading, setComodatoLoading] = useState(false);
 
   const showPerformance = role === 'ADMIN' || role === 'GESTOR';
 
@@ -1328,7 +1514,8 @@ export function DashboardPage() {
         <KpiCard label="Saldo Líquido" value={(retencao.saldoLiquido >= 0 ? '+' : '') + String(retencao.saldoLiquido)} description={retencao.saldoLiquido >= 0 ? 'Base crescendo' : 'Base encolhendo'} accent={retencao.saldoLiquido >= 0 ? '#43C17B' : '#E55B5B'} />
         <KpiCard label="Taxa de Retenção" value={fmtPct(retencao.taxaRetencao)} description="Clientes mantidos" accent={retencao.taxaRetencao >= 90 ? '#43C17B' : retencao.taxaRetencao >= 80 ? theme.gold : '#E55B5B'} />
         <KpiCard label="Churn Rate" value={fmtPct(retencao.churnRate)} description="Taxa de cancelamento" accent={retencao.churnRate <= 5 ? '#43C17B' : retencao.churnRate <= 10 ? theme.gold : '#E55B5B'} />
-        <KpiCard label="Tempo Médio" value={`${retencao.tempoMedioPermanencia}m`} description="Permanência (meses)" accent={theme.gold} />
+        <KpiCard label="Perm. Cancelados" value={`${retencao.tempoMedioPermanencia}m`} description="Tempo médio antes de sair" accent="#E55B5B" />
+        <KpiCard label="Perm. Ativos" value={`${retencao.tempoMedioPermanenciaAtivos || 0}m`} description="Tempo médio dos ativos" accent="#43C17B" />
         <KpiCard label="MRR Líquido" value={(retencao.mrrLiquido >= 0 ? '+' : '') + fmtCurrency(retencao.mrrLiquido)} description="Ganho - Perdido" accent={retencao.mrrLiquido >= 0 ? '#43C17B' : '#E55B5B'} />
       </div>
 
@@ -1367,7 +1554,11 @@ export function DashboardPage() {
                   <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px' }}>
                     <div style={{ fontSize: 11, color: theme.muted }}>Churn Rate</div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: modChurn <= 5 ? '#43C17B' : modChurn <= 10 ? theme.gold : '#E55B5B' }}>{fmtPct(mod.churnRate)}</div>
-                    {mod.tempoMedio > 0 && <div style={{ fontSize: 10, color: theme.muted }}>Tempo médio: {mod.tempoMedio}m</div>}
+                    {mod.tempoMedio > 0 && <div style={{ fontSize: 10, color: '#E55B5B' }}>Cancelados: {mod.tempoMedio}m</div>}
+                  </div>
+                  <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px', gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: 11, color: theme.muted }}>Permanência dos Ativos</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#43C17B' }}>{mod.tempoMedioAtivos || 0}m</div>
                   </div>
                 </div>
               </div>
@@ -1375,6 +1566,65 @@ export function DashboardPage() {
           })}
         </div>
       </>)}
+
+      {/* ── Seção 2.5: Clientes Comodato (Monitoramento) ── */}
+      {(() => {
+        const modComodato = retencao.porModalidade.find((m) => m.codigo === 'L');
+        if (!modComodato) return null;
+        const ticketMedio = modComodato.ativos > 0 ? modComodato.mrrAtivos / modComodato.ativos : 0;
+        return (
+          <>
+            <SectionDivider label="Clientes Comodato — Monitoramento" />
+            <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 20, marginBottom: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: theme.muted, textTransform: 'uppercase' }}>Clientes Ativos</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: theme.text }}>{modComodato.ativos}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: theme.muted, textTransform: 'uppercase' }}>MRR</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>{fmtCurrency(modComodato.mrrAtivos)}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: theme.muted, textTransform: 'uppercase' }}>Ticket Médio</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: theme.text }}>{fmtCurrency(ticketMedio)}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: theme.muted, textTransform: 'uppercase' }}>Permanência Média</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: '#43C17B' }}>{modComodato.tempoMedioAtivos || 0} meses</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: theme.muted, textTransform: 'uppercase' }}>Churn Rate</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: modComodato.churnRate <= 5 ? '#43C17B' : modComodato.churnRate <= 10 ? theme.gold : '#E55B5B' }}>{fmtPct(modComodato.churnRate)}</div>
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    setShowComodatoModal(true);
+                    if (comodatoClientes.length === 0) {
+                      setComodatoLoading(true);
+                      try {
+                        const ds = createDataSource();
+                        const result = await ds.comissoes.getClientesAtivos();
+                        setComodatoClientes(result.clientes.filter((c) => c.modalidade === 'L' || c.modalidade === 'C' || (c.modalidade === 'V' && [5, 10, 15, 20, 25].includes(c.diaVencimento ?? 0))));
+                      } catch { /* ignore */ }
+                      finally { setComodatoLoading(false); }
+                    }
+                  }}
+                  style={{
+                    padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                    background: theme.gold, color: '#0B0B0B', fontWeight: 700, fontSize: 13,
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  Ver todos os clientes comodato
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* ── Seção 3: Evolução Mensal ── */}
       {retencao.evolucaoMensal.length > 0 && (<>
@@ -1568,6 +1818,15 @@ export function DashboardPage() {
       </>)}
 
       </>)}
+
+      {/* ── Modal: Clientes Comodato ── */}
+      {showComodatoModal && (
+        <ComodatoModal
+          clientes={comodatoClientes}
+          loading={comodatoLoading}
+          onClose={() => setShowComodatoModal(false)}
+        />
+      )}
 
       {/* ─── Tab: CRM ─── */}
       {dashTab === 'crm' && (<>

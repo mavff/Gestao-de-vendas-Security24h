@@ -159,12 +159,13 @@ class MockDashboardDataSource implements IDashboardDataSource {
       taxaRetencao: 95.5,
       churnRate: 4.5,
       tempoMedioPermanencia: 18,
+      tempoMedioPermanenciaAtivos: 24,
       saldoLiquido: 7,
       mrrLiquido: 1190,
       porModalidade: [
-        { modalidade: 'Monitoramento', codigo: 'L', ativos: 240, mrrAtivos: 40800, novos: 16, mrrNovos: 2720, cancelados: 10, mrrPerdido: 1700, tempoMedio: 16, churnRate: 4.0 },
-        { modalidade: 'Venda', codigo: 'V', ativos: 60, mrrAtivos: 10200, novos: 4, mrrNovos: 680, cancelados: 3, mrrPerdido: 510, tempoMedio: 22, churnRate: 4.8 },
-        { modalidade: 'Rastreamento', codigo: 'R', ativos: 20, mrrAtivos: 3400, novos: 2, mrrNovos: 340, cancelados: 2, mrrPerdido: 340, tempoMedio: 12, churnRate: 9.1 },
+        { modalidade: 'Monitoramento', codigo: 'L', ativos: 240, mrrAtivos: 40800, novos: 16, mrrNovos: 2720, cancelados: 10, mrrPerdido: 1700, tempoMedio: 16, tempoMedioAtivos: 28, churnRate: 4.0 },
+        { modalidade: 'Venda', codigo: 'V', ativos: 60, mrrAtivos: 10200, novos: 4, mrrNovos: 680, cancelados: 3, mrrPerdido: 510, tempoMedio: 22, tempoMedioAtivos: 20, churnRate: 4.8 },
+        { modalidade: 'Rastreamento', codigo: 'R', ativos: 20, mrrAtivos: 3400, novos: 2, mrrNovos: 340, cancelados: 2, mrrPerdido: 340, tempoMedio: 12, tempoMedioAtivos: 15, churnRate: 9.1 },
       ],
       evolucaoMensal: [
         { mes: 'Mai/25', novos: 8, cancelados: 5, saldo: 3, porModalidade: pm },
@@ -415,7 +416,7 @@ class MockComissoesDataSource implements IComissoesDataSource {
         fone1: '(00) 0000-0000', cidade: 'Cidade', modalidade: 'V',
         vendedorNome: 'Demo Vendedor', tecnicoNome: 'Demo Tecnico',
         valorMonitoramento: 170, diaVencimento: 10, primeiroFaturamento: '2025-06-10',
-        dataFechamento: '2025-06-01',
+        dataCadastro: '2025-05-15', dataFechamento: '2025-06-01',
       }],
       total: 1,
     };
