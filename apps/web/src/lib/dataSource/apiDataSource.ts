@@ -12,6 +12,7 @@ import {
   DataSourceError,
   DataSourceOperation,
   EquipmentQuery,
+  FaturamentoAnualData,
   FinanceiroDashboard,
   FunnelStats,
   RetencaoDashboard,
@@ -191,6 +192,11 @@ class ApiDashboardDataSource implements IDashboardDataSource {
 
   async getFinanceiro(query?: { dataInicio?: string; dataFim?: string }): Promise<FinanceiroDashboard> {
     const response = await apiClient.get<FinanceiroDashboard>('/dashboard/financeiro', { query, timeoutMs: 30000 });
+    return response.data;
+  }
+
+  async getFaturamentoAnual(): Promise<FaturamentoAnualData> {
+    const response = await apiClient.get<FaturamentoAnualData>('/dashboard/faturamento-anual', { timeoutMs: 30000 });
     return response.data;
   }
 

@@ -152,10 +152,10 @@ export function OrcamentosPage() {
 
   // Load local data + precos de custo
   useEffect(() => {
-    setOrcamentos(loadMock('mock_orcamentos', mockOrcamentos));
-    setSolucoes(loadMock('mock_solucoes', mockSolucoes));
+    loadState<Orcamento[]>('orcamentos_local', []).then((s) => setOrcamentos(s.length ? s : loadMock('mock_orcamentos', mockOrcamentos)));
+    loadState<SolucaoTecnica[]>('solucoes', []).then((s) => setSolucoes(s.length ? s : loadMock('mock_solucoes', mockSolucoes)));
     setEquipments(loadMock('mock_equipments', mockEquipments));
-    setPropostas(loadMock('mock_propostas', mockPropostas));
+    loadState<Proposta[]>('propostas_legacy', []).then((s) => setPropostas(s.length ? s : loadMock('mock_propostas', mockPropostas)));
     loadState<Record<string, number>>('config:precos_custo', {}).then(setPrecosCusto);
 
     // Auto-open from query param
@@ -163,7 +163,7 @@ export function OrcamentosPage() {
     const solId = params.get('solucaoId');
     if (solId) {
       setTimeout(async () => {
-        const sols = loadMock('mock_solucoes', mockSolucoes);
+        const sols = await loadState<SolucaoTecnica[]>('solucoes', loadMock('mock_solucoes', mockSolucoes));
         const eqs = loadMock('mock_equipments', mockEquipments);
         const custoMap = await loadState<Record<string, number>>('config:precos_custo', {});
         const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'enviada');
@@ -171,7 +171,7 @@ export function OrcamentosPage() {
           const orc = gerarOrcamentoDeSolucao(sol, eqs, custoMap);
           setOrcamentos((cur) => {
             const updated = [...cur, orc];
-            saveMock('mock_orcamentos', updated);
+            saveState('orcamentos_local', updated);
             return updated;
           });
           setSelectedId(orc.id);
@@ -244,9 +244,9 @@ export function OrcamentosPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTrigger]);
 
-  useEffect(() => { saveMock('mock_orcamentos', orcamentos); }, [orcamentos]);
-  useEffect(() => { saveMock('mock_solucoes', solucoes); }, [solucoes]);
-  useEffect(() => { saveMock('mock_propostas', propostas); }, [propostas]);
+  useEffect(() => { if (orcamentos.length) saveState('orcamentos_local', orcamentos); }, [orcamentos]);
+  useEffect(() => { if (solucoes.length) saveState('solucoes', solucoes); }, [solucoes]);
+  useEffect(() => { if (propostas.length) saveState('propostas_legacy', propostas); }, [propostas]);
 
   function gerarOrcamentoDeSolucao(sol: SolucaoTecnica, eqs: Equipment[], custoMap: Record<string, number>): Orcamento {
     const itens: OrcamentoItem[] = [];

@@ -500,6 +500,115 @@ export class DashboardRepository {
     }));
   }
 
+  // ─── Faturamento Anual (histórico) ────────
+
+  async getFaturamentoAnual() {
+    this.prisma.ensureConnection();
+
+    // Modalidade efetiva: V com DiaVencimento 5/10/15/20/25 → trata como monitoramento
+    // Usa ValorMonitoramento para MRR e TotalProdutos+TotalServiços para vendas
+    type YearModRow = {
+      ano: number;
+      modalidade: string | null;
+      equipamentos: number;
+      instalacao: number;
+      monitoramento: number;
+      orcamentos: number;
+    };
+
+    const ME = DashboardRepository.MOD_EFETIVA_ORC;
+
+    const rows = await this.prisma.$queryRawUnsafe<YearModRow[]>(`
+      SELECT
+        YEAR(o.[Fechamento]) as ano,
+        ${ME} as modalidade,
+        SUM(CAST(ISNULL(o.[TotalProdutos], 0) AS FLOAT)) as equipamentos,
+        SUM(CAST(ISNULL(o.[TotalServiços], 0) AS FLOAT)) as instalacao,
+        SUM(CAST(ISNULL(o.[ValorMonitoramento], 0) AS FLOAT)) as monitoramento,
+        COUNT(*) as orcamentos
+      FROM [Orçamentos] o
+      LEFT JOIN [Clientes] c ON c.[CodCliente] = o.[Cliente]
+      WHERE o.[Empresa] IN (2, 1002)
+        AND o.[Status] = 'F'
+        AND o.[Fechamento] IS NOT NULL
+      GROUP BY YEAR(o.[Fechamento]), ${ME}
+      ORDER BY YEAR(o.[Fechamento]), ${ME}`);
+
+    const modLabel = (m: string | null) => DashboardRepository.MOD_LABELS[m ?? ''] ?? (m || 'Outros');
+
+    // Agrupar por ano
+    const anoMap = new Map<number, {
+      equipamentos: number; instalacao: number; monitoramento: number; total: number; orcamentos: number;
+      porModalidade: Map<string, { label: string; equipamentos: number; instalacao: number; monitoramento: number; total: number; orcamentos: number }>;
+    }>();
+
+    for (const r of rows) {
+      const ano = Number(r.ano);
+      const mod = (r.modalidade === 'C' ? 'L' : r.modalidade) || '';
+      const label = modLabel(mod);
+      const equip = Math.round(Number(r.equipamentos));
+      const inst = Math.round(Number(r.instalacao));
+      const mon = Math.round(Number(r.monitoramento));
+      const total = equip + inst;
+      const orcs = Number(r.orcamentos);
+
+      if (!anoMap.has(ano)) {
+        anoMap.set(ano, { equipamentos: 0, instalacao: 0, monitoramento: 0, total: 0, orcamentos: 0, porModalidade: new Map() });
+      }
+      const entry = anoMap.get(ano)!;
+      entry.equipamentos += equip;
+      entry.instalacao += inst;
+      entry.monitoramento += mon;
+      entry.total += total;
+      entry.orcamentos += orcs;
+
+      if (!entry.porModalidade.has(mod)) {
+        entry.porModalidade.set(mod, { label, equipamentos: 0, instalacao: 0, monitoramento: 0, total: 0, orcamentos: 0 });
+      }
+      const modEntry = entry.porModalidade.get(mod)!;
+      modEntry.equipamentos += equip;
+      modEntry.instalacao += inst;
+      modEntry.monitoramento += mon;
+      modEntry.total += total;
+      modEntry.orcamentos += orcs;
+    }
+
+    const porAno = [...anoMap.entries()].sort((a, b) => a[0] - b[0]).map(([ano, d]) => ({
+      ano,
+      equipamentos: d.equipamentos,
+      instalacao: d.instalacao,
+      monitoramento: d.monitoramento,
+      total: d.total,
+      orcamentos: d.orcamentos,
+      ticketMedio: d.orcamentos > 0 ? Math.round(d.total / d.orcamentos) : 0,
+      porModalidade: [...d.porModalidade.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([codigo, m]) => ({
+        codigo,
+        modalidade: m.label,
+        equipamentos: m.equipamentos,
+        instalacao: m.instalacao,
+        monitoramento: m.monitoramento,
+        total: m.total,
+        orcamentos: m.orcamentos,
+      })),
+    }));
+
+    // Crescimento médio anual
+    let crescimentoMedio = 0;
+    if (porAno.length >= 2) {
+      const crescimentos: number[] = [];
+      for (let i = 1; i < porAno.length; i++) {
+        if (porAno[i - 1].total > 0) {
+          crescimentos.push(((porAno[i].total - porAno[i - 1].total) / porAno[i - 1].total) * 100);
+        }
+      }
+      if (crescimentos.length > 0) {
+        crescimentoMedio = Math.round((crescimentos.reduce((s, v) => s + v, 0) / crescimentos.length) * 10) / 10;
+      }
+    }
+
+    return { porAno, crescimentoMedio };
+  }
+
   // ─── Retenção de Clientes (segmentado por modalidade) ────────
 
   private static readonly MOD_LABELS: Record<string, string> = {
@@ -518,13 +627,28 @@ export class DashboardRepository {
       ELSE ISNULL(c.[Modalidade], '')
     END`;
 
+  /**
+   * Modalidade efetiva para Orçamentos: usa o.[Modalidade] do orçamento,
+   * com fallback para o cliente vinculado (c.[Modalidade] + DiaVencimento).
+   */
+  private static readonly MOD_EFETIVA_ORC = `
+    CASE
+      WHEN o.[Modalidade] IN ('L', 'C') THEN 'L'
+      WHEN o.[Modalidade] = 'V' THEN 'V'
+      WHEN o.[Modalidade] = 'R' THEN 'R'
+      WHEN c.[Modalidade] = 'V' AND ISNULL(c.[DiaVencimento], 0) IN (5, 10, 15, 20, 25) THEN 'L'
+      WHEN c.[Modalidade] IN ('L', 'C') THEN 'L'
+      WHEN c.[Modalidade] = 'R' THEN 'R'
+      ELSE ISNULL(o.[Modalidade], ISNULL(c.[Modalidade], ''))
+    END`;
+
   async getRetencao(dataInicio?: string, dataFim?: string) {
     this.prisma.ensureConnection();
 
     const di = dataInicio ? new Date(dataInicio + 'T00:00:00.000Z') : null;
     const df = dataFim ? new Date(dataFim + 'T23:59:59.999Z') : null;
-    const doze = new Date(Date.now() - 365 * 86_400_000);
-    const pDi = di ?? doze;
+    const umAnoAtras = new Date(Date.now() - 365 * 86_400_000);
+    const pDi = di ?? umAnoAtras;
     const pDf = df ?? new Date();
 
     // Alias para a expressão de modalidade efetiva (SQL Server não aceita interpolação Prisma para fragmentos)
@@ -559,31 +683,38 @@ export class DashboardRepository {
         GROUP BY ${ME}`, pDi, pDf),
 
       // 3. Cancelados por modalidade efetiva no período
+      // Usa COALESCE: ValorNF do cliente (se > 0) senão ValorMonitoramento do último orçamento
       this.prisma.$queryRawUnsafe<ModCancelRow[]>(`
         SELECT ${ME} as modalidade, COUNT(*) as total,
-               SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrr,
+               SUM(CAST(COALESCE(NULLIF(c.[ValorNF], 0), ult.vm, 0) AS FLOAT)) as mrr,
                AVG(DATEDIFF(month, c.[DataCadastro], c.[Cancelamento])) as tempoMedio
         FROM [Clientes] c
+        OUTER APPLY (
+          SELECT TOP 1 o.[ValorMonitoramento] as vm
+          FROM [Orçamentos] o
+          WHERE o.[Cliente] = c.[CodCliente] AND o.[ValorMonitoramento] > 0
+          ORDER BY o.[Fechamento] DESC
+        ) ult
         WHERE c.[Cancelamento] >= @P1 AND c.[Cancelamento] <= @P2 AND c.[Empresa] IN (2, 1002)
         GROUP BY ${ME}`, pDi, pDf),
 
-      // 4. Evolução mensal novos POR MODALIDADE efetiva (12 meses)
+      // 4. Evolução mensal novos POR MODALIDADE efetiva (respeita filtro de período)
       this.prisma.$queryRawUnsafe<MonthModRow[]>(`
         SELECT YEAR(c.[DataCadastro]) as ano, MONTH(c.[DataCadastro]) as mes,
                ${ME} as modalidade, COUNT(*) as total
         FROM [Clientes] c
-        WHERE c.[DataCadastro] >= @P1 AND c.[DataCadastro] IS NOT NULL AND c.[Empresa] IN (2, 1002)
-        GROUP BY YEAR(c.[DataCadastro]), MONTH(c.[DataCadastro]), ${ME}`, doze),
+        WHERE c.[DataCadastro] >= @P1 AND c.[DataCadastro] <= @P2 AND c.[DataCadastro] IS NOT NULL AND c.[Empresa] IN (2, 1002)
+        GROUP BY YEAR(c.[DataCadastro]), MONTH(c.[DataCadastro]), ${ME}`, pDi, pDf),
 
-      // 5. Evolução mensal cancelados POR MODALIDADE efetiva (12 meses)
+      // 5. Evolução mensal cancelados POR MODALIDADE efetiva (respeita filtro de período)
       this.prisma.$queryRawUnsafe<MonthModRow[]>(`
         SELECT YEAR(c.[Cancelamento]) as ano, MONTH(c.[Cancelamento]) as mes,
                ${ME} as modalidade, COUNT(*) as total
         FROM [Clientes] c
-        WHERE c.[Cancelamento] >= @P1 AND c.[Cancelamento] IS NOT NULL AND c.[Empresa] IN (2, 1002)
-        GROUP BY YEAR(c.[Cancelamento]), MONTH(c.[Cancelamento]), ${ME}`, doze),
+        WHERE c.[Cancelamento] >= @P1 AND c.[Cancelamento] <= @P2 AND c.[Cancelamento] IS NOT NULL AND c.[Empresa] IN (2, 1002)
+        GROUP BY YEAR(c.[Cancelamento]), MONTH(c.[Cancelamento]), ${ME}`, pDi, pDf),
 
-      // 6. Permanência por faixa POR MODALIDADE efetiva
+      // 6. Permanência por faixa POR MODALIDADE efetiva (filtrado pelo período de cancelamento)
       this.prisma.$queryRawUnsafe<FaixaModRow[]>(`
         SELECT ${ME} as modalidade,
           CASE
@@ -594,22 +725,29 @@ export class DashboardRepository {
           END as faixa,
           COUNT(*) as total
         FROM [Clientes] c
-        WHERE c.[Cancelamento] IS NOT NULL AND c.[DataCadastro] IS NOT NULL AND c.[Empresa] IN (2, 1002)
+        WHERE c.[Cancelamento] IS NOT NULL AND c.[Cancelamento] >= @P1 AND c.[Cancelamento] <= @P2
+          AND c.[DataCadastro] IS NOT NULL AND c.[Empresa] IN (2, 1002)
         GROUP BY ${ME},
           CASE
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 6 THEN '0-6 meses'
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 12 THEN '6-12 meses'
             WHEN DATEDIFF(month, c.[DataCadastro], c.[Cancelamento]) < 24 THEN '1-2 anos'
             ELSE '2+ anos'
-          END`),
+          END`, pDi, pDf),
 
-      // 7. Churn por vendedor
+      // 7. Churn por vendedor (fallback ValorMonitoramento do orçamento se ValorNF zerado)
       this.prisma.$queryRawUnsafe<VendedorChurnRow[]>(`
         SELECT COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])), 'Sem vendedor') as vendedor,
                COUNT(*) as cancelados,
-               SUM(CAST(ISNULL(c.[ValorNF], 0) AS FLOAT)) as mrrPerdido
+               SUM(CAST(COALESCE(NULLIF(c.[ValorNF], 0), ult.vm, 0) AS FLOAT)) as mrrPerdido
         FROM [Clientes] c
         LEFT JOIN [Senhas] s ON s.[IDUsuário] = c.[Vendedor]
+        OUTER APPLY (
+          SELECT TOP 1 o.[ValorMonitoramento] as vm
+          FROM [Orçamentos] o
+          WHERE o.[Cliente] = c.[CodCliente] AND o.[ValorMonitoramento] > 0
+          ORDER BY o.[Fechamento] DESC
+        ) ult
         WHERE c.[Cancelamento] >= @P1 AND c.[Cancelamento] <= @P2 AND c.[Empresa] IN (2, 1002)
         GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(s.[Identificação])), ''), LTRIM(RTRIM(s.[Usuário])), 'Sem vendedor')
         ORDER BY COUNT(*) DESC`, pDi, pDf),
@@ -676,7 +814,8 @@ export class DashboardRepository {
       const n = novosMap.get(codigo) ?? { total: 0, mrr: 0 };
       const c = cancelMap.get(codigo) ?? { total: 0, mrr: 0, tempoMedio: 0 };
       const ta = tempoAtivosMap.get(codigo) ?? { tempoMedio: 0, total: 0 };
-      const base = a.total + c.total;
+      // Base no início = ativos atuais + cancelados - novos (por modalidade)
+      const base = a.total + c.total - n.total;
       return {
         modalidade: modLabel(codigo),
         codigo,
@@ -699,8 +838,9 @@ export class DashboardRepository {
     const canceladosNoPeriodo = porModalidade.reduce((s, m) => s + m.cancelados, 0);
     const mrrPerdido = porModalidade.reduce((s, m) => s + m.mrrPerdido, 0);
     const mrrNovos = porModalidade.reduce((s, m) => s + m.mrrNovos, 0);
-    const baseInicio = totalAtivos + canceladosNoPeriodo;
-    const taxaRetencao = baseInicio > 0 ? Math.round((totalAtivos / baseInicio) * 1000) / 10 : 100;
+    // Base no início do período = ativos atuais + cancelados no período - novos no período
+    const baseInicio = totalAtivos + canceladosNoPeriodo - novosNoPeriodo;
+    const taxaRetencao = baseInicio > 0 ? Math.round(((baseInicio - canceladosNoPeriodo) / baseInicio) * 1000) / 10 : 100;
     const churnRate = baseInicio > 0 ? Math.round((canceladosNoPeriodo / baseInicio) * 1000) / 10 : 0;
     const tempoTotal = porModalidade.filter((m) => m.cancelados > 0);
     const tempoMedioPermanencia = tempoTotal.length > 0

@@ -8,6 +8,7 @@ import { createDataSource } from '../../lib/dataSource/factory';
 import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockLeads, mockOrdens, mockSolucoes, mockVistorias } from '../../mocks/data';
 import { loadMock } from '../../services/mockStorage';
+import { loadState } from '../../services/appState';
 import { Lead, OrdemDeServico, SolucaoTecnica, Vistoria } from '../../types';
 
 type VendaStatus = 'solucao' | 'vistoria' | 'os_pendente' | 'em_instalacao' | 'concluida';
@@ -46,10 +47,10 @@ export function VendasListPage() {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    // Sem API: sempre do localStorage
-    setSolucoes(loadMock('mock_solucoes', mockSolucoes));
-    setVistorias(loadMock('mock_vistorias', mockVistorias));
-    setOrdens(loadMock('mock_ordens', mockOrdens));
+    // Load from SQLite (AppKv)
+    loadState<SolucaoTecnica[]>('solucoes', []).then((s) => setSolucoes(s.length ? s : loadMock('mock_solucoes', mockSolucoes)));
+    loadState<Vistoria[]>('vistorias', []).then((s) => setVistorias(s.length ? s : loadMock('mock_vistorias', mockVistorias)));
+    loadState<OrdemDeServico[]>('ordens_servico', []).then((s) => setOrdens(s.length ? s : loadMock('mock_ordens', mockOrdens)));
 
     let cancelled = false;
     async function load() {

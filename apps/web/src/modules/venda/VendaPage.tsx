@@ -15,6 +15,7 @@ import {
 } from '../../mocks/data';
 import { compressImage } from '../../services/imageUtils';
 import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadState, saveState } from '../../services/appState';
 import {
   AmbienteVistoria, BlocoCategoria, BlocoTecnico, Equipment,
   InstallationPoint, ItemSolucao, Kit, Lead, Marca,
@@ -98,10 +99,19 @@ export function VendaPage() {
 
   /* --- load --- */
   useEffect(() => {
-    // Sem API: solucoes, ordens, vistorias, users sempre do localStorage
-    setSolucoes(loadMock('mock_solucoes', mockSolucoes));
-    setOrdens(loadMock('mock_ordens', mockOrdens));
-    setVistorias(loadMock('mock_vistorias', mockVistorias));
+    // Load from SQLite (AppKv) with localStorage migration fallback
+    loadState<SolucaoTecnica[]>('solucoes', []).then((saved) => {
+      if (!saved.length) { const old = loadMock('mock_solucoes', mockSolucoes); if (old.length) { setSolucoes(old); saveState('solucoes', old); return; } }
+      setSolucoes(saved);
+    });
+    loadState<OrdemDeServico[]>('ordens_servico', []).then((saved) => {
+      if (!saved.length) { const old = loadMock('mock_ordens', mockOrdens); if (old.length) { setOrdens(old); saveState('ordens_servico', old); return; } }
+      setOrdens(saved);
+    });
+    loadState<Vistoria[]>('vistorias', []).then((saved) => {
+      if (!saved.length) { const old = loadMock('mock_vistorias', mockVistorias); if (old.length) { setVistorias(old); saveState('vistorias', old); return; } }
+      setVistorias(saved);
+    });
     setUsers(loadMock('mock_users', mockUsers));
 
     let cancelled = false;
@@ -125,9 +135,9 @@ export function VendaPage() {
 
   /* --- persist --- */
   useEffect(() => { if (leads.length) saveMock('mock_leads', leads); }, [leads]);
-  useEffect(() => { if (solucoes.length) saveMock('mock_solucoes', solucoes); }, [solucoes]);
-  useEffect(() => { saveMock('mock_ordens', ordens); }, [ordens]);
-  useEffect(() => { saveMock('mock_vistorias', vistorias); }, [vistorias]);
+  useEffect(() => { if (solucoes.length) saveState('solucoes', solucoes); }, [solucoes]);
+  useEffect(() => { if (ordens.length) saveState('ordens_servico', ordens); }, [ordens]);
+  useEffect(() => { if (vistorias.length) saveState('vistorias', vistorias); }, [vistorias]);
 
   // Merged equipments: include synthetic entries from kit items not in the products list
   const mergedEquipments = useMemo<Equipment[]>(() => {

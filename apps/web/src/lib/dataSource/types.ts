@@ -161,6 +161,32 @@ export type TecnicoRow = {
   receitaTotal: number;
 };
 
+export type FaturamentoAnualModalidade = {
+  codigo: string;
+  modalidade: string;
+  equipamentos: number;
+  instalacao: number;
+  monitoramento: number;
+  total: number;
+  orcamentos: number;
+};
+
+export type FaturamentoAnualItem = {
+  ano: number;
+  equipamentos: number;
+  instalacao: number;
+  monitoramento: number;
+  total: number;
+  orcamentos: number;
+  ticketMedio: number;
+  porModalidade: FaturamentoAnualModalidade[];
+};
+
+export type FaturamentoAnualData = {
+  porAno: FaturamentoAnualItem[];
+  crescimentoMedio: number;
+};
+
 export type FinanceiroDashboard = {
   receitaEquipamentos: number;
   receitaInstalacao: number;

@@ -135,6 +135,12 @@ Conexão nomeada `'sqlite'` no TypeORM.
 | `config:comissoes`       | `ComissaoConfig`        | Regras de comissão (prazo, qtd mensalidades, multiplicador adesão) |
 | `comissoes:overrides`    | `Record<id, ComissaoOverride>` | Override individual de status/pagamento por cliente |
 | `comissoes:vendedores_ativos` | `string[]`         | Lista de vendedores ativos selecionados pelo admin |
+| `propostas`            | `PropostaLocal[]`        | Propostas técnicas criadas pelo vendedor (SolucoesPage) |
+| `propostas_legacy`     | `Proposta[]`             | Propostas formato antigo (PropostasPage) |
+| `ordens_servico`       | `OrdemDeServico[]`       | Ordens de serviço vinculadas a propostas |
+| `solucoes`             | `SolucaoTecnica[]`       | Soluções técnicas (VendaPage/OrcamentosPage) |
+| `vistorias`            | `Vistoria[]`             | Registros de vistorias realizadas |
+| `orcamentos_local`     | `Orcamento[]`            | Orçamentos criados localmente |
 
 ## Propostas — `/solucoes`
 
@@ -166,9 +172,11 @@ Fluxo simplificado para o vendedor criar propostas técnicas rapidamente.
 - `config:precos_custo` — preço de custo por equipmentId (admin configura)
   - Fallback: usa preço do BD (`Equipment.price`) quando não cadastrado
 
-### Dados locais (localStorage)
-- `mock_propostas_v2` — lista de propostas criadas (`PropostaLocal[]`)
-- Migração automática de `mock_solucoes` (formato antigo) para v2
+### Dados do vendedor (AppKv — SQLite)
+- `propostas` — lista de propostas criadas (`PropostaLocal[]`), persistidas no SQLite
+- Migração automática: se AppKv vazio, puxa do localStorage antigo (`mock_propostas_v2` / `mock_solucoes`) e salva no SQLite
+- `ordens_servico` — ordens de serviço criadas a partir de propostas aprovadas
+- Todos os dados de negócio usam `saveState`/`loadState` (AppKv) — **nunca** `saveMock`/`loadMock` para dados reais
 
 ### Cálculos
 - **Venda**: subtotal equipamentos (preço venda × qtd) + mão de obra + acréscimo instalação + CREA
@@ -245,7 +253,7 @@ O dashboard é organizado em 5 tabs com foco separado:
 
 | Tab | Foco | Conteúdo principal |
 |-----|------|--------------------|
-| **Financeiro** | Receita e custos | KPIs receita, evolução mensal, mix receita, DRE, custos operacionais |
+| **Financeiro** | Receita e custos | KPIs receita, evolução mensal, mix receita, DRE, custos operacionais, histórico faturamento anual |
 | **Operacional** | Performance humana | Vendedor, Técnico, OS instalação/manutenção |
 | **Retenção** | Churn detalhado | Análise completa de entrada/saída de clientes, segmentado por modalidade |
 | **CRM** | Pipeline e leads | Funil, leads por origem, conversão, fechamentos |
@@ -256,6 +264,45 @@ O dashboard é organizado em 5 tabs com foco separado:
 - Cada tab renderiza condicionalmente: `{dashTab === 'x' && (<>...</>)}`
 - Financeiro e Operacional compartilham o mesmo filtro de período (preset state)
 - Retenção usa o mesmo filtro mas carrega dados via `getRetencao()` separado
+
+## Faturamento Anual — Tab Financeiro (seção)
+
+Histórico de crescimento do faturamento da empresa ao longo dos anos, **segmentado por modalidade**.
+
+### Backend
+- Método: `DashboardRepository.getFaturamentoAnual()`
+- Endpoint: `GET /dashboard/faturamento-anual`
+- Query SQL: somente orçamentos **status `'F'` (Faturado)**, agrupados pela **data de Fechamento** por ano
+- JOIN com `Clientes` para resolver **modalidade efetiva** (`MOD_EFETIVA_ORC`):
+  - `o.[Modalidade]` do orçamento tem prioridade
+  - Fallback para `c.[Modalidade]` + `c.[DiaVencimento]` do cliente vinculado
+  - V com DiaVencimento 5/10/15/20/25 → Monitoramento (L)
+- Retorna dados agrupados por ano e por modalidade (Monitoramento/Venda/Rastreamento)
+- Inclui `ValorMonitoramento` separado do total de equipamentos+instalação
+- `crescimentoMedio`: variação % média entre anos consecutivos
+
+### Frontend (DashboardPage.tsx — dentro da tab Financeiro)
+- Carregado uma vez no mount (não depende do filtro de período)
+- **Filtro por modalidade**: pills (Todas / Monitoramento / Venda / Rastreamento)
+- **4 KPIs**: Total Histórico, Crescimento Médio Anual, Melhor Ano, Ticket Médio Atual — reagem ao filtro
+- **Gráfico SVG**: `FaturamentoAnualChart.tsx` — barras empilhadas por modalidade (verde=Monitoramento, dourado=Venda, azul=Rastreamento), linha de tendência, % crescimento YoY
+- **Tabela detalhada**: colunas por modalidade (com cor), total, orçamentos, ticket médio, crescimento %
+- Cores: Monitoramento `#43C17B`, Venda `#C8A951`, Rastreamento `#5B9BD5`
+
+### Tipos
+```typescript
+type FaturamentoAnualModalidade = {
+  codigo: string; modalidade: string;
+  equipamentos: number; instalacao: number; monitoramento: number;
+  total: number; orcamentos: number;
+};
+type FaturamentoAnualItem = {
+  ano: number; equipamentos: number; instalacao: number; monitoramento: number;
+  total: number; orcamentos: number; ticketMedio: number;
+  porModalidade: FaturamentoAnualModalidade[];
+};
+type FaturamentoAnualData = { porAno: FaturamentoAnualItem[]; crescimentoMedio: number };
+```
 
 ## Retenção de Clientes — Tab Retenção
 
@@ -418,6 +465,7 @@ Fonte de dados: CRM unificado (`GET /crm/leads`) — leads reais das planilhas G
 | CRUD   | `/app-state/:key`             | Key-value store (pipeline state) |
 | GET    | `/dashboard/stats?period=`    | KPIs do dashboard                |
 | GET    | `/dashboard/financeiro`       | Painel financeiro detalhado      |
+| GET    | `/dashboard/faturamento-anual`| Histórico de faturamento por ano |
 | GET    | `/dashboard/retencao`         | Análise de retenção de clientes  |
 | GET    | `/products`                   | Produtos/equipamentos            |
 | GET    | `/kits`                       | Kits                             |
@@ -436,6 +484,19 @@ Fonte de dados: CRM unificado (`GET /crm/leads`) — leads reais das planilhas G
 | GET    | `/comissoes/vendedores`       | Orçamentos comodato agrupados por vendedor |
 | GET    | `/comissoes/usuarios-disponiveis` | Todos os usuários do SQL Server  |
 | GET    | `/comissoes/clientes-ativos`  | Clientes ativos com vendedor/técnico |
+
+## Prisma Schema — Nullable fields
+
+O SQL Server legado tem muitos campos com `NULL` onde se esperaria valor.
+No Prisma schema, campos que podem ter null no banco **devem** ser opcionais (`?`):
+- `Produto.cancelado`, `Produto.descricao`
+- `Prospect.acompanhaPipe`
+- `ProspectAcaoVenda.descricao`, `ProspectAcaoVenda.data`
+- `DadoEntidade.descreve`, `DadoEntidade.inativa`
+- `EtapaOrcamento.etapa`
+- `PreOrcamento.descricao`
+
+Se aparecer erro `"found incompatible value of null"` no Prisma, a solução é tornar o campo opcional no schema e rodar `npx prisma generate`.
 
 ## Backend — Fail-soft
 
@@ -559,6 +620,8 @@ Mapeamento completo: `docs/DB_MAPPING.md`
 - RBAC pattern: `const canWrite = role === 'ADMIN' || role === 'INFRA';`
 - Toast pattern: `const { showToast } = useToast();`
 - State persistence: `loadState(key, fallback)` / `saveState(key, value)` em `services/appState.ts`
+- **Dados de negócio** (propostas, ordens, vistorias, soluções) → sempre `saveState`/`loadState` (SQLite via AppKv)
+- **Nunca usar** `saveMock`/`loadMock` para dados reais — apenas como fallback de leitura para migração
 - Vendor custom: recharts e dnd-kit em `apps/web/src/vendor/` (sem libs externas)
 
 ### Arquivos importantes (não reverter sem pedir)

@@ -10,7 +10,7 @@ import { createDataSource } from '../../lib/dataSource/factory';
 import { ComissaoConfig, DEFAULT_COMISSAO_CONFIG, PreOrcamentoApiDto } from '../../lib/dataSource/types';
 import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockEquipments, mockKits, mockLeads, mockOrdens, mockSolucoes, mockUsers } from '../../mocks/data';
-import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadMock } from '../../services/mockStorage';
 import { loadState, saveState } from '../../services/appState';
 import {
   BlocoCategoria, Equipment, Kit, Lead, Marca, OrdemDeServico,
@@ -180,26 +180,46 @@ export function SolucoesPage() {
 
   // Load data
   useEffect(() => {
-    // Load local data
-    const saved = loadMock<PropostaLocal[]>('mock_propostas_v2', []);
-    // Migrate old solucoes to new format
-    if (!saved.length) {
-      const oldSol = loadMock<SolucaoTecnica[]>('mock_solucoes', mockSolucoes);
-      if (oldSol.length) {
-        const migrated: PropostaLocal[] = oldSol.map((s) => ({
-          id: s.id, clienteNome: s.clienteNome, clienteTel: '', clienteEndereco: '',
-          tipoLocal: 'Residencial' as const, marca: s.marca,
-          itens: s.blocos.flatMap((b) => b.itens.map((i) => ({ equipmentId: i.equipmentId, quantidade: i.quantidade, observacao: i.observacao }))),
-          observacoes: s.observacaoGeral, status: s.status, criadoPor: s.criadoPor,
-          createdAt: s.createdAt, updatedAt: s.updatedAt,
-        }));
-        setPropostas(migrated);
+    // Load propostas from SQLite (AppKv)
+    loadState<PropostaLocal[]>('propostas', []).then((saved) => {
+      // Migrate from old localStorage if AppKv is empty
+      if (!saved.length) {
+        const oldLocal = loadMock<PropostaLocal[]>('mock_propostas_v2', []);
+        if (oldLocal.length) {
+          setPropostas(oldLocal);
+          saveState('propostas', oldLocal); // migrate to SQLite
+          return;
+        }
+        const oldSol = loadMock<SolucaoTecnica[]>('mock_solucoes', mockSolucoes);
+        if (oldSol.length) {
+          const migrated: PropostaLocal[] = oldSol.map((s) => ({
+            id: s.id, clienteNome: s.clienteNome, clienteTel: '', clienteEndereco: '',
+            tipoLocal: 'Residencial' as const, marca: s.marca,
+            itens: s.blocos.flatMap((b) => b.itens.map((i) => ({ equipmentId: i.equipmentId, quantidade: i.quantidade, observacao: i.observacao }))),
+            observacoes: s.observacaoGeral, status: s.status, criadoPor: s.criadoPor,
+            createdAt: s.createdAt, updatedAt: s.updatedAt,
+          }));
+          setPropostas(migrated);
+          saveState('propostas', migrated); // migrate to SQLite
+        }
+      } else {
+        setPropostas(saved);
       }
-    } else {
-      setPropostas(saved);
-    }
+    });
 
-    setOrdens(loadMock('mock_ordens', mockOrdens));
+    // Load ordens from SQLite (AppKv)
+    loadState<OrdemDeServico[]>('ordens_servico', []).then((saved) => {
+      if (!saved.length) {
+        const oldLocal = loadMock<OrdemDeServico[]>('mock_ordens', mockOrdens);
+        if (oldLocal.length) {
+          setOrdens(oldLocal);
+          saveState('ordens_servico', oldLocal); // migrate to SQLite
+          return;
+        }
+      }
+      setOrdens(saved);
+    });
+
     setUsers(loadMock('mock_users', mockUsers));
 
     // Load from API
@@ -252,9 +272,9 @@ export function SolucoesPage() {
     setView('editor');
   }, [searchParams, autoFillDone, users, role]);
 
-  // Persist
-  useEffect(() => { if (propostas.length) saveMock('mock_propostas_v2', propostas); }, [propostas]);
-  useEffect(() => { saveMock('mock_ordens', ordens); }, [ordens]);
+  // Persist to SQLite (AppKv)
+  useEffect(() => { if (propostas.length) saveState('propostas', propostas); }, [propostas]);
+  useEffect(() => { if (ordens.length) saveState('ordens_servico', ordens); }, [ordens]);
 
   // Unified kit options: DB models + local kits
   const kitOptions = useMemo<KitOption[]>(() => {

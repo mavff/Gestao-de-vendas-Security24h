@@ -15,6 +15,11 @@ export class DashboardController {
     return this.dashboardRepo.getFinanceiro(dataInicio, dataFim);
   }
 
+  @Get('faturamento-anual')
+  getFaturamentoAnual() {
+    return this.dashboardRepo.getFaturamentoAnual();
+  }
+
   @Get('retencao')
   getRetencao(
     @Query('dataInicio') dataInicio?: string,

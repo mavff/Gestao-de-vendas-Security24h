@@ -8,7 +8,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource } from '../../lib/dataSource/factory';
 import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockEquipments, mockLeads, mockOrdens, mockPropostas } from '../../mocks/data';
-import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadMock } from '../../services/mockStorage';
+import { loadState, saveState } from '../../services/appState';
 import { Equipment, Lead, OrdemDeServico, Proposta, PropostaItem, PropostaServico } from '../../types';
 
 type View = 'list' | 'form';
@@ -29,9 +30,9 @@ export function PropostasPage() {
   const [prefilledLeadId, setPrefilledLeadId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Itens sem API: sempre do localStorage
-    setPropostas(loadMock('mock_propostas', mockPropostas));
-    setOrdens(loadMock('mock_ordens', mockOrdens));
+    // Load from SQLite (AppKv)
+    loadState<Proposta[]>('propostas_legacy', []).then((s) => setPropostas(s.length ? s : loadMock('mock_propostas', mockPropostas)));
+    loadState<OrdemDeServico[]>('ordens_servico', []).then((s) => setOrdens(s.length ? s : loadMock('mock_ordens', mockOrdens)));
 
     const params = new URLSearchParams(window.location.search);
     const lid = params.get('leadId');
@@ -54,8 +55,8 @@ export function PropostasPage() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => { if (propostas.length) saveMock('mock_propostas', propostas); }, [propostas]);
-  useEffect(() => { saveMock('mock_ordens', ordens); }, [ordens]);
+  useEffect(() => { if (propostas.length) saveState('propostas_legacy', propostas); }, [propostas]);
+  useEffect(() => { if (ordens.length) saveState('ordens_servico', ordens); }, [ordens]);
 
   function handleSave(proposta: Proposta) {
     setPropostas((cur) => {

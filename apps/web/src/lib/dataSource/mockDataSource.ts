@@ -6,6 +6,7 @@ import { DataSourceRegistry, IComissoesDataSource, ICrmDataSource, IDashboardDat
 import {
   DashboardStats,
   EquipmentQuery,
+  FaturamentoAnualData,
   FinanceiroDashboard,
   FunnelStats,
   RetencaoDashboard,
@@ -141,6 +142,10 @@ class MockDashboardDataSource implements IDashboardDataSource {
       ],
       porTecnico: [],
     };
+  }
+
+  async getFaturamentoAnual(): Promise<FaturamentoAnualData> {
+    return { porAno: [], crescimentoMedio: 0 };
   }
 
   async getRetencao(): Promise<RetencaoDashboard> {

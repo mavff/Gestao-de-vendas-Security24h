@@ -18,7 +18,7 @@ datasource db {
 
 model Produto {
   codProduto         Int      @id @map("CodProduto")
-  descricao          String   @map("Descriçao") @db.NVarChar(200)
+  descricao          String?  @map("Descriçao") @db.NVarChar(200)
   codFabricante      String?  @map("CodFabricante") @db.NVarChar(50)
   codMarca           Int?     @map("CodMarca")
   codGrupo           Int?     @map("CodGrupo")
@@ -26,7 +26,7 @@ model Produto {
   codCategoria       Int?     @map("CodCategoria")
   preco              Decimal? @map("Preço") @db.Decimal(18, 2)
   foto               String?  @map("Foto") @db.NVarChar(500)
-  cancelado          Boolean  @default(false) @map("Cancelado")
+  cancelado          Boolean? @default(false) @map("Cancelado")
   pontos             Int?     @map("Pontos")
   produtoKit         Boolean? @map("ProdutoKit")
   acrescimoInstalacao Decimal? @map("AcréscimoInstalação") @db.Decimal(18, 2)
@@ -84,7 +84,7 @@ model Prospect {
   cpf           String?   @map("CPF") @db.NVarChar(20)
   latitude      Decimal?  @map("Latitude") @db.Decimal(12, 8)
   longitude     Decimal?  @map("Longitude") @db.Decimal(12, 8)
-  acompanhaPipe Boolean   @default(false) @map("AcompanhaPipe")
+  acompanhaPipe Boolean?  @default(false) @map("AcompanhaPipe")
   usuario       String?   @map("Usuário") @db.NVarChar(50)
 
   // Relations
@@ -100,9 +100,9 @@ model Prospect {
 model ProspectAcaoVenda {
   codAcao       Int       @id @map("CodAção")
   codProspect   Int       @map("CodProspect")
-  data          DateTime  @map("Data") @db.DateTime
+  data          DateTime? @map("Data") @db.DateTime
   hora          String?   @map("Hora") @db.NVarChar(10)
-  descricao     String    @map("Descrição") @db.NVarChar(4000)
+  descricao     String?   @map("Descrição") @db.NVarChar(4000)
   acao          Int?      @map("Ação")
   vendedor      Int?      @map("Vendedor")
   probabilidade Int?      @map("Probabilidade")
@@ -121,7 +121,7 @@ model EtapaOrcamento {
   codInterno   Int      @id @map("CodInterno")
   usuario      String?  @map("Usuário") @db.NVarChar(50)
   unidade      Int?     @map("Unidade")
-  etapa        String   @map("Etapa") @db.NVarChar(100)
+  etapa        String?  @map("Etapa") @db.NVarChar(100)
   ordem        Int?     @map("Ordem")
   corEtapa     String?  @map("CorEtapa") @db.NVarChar(20)
   descrEtapa   String?  @map("DescrEtapa") @db.NVarChar(500)
@@ -137,8 +137,8 @@ model DadoEntidade {
   codInterno  Int      @id @map("CodInterno")
   codEntidade Int      @map("CodEntidade")
   codigo      Int?     @map("Codigo")
-  descreve    String   @map("Descreve") @db.NVarChar(200)
-  inativa     Boolean  @default(false) @map("Inativa")
+  descreve    String?  @map("Descreve") @db.NVarChar(200)
+  inativa     Boolean? @default(false) @map("Inativa")
 
   @@map("DadosEntidades")
 }
@@ -310,7 +310,7 @@ model OrdemServico {
 
 model PreOrcamento {
   codInterno          Int      @id @map("CodInterno")
-  descricao           String   @map("Descrição") @db.NVarChar(200)
+  descricao           String?  @map("Descrição") @db.NVarChar(200)
   unidade             Int?     @map("Unidade")
   observacoes         String?  @map("Observações") @db.NVarChar(4000)
   valorMensalVenda    Decimal? @map("ValorMensalVenda") @db.Decimal(18, 2)

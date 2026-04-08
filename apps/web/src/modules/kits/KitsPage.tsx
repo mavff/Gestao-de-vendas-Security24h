@@ -9,6 +9,7 @@ import { createDataSource } from '../../lib/dataSource/factory';
 import { PreOrcamentoApiDto, PreOrcamentoProdutoApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockKits } from '../../mocks/data';
 import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadState, saveState } from '../../services/appState';
 import { Equipment, Kit, KitCategoria, Marca } from '../../types';
 
 /* ---- Constants ---- */
@@ -29,7 +30,7 @@ const marcaColors: Record<Marca, string> = {
   DSC: '#5B9BD5', JFL: '#AB47BC', PPA: '#FFA726', Viaweb: '#E3B341', 'Genérico': '#B5B5B5',
 };
 
-type Tab = 'modelos' | 'kits';
+type Tab = 'modelos' | 'kits' | 'custos';
 
 /* ============================================================
    Main Page
@@ -39,8 +40,13 @@ export function KitsPage() {
   const { showToast } = useToast();
   const { role } = useAuth();
   const canWrite = role === 'ADMIN';
+  const canEditCost = role === 'ADMIN' || role === 'GESTOR';
 
   const [tab, setTab] = useState<Tab>('modelos');
+  const [precosCusto, setPrecosCusto] = useState<Record<string, number>>({});
+  const [custoSearch, setCustoSearch] = useState('');
+  const [custoFilter, setCustoFilter] = useState<string>('todos');
+  const [localCustos, setLocalCustos] = useState<Record<string, number>>({});
 
   // --- Modelos (PréOrçamento) state ---
   const [modelos, setModelos] = useState<PreOrcamentoApiDto[]>([]);
@@ -81,7 +87,7 @@ export function KitsPage() {
     return () => { cancelled = true; };
   }, []);
 
-  /* ---- Load kits + equipments ---- */
+  /* ---- Load kits + equipments + precos custo ---- */
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -97,6 +103,9 @@ export function KitsPage() {
       setKitsLoading(false);
     }
     load();
+    loadState<Record<string, number>>('config:precos_custo', {}).then((map) => {
+      if (!cancelled) { setPrecosCusto(map); setLocalCustos(map); }
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -154,6 +163,78 @@ export function KitsPage() {
     return list;
   }, [kits, filterMarca, kitSearch]);
 
+  /* ---- Cost helpers ---- */
+  // All unique equipments used across kits and modelos
+  const allKitEquipments = useMemo(() => {
+    const map = new Map<string, { id: string; nome: string; preco: number; kits: string[] }>();
+    for (const kit of kits) {
+      for (const item of kit.items) {
+        const eq = equipments.find((e) => e.id === item.equipmentId);
+        const entry = map.get(item.equipmentId) ?? { id: item.equipmentId, nome: eq?.name ?? item.itemName ?? item.equipmentId, preco: eq?.price ?? item.unitPrice ?? 0, kits: [] };
+        entry.kits.push(kit.name);
+        map.set(item.equipmentId, entry);
+      }
+    }
+    for (const m of modelos) {
+      for (const p of m.produtos) {
+        const eqId = String(p.produto?.codProduto ?? p.codProduto ?? 0);
+        if (eqId === '0') continue;
+        const entry = map.get(eqId) ?? { id: eqId, nome: p.produto?.descricao ?? p.descricao ?? `Produto ${eqId}`, preco: Number(p.produto?.preco) || 0, kits: [] };
+        if (!entry.kits.includes(m.descricao)) entry.kits.push(m.descricao);
+        map.set(eqId, entry);
+      }
+    }
+    return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [kits, modelos, equipments]);
+
+  const filteredCustoItems = useMemo(() => {
+    let list = allKitEquipments;
+    if (custoSearch) list = list.filter((e) => e.nome.toLowerCase().includes(custoSearch.toLowerCase()));
+    if (custoFilter !== 'todos') list = list.filter((e) => e.kits.includes(custoFilter));
+    return list;
+  }, [allKitEquipments, custoSearch, custoFilter]);
+
+  const allKitModelNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const e of allKitEquipments) for (const k of e.kits) names.add(k);
+    return [...names].sort();
+  }, [allKitEquipments]);
+
+  const custosDirty = useMemo(() => {
+    return allKitEquipments.some((e) => {
+      const cur = localCustos[e.id];
+      const saved = precosCusto[e.id];
+      return (cur ?? '') !== (saved ?? '');
+    });
+  }, [allKitEquipments, localCustos, precosCusto]);
+
+  function handleSaveCustos() {
+    const merged = { ...precosCusto, ...localCustos };
+    // Remove entries with 0 or empty
+    const clean: Record<string, number> = {};
+    for (const [k, v] of Object.entries(merged)) { if (v > 0) clean[k] = v; }
+    setPrecosCusto(clean);
+    setLocalCustos(clean);
+    saveState('config:precos_custo', clean);
+    showToast('Preços de custo salvos.', 'success');
+  }
+
+  // Custo stats
+  const custoStats = useMemo(() => {
+    const total = allKitEquipments.length;
+    const comCusto = allKitEquipments.filter((e) => (localCustos[e.id] ?? precosCusto[e.id] ?? 0) > 0).length;
+    const semCusto = total - comCusto;
+    const margens = allKitEquipments.filter((e) => {
+      const c = localCustos[e.id] ?? precosCusto[e.id] ?? 0;
+      return c > 0 && e.preco > 0;
+    }).map((e) => {
+      const c = localCustos[e.id] ?? precosCusto[e.id] ?? 0;
+      return ((e.preco - c) / e.preco) * 100;
+    });
+    const margemMedia = margens.length > 0 ? margens.reduce((s, v) => s + v, 0) / margens.length : 0;
+    return { total, comCusto, semCusto, margemMedia };
+  }, [allKitEquipments, localCustos, precosCusto]);
+
   /* ---- Render ---- */
   return (
     <AppShell title="Kits & Modelos">
@@ -161,9 +242,10 @@ export function KitsPage() {
       {/* Tab switcher */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: `1px solid ${theme.border}` }}>
         {([
-          { key: 'modelos', label: `Modelos do Sistema${modelos.length ? ` (${modelos.length})` : ''}` },
-          { key: 'kits',    label: `Kits Criados${kits.length ? ` (${kits.length})` : ''}` },
-        ] as { key: Tab; label: string }[]).map(({ key, label }) => (
+          { key: 'modelos' as Tab, label: `Modelos do Sistema${modelos.length ? ` (${modelos.length})` : ''}` },
+          { key: 'kits' as Tab,    label: `Kits Criados${kits.length ? ` (${kits.length})` : ''}` },
+          ...(canEditCost ? [{ key: 'custos' as Tab, label: `Custos (${allKitEquipments.length})` }] : []),
+        ]).map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -208,6 +290,16 @@ export function KitsPage() {
             {filteredModelos.map((m) => {
               const totalProd = m.produtos.reduce((s, p) => s + (Number(p.quantidade) || 0) * (Number(p.produto?.preco) || 0), 0);
               const mensalVenda = Number(m.valorMensalVenda) || 0;
+              const totalCustoM = canEditCost ? m.produtos.reduce((s, p) => {
+                const eqId = String(p.produto?.codProduto ?? p.codProduto ?? 0);
+                const custo = localCustos[eqId] ?? precosCusto[eqId] ?? 0;
+                return s + custo * (Number(p.quantidade) || 0);
+              }, 0) : 0;
+              const margemM = canEditCost && totalProd > 0 && totalCustoM > 0 ? ((totalProd - totalCustoM) / totalProd) * 100 : 0;
+              const semCustoCount = canEditCost ? m.produtos.filter((p) => {
+                const eqId = String(p.produto?.codProduto ?? p.codProduto ?? 0);
+                return (localCustos[eqId] ?? precosCusto[eqId] ?? 0) === 0;
+              }).length : 0;
               return (
                 <div
                   key={m.codInterno}
@@ -218,7 +310,10 @@ export function KitsPage() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                     <strong style={{ fontSize: 14 }}>{m.descricao}</strong>
-                    {m.ampliacao && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'rgba(200,169,81,0.15)', color: theme.gold, border: `1px solid ${theme.gold}44`, whiteSpace: 'nowrap', marginLeft: 8 }}>Ampliação</span>}
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
+                      {m.ampliacao && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'rgba(200,169,81,0.15)', color: theme.gold, border: `1px solid ${theme.gold}44`, whiteSpace: 'nowrap' }}>Ampliação</span>}
+                      {canEditCost && margemM > 0 && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: (margemM >= 30 ? '#43C17B' : margemM >= 15 ? theme.gold : '#E55B5B') + '22', color: margemM >= 30 ? '#43C17B' : margemM >= 15 ? theme.gold : '#E55B5B', border: `1px solid ${(margemM >= 30 ? '#43C17B' : margemM >= 15 ? theme.gold : '#E55B5B')}44`, whiteSpace: 'nowrap' }}>{margemM.toFixed(0)}%</span>}
+                    </div>
                   </div>
                   {m.observacoes && <div style={{ fontSize: 12, color: theme.muted, marginBottom: 8, lineHeight: 1.4 }}>{m.observacoes.length > 80 ? m.observacoes.slice(0, 80) + '...' : m.observacoes}</div>}
                   <div style={{ display: 'grid', gap: 3, marginBottom: 10 }}>
@@ -232,9 +327,15 @@ export function KitsPage() {
                   </div>
                   <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {totalProd > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Equipamentos</span><span style={{ fontWeight: 600 }}>R$ {totalProd.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>}
+                    {canEditCost && totalCustoM > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Custo</span><span style={{ fontWeight: 600, color: '#5B9BD5' }}>R$ {totalCustoM.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>}
                     {mensalVenda > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Mensalidade</span><span style={{ fontWeight: 700, color: theme.gold }}>R$ {mensalVenda.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês</span></div>}
                   </div>
-                  <div style={{ marginTop: 10, fontSize: 11, color: theme.muted }}>Clique para simular quantidades</div>
+                  {canEditCost && semCustoCount > 0 && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#E55B5B', background: 'rgba(229,91,91,0.08)', borderRadius: 6, padding: '3px 8px', display: 'inline-block' }}>
+                      {semCustoCount} {semCustoCount === 1 ? 'item' : 'itens'} sem custo
+                    </div>
+                  )}
+                  <div style={{ marginTop: canEditCost && semCustoCount > 0 ? 6 : 10, fontSize: 11, color: theme.muted }}>Clique para simular quantidades</div>
                 </div>
               );
             })}
@@ -245,6 +346,10 @@ export function KitsPage() {
               modelo={viewModelo}
               localQtds={modeloQtds}
               setLocalQtds={setModeloQtds}
+              precosCusto={localCustos}
+              canEditCost={canEditCost}
+              onUpdateCusto={(eqId, val) => setLocalCustos((prev) => ({ ...prev, [eqId]: val }))}
+              onSaveCustos={handleSaveCustos}
               onClose={() => setViewModelo(null)}
             />
           )}
@@ -285,6 +390,12 @@ export function KitsPage() {
             {filteredKits.map((kit) => {
               const mColor = kit.marca ? marcaColors[kit.marca] : theme.gold;
               const total = kitTotal(kit);
+              const totalCustoK = canEditCost ? kit.items.reduce((s, item) => {
+                const custo = localCustos[item.equipmentId] ?? precosCusto[item.equipmentId] ?? 0;
+                return s + custo * item.quantity;
+              }, 0) : 0;
+              const margemK = canEditCost && total > 0 && totalCustoK > 0 ? ((total - totalCustoK) / total) * 100 : 0;
+              const semCustoK = canEditCost ? kit.items.filter((i) => (localCustos[i.equipmentId] ?? precosCusto[i.equipmentId] ?? 0) === 0).length : 0;
               return (
                 <div
                   key={kit.id}
@@ -297,6 +408,7 @@ export function KitsPage() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <strong style={{ fontSize: 15 }}>{kit.name}</strong>
                       {kit.marca && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: mColor + '22', color: mColor, border: `1px solid ${mColor}44` }}>{kit.marca}</span>}
+                      {canEditCost && margemK > 0 && <span style={{ marginLeft: 6, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: (margemK >= 30 ? '#43C17B' : margemK >= 15 ? theme.gold : '#E55B5B') + '22', color: margemK >= 30 ? '#43C17B' : margemK >= 15 ? theme.gold : '#E55B5B', border: `1px solid ${(margemK >= 30 ? '#43C17B' : margemK >= 15 ? theme.gold : '#E55B5B')}44` }}>{margemK.toFixed(0)}%</span>}
                     </div>
                     <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold, whiteSpace: 'nowrap', marginLeft: 8 }}>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                   </div>
@@ -311,6 +423,16 @@ export function KitsPage() {
                     ))}
                     {kit.items.length > 5 && <div style={{ fontSize: 11, color: theme.muted }}>+ {kit.items.length - 5} itens...</div>}
                   </div>
+                  {canEditCost && totalCustoK > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#5B9BD5', marginBottom: 4 }}>
+                      <span>Custo</span><span style={{ fontWeight: 600 }}>R$ {totalCustoK.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                  {canEditCost && semCustoK > 0 && (
+                    <div style={{ fontSize: 11, color: '#E55B5B', background: 'rgba(229,91,91,0.08)', borderRadius: 6, padding: '3px 8px', display: 'inline-block', marginBottom: 4 }}>
+                      {semCustoK} {semCustoK === 1 ? 'item' : 'itens'} sem custo
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
                     <span style={{ flex: 1, fontSize: 11, color: theme.muted }}>Clique para simular quantidades</span>
                     {canWrite && (
@@ -332,6 +454,10 @@ export function KitsPage() {
               setLocalQtds={setKitQtds}
               itemName={itemName}
               itemUnitPrice={itemUnitPrice}
+              precosCusto={localCustos}
+              canEditCost={canEditCost}
+              onUpdateCusto={(eqId, val) => setLocalCustos((prev) => ({ ...prev, [eqId]: val }))}
+              onSaveCustos={handleSaveCustos}
               onClose={() => setViewKit(null)}
             />
           )}
@@ -346,6 +472,116 @@ export function KitsPage() {
           )}
         </>
       )}
+
+      {/* ======================== TAB: CUSTOS ======================== */}
+      {tab === 'custos' && canEditCost && (
+        <>
+          {/* KPIs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '12px 16px' }}>
+              <div style={{ fontSize: 11, color: theme.muted }}>Total Itens</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: theme.text }}>{custoStats.total}</div>
+            </div>
+            <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '12px 16px' }}>
+              <div style={{ fontSize: 11, color: theme.muted }}>Com Custo</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#43C17B' }}>{custoStats.comCusto}</div>
+            </div>
+            <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '12px 16px' }}>
+              <div style={{ fontSize: 11, color: theme.muted }}>Sem Custo</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: custoStats.semCusto > 0 ? '#E55B5B' : theme.muted }}>{custoStats.semCusto}</div>
+            </div>
+            <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '12px 16px' }}>
+              <div style={{ fontSize: 11, color: theme.muted }}>Margem Média</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: custoStats.margemMedia >= 30 ? '#43C17B' : custoStats.margemMedia >= 15 ? theme.gold : '#E55B5B' }}>
+                {custoStats.margemMedia.toFixed(1)}%
+              </div>
+            </div>
+          </div>
+
+          {/* Filtros */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              value={custoSearch}
+              onChange={(e) => setCustoSearch(e.target.value)}
+              placeholder="Buscar equipamento..."
+              style={{ ...inputStyle, width: 240, marginBottom: 0 }}
+            />
+            <select
+              value={custoFilter}
+              onChange={(e) => setCustoFilter(e.target.value)}
+              style={{ ...inputStyle, width: 220, marginBottom: 0 }}
+            >
+              <option value="todos">Todos os kits/modelos</option>
+              {allKitModelNames.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <div style={{ flex: 1 }} />
+            {custosDirty && (
+              <button onClick={handleSaveCustos} style={btnGold}>Salvar Custos</button>
+            )}
+          </div>
+
+          {/* Tabela */}
+          <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Produto</th>
+                  <th style={{ ...thStyle, textAlign: 'right', width: 120 }}>Preço Venda</th>
+                  <th style={{ ...thStyle, textAlign: 'center', width: 140 }}>Preço Custo</th>
+                  <th style={{ ...thStyle, textAlign: 'right', width: 80 }}>Margem</th>
+                  <th style={{ ...thStyle, width: 180 }}>Usado em</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCustoItems.map((item) => {
+                  const custo = localCustos[item.id] ?? precosCusto[item.id] ?? 0;
+                  const margem = custo > 0 && item.preco > 0 ? ((item.preco - custo) / item.preco) * 100 : 0;
+                  const semCusto = custo === 0 || custo === undefined;
+                  return (
+                    <tr key={item.id} style={{ background: semCusto ? 'rgba(229,91,91,0.05)' : undefined }}>
+                      <td style={tdStyle}>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{item.nome}</div>
+                        <div style={{ fontSize: 11, color: theme.muted }}>#{item.id}</div>
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        R$ {item.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={custo || ''}
+                          placeholder="0,00"
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setLocalCustos((prev) => ({ ...prev, [item.id]: val }));
+                          }}
+                          style={{
+                            background: theme.soft, color: theme.text, border: `1px solid ${semCusto ? '#E55B5B66' : theme.border}`,
+                            borderRadius: 6, padding: '5px 8px', width: 110, textAlign: 'right', fontSize: 13,
+                          }}
+                        />
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: semCusto ? theme.muted : margem >= 30 ? '#43C17B' : margem >= 15 ? theme.gold : '#E55B5B' }}>
+                        {semCusto ? '—' : `${margem.toFixed(1)}%`}
+                      </td>
+                      <td style={{ ...tdStyle, fontSize: 11, color: theme.muted }}>
+                        {item.kits.slice(0, 2).join(', ')}{item.kits.length > 2 ? ` +${item.kits.length - 2}` : ''}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredCustoItems.length === 0 && (
+              <div style={{ textAlign: 'center', color: theme.muted, padding: 32 }}>
+                Nenhum equipamento encontrado.
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </AppShell>
   );
 }
@@ -354,10 +590,14 @@ export function KitsPage() {
    Modelo Detail Modal (PréOrçamento)
    ============================================================ */
 
-function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
+function ModeloDetailModal({ modelo, localQtds, setLocalQtds, precosCusto, canEditCost, onUpdateCusto, onSaveCustos, onClose }: {
   modelo: PreOrcamentoApiDto;
   localQtds: Record<number, number>;
   setLocalQtds: (q: Record<number, number>) => void;
+  precosCusto: Record<string, number>;
+  canEditCost: boolean;
+  onUpdateCusto: (eqId: string, val: number) => void;
+  onSaveCustos: () => void;
   onClose: () => void;
 }) {
   function changeQty(id: number, delta: number) {
@@ -374,6 +614,15 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
     return s + (Number(p.produto?.preco) || 0) * qty;
   }, 0);
 
+  const totalCusto = canEditCost ? modelo.produtos.reduce((s, p) => {
+    const qty = localQtds[p.codInterno] ?? Number(p.quantidade) ?? 1;
+    const eqId = String(p.produto?.codProduto ?? p.codProduto ?? 0);
+    const custo = precosCusto[eqId] ?? 0;
+    return s + custo * qty;
+  }, 0) : 0;
+
+  const margemMedia = canEditCost && totalEquip > 0 && totalCusto > 0 ? ((totalEquip - totalCusto) / totalEquip) * 100 : 0;
+
   const mensalVenda = Number(modelo.valorMensalVenda) || 0;
   const mensalComodato = Number(modelo.valorMensalComodato) || 0;
   const valorCrea = Number(modelo.valorCrea) || 0;
@@ -383,7 +632,7 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'grid', placeItems: 'center', zIndex: 50 }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 24, width: 600, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 24, width: canEditCost ? 750 : 600, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
             <h3 style={{ margin: 0, color: theme.gold, fontSize: 18 }}>{modelo.descricao}</h3>
@@ -392,7 +641,7 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: theme.muted, fontSize: 22, cursor: 'pointer', padding: '0 4px' }}>×</button>
         </div>
         <div style={{ background: 'rgba(200,169,81,0.08)', border: `1px solid ${theme.gold}33`, borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 12, color: theme.muted }}>
-          Ajuste as quantidades para simular o preço final. Alterações são temporárias.
+          Ajuste as quantidades para simular o preço final.{canEditCost ? ' Edite os custos para atualizar margem.' : ' Alterações são temporárias.'}
         </div>
         {modelo.produtos.length > 0 && (
           <>
@@ -401,19 +650,36 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
               <thead>
                 <tr>
                   <th style={thStyle}>Produto</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Unit.</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Venda</th>
+                  {canEditCost && <th style={{ ...thStyle, textAlign: 'center' }}>Custo</th>}
                   <th style={{ ...thStyle, textAlign: 'center' }}>Qtd.</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
+                  {canEditCost && <th style={{ ...thStyle, textAlign: 'right' }}>Margem</th>}
                 </tr>
               </thead>
               <tbody>
                 {modelo.produtos.map((p) => {
                   const qty = localQtds[p.codInterno] ?? Number(p.quantidade) ?? 1;
                   const unit = Number(p.produto?.preco) || 0;
+                  const eqId = String(p.produto?.codProduto ?? p.codProduto ?? 0);
+                  const custo = precosCusto[eqId] ?? 0;
+                  const margem = custo > 0 && unit > 0 ? ((unit - custo) / unit) * 100 : 0;
+                  const semCusto = custo === 0;
                   return (
                     <tr key={p.codInterno} style={{ opacity: qty === 0 ? 0.4 : 1 }}>
                       <td style={tdStyle}>{pName(p)}{p.grupoOrcamento && <div style={{ fontSize: 11, color: theme.muted }}>{p.grupoOrcamento}</div>}</td>
                       <td style={{ ...tdStyle, textAlign: 'right', color: theme.muted, whiteSpace: 'nowrap' }}>{unit > 0 ? `R$ ${unit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '—'}</td>
+                      {canEditCost && (
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                          <input
+                            type="number" min={0} step={0.01}
+                            value={custo || ''}
+                            placeholder="0,00"
+                            onChange={(e) => onUpdateCusto(eqId, parseFloat(e.target.value) || 0)}
+                            style={{ background: theme.soft, color: theme.text, border: `1px solid ${semCusto ? '#E55B5B66' : theme.border}`, borderRadius: 6, padding: '4px 6px', width: 90, textAlign: 'right', fontSize: 12 }}
+                          />
+                        </td>
+                      )}
                       <td style={{ ...tdStyle, textAlign: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                           <button onClick={() => changeQty(p.codInterno, -1)} style={qtyBtn} disabled={qty === 0}>−</button>
@@ -422,6 +688,11 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
                         </div>
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{unit > 0 ? `R$ ${(unit * qty).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '—'}</td>
+                      {canEditCost && (
+                        <td style={{ ...tdStyle, textAlign: 'right', fontSize: 12, fontWeight: 600, color: semCusto ? theme.muted : margem >= 30 ? '#43C17B' : margem >= 15 ? theme.gold : '#E55B5B' }}>
+                          {semCusto ? '—' : `${margem.toFixed(0)}%`}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -431,7 +702,9 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
         )}
         <div style={{ background: theme.soft, borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h4 style={{ margin: '0 0 4px', color: theme.gold, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1 }}>Resumo Financeiro</h4>
-          {totalEquip > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Equipamentos</span><span style={{ fontWeight: 600 }}>R$ {totalEquip.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>}
+          {totalEquip > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Equipamentos (venda)</span><span style={{ fontWeight: 600 }}>R$ {totalEquip.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>}
+          {canEditCost && totalCusto > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Equipamentos (custo)</span><span style={{ fontWeight: 600, color: '#5B9BD5' }}>R$ {totalCusto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>}
+          {canEditCost && margemMedia > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Margem média</span><span style={{ fontWeight: 600, color: margemMedia >= 30 ? '#43C17B' : margemMedia >= 15 ? theme.gold : '#E55B5B' }}>{margemMedia.toFixed(1)}%</span></div>}
           {valorCrea > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>CREA</span><span>R$ {valorCrea.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>}
           {modelo.limitePontos != null && modelo.limitePontos > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: theme.muted }}>Limite de pontos</span><span>{modelo.limitePontos} pts</span></div>}
           <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 8, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -444,6 +717,7 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
           {hasChanges && <button onClick={resetQtds} style={btnSoft}>Resetar qtds</button>}
           {hasChanges && <span style={{ fontSize: 11, color: theme.gold, border: `1px solid ${theme.gold}44`, borderRadius: 6, padding: '2px 8px' }}>modificado</span>}
           <div style={{ flex: 1 }} />
+          {canEditCost && <button onClick={onSaveCustos} style={{ ...btnSoft, borderColor: '#5B9BD5', color: '#5B9BD5' }}>Salvar Custos</button>}
           <button onClick={onClose} style={btnGold}>Fechar</button>
         </div>
       </div>
@@ -455,12 +729,16 @@ function ModeloDetailModal({ modelo, localQtds, setLocalQtds, onClose }: {
    Kit Detail Modal (local kits)
    ============================================================ */
 
-function KitDetailModal({ kit, localQtds, setLocalQtds, itemName, itemUnitPrice, onClose }: {
+function KitDetailModal({ kit, localQtds, setLocalQtds, itemName, itemUnitPrice, precosCusto, canEditCost, onUpdateCusto, onSaveCustos, onClose }: {
   kit: Kit;
   localQtds: Record<string, number>;
   setLocalQtds: (q: Record<string, number>) => void;
   itemName: (item: Kit['items'][0]) => string;
   itemUnitPrice: (item: Kit['items'][0]) => number;
+  precosCusto: Record<string, number>;
+  canEditCost: boolean;
+  onUpdateCusto: (eqId: string, val: number) => void;
+  onSaveCustos: () => void;
   onClose: () => void;
 }) {
   function changeQty(equipmentId: string, delta: number) {
@@ -473,11 +751,16 @@ function KitDetailModal({ kit, localQtds, setLocalQtds, itemName, itemUnitPrice,
   }
 
   const total = kit.items.reduce((s, item) => s + itemUnitPrice(item) * (localQtds[item.equipmentId] ?? item.quantity), 0);
+  const totalCusto = canEditCost ? kit.items.reduce((s, item) => {
+    const custo = precosCusto[item.equipmentId] ?? 0;
+    return s + custo * (localQtds[item.equipmentId] ?? item.quantity);
+  }, 0) : 0;
+  const margemMedia = canEditCost && total > 0 && totalCusto > 0 ? ((total - totalCusto) / total) * 100 : 0;
   const hasChanges = kit.items.some((i) => (localQtds[i.equipmentId] ?? i.quantity) !== i.quantity);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'grid', placeItems: 'center', zIndex: 50 }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 24, width: 560, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 24, width: canEditCost ? 720 : 560, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
             <h3 style={{ margin: 0, color: theme.gold, fontSize: 18 }}>{kit.name}</h3>
@@ -486,25 +769,41 @@ function KitDetailModal({ kit, localQtds, setLocalQtds, itemName, itemUnitPrice,
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: theme.muted, fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
         </div>
         <div style={{ background: 'rgba(200,169,81,0.08)', border: `1px solid ${theme.gold}33`, borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 12, color: theme.muted }}>
-          Ajuste as quantidades abaixo para simular o preço para o cliente. As alterações são temporárias.
+          Ajuste as quantidades para simular o preço.{canEditCost ? ' Edite os custos para comodato.' : ''}
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 4 }}>
           <thead>
             <tr>
               <th style={thStyle}>Produto</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>Unit.</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>Venda</th>
+              {canEditCost && <th style={{ ...thStyle, textAlign: 'center' }}>Custo</th>}
               <th style={{ ...thStyle, textAlign: 'center' }}>Qtd.</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>
+              {canEditCost && <th style={{ ...thStyle, textAlign: 'right' }}>Margem</th>}
             </tr>
           </thead>
           <tbody>
             {kit.items.map((item) => {
               const qty = localQtds[item.equipmentId] ?? item.quantity;
               const unit = itemUnitPrice(item);
+              const custo = precosCusto[item.equipmentId] ?? 0;
+              const margem = custo > 0 && unit > 0 ? ((unit - custo) / unit) * 100 : 0;
+              const semCusto = custo === 0;
               return (
                 <tr key={item.equipmentId} style={{ opacity: qty === 0 ? 0.4 : 1 }}>
                   <td style={tdStyle}>{itemName(item)}</td>
                   <td style={{ ...tdStyle, textAlign: 'right', color: theme.muted, whiteSpace: 'nowrap' }}>R$ {unit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  {canEditCost && (
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <input
+                        type="number" min={0} step={0.01}
+                        value={custo || ''}
+                        placeholder="0,00"
+                        onChange={(e) => onUpdateCusto(item.equipmentId, parseFloat(e.target.value) || 0)}
+                        style={{ background: theme.soft, color: theme.text, border: `1px solid ${semCusto ? '#E55B5B66' : theme.border}`, borderRadius: 6, padding: '4px 6px', width: 90, textAlign: 'right', fontSize: 12 }}
+                      />
+                    </td>
+                  )}
                   <td style={{ ...tdStyle, textAlign: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <button onClick={() => changeQty(item.equipmentId, -1)} style={qtyBtn} disabled={qty === 0}>−</button>
@@ -513,6 +812,11 @@ function KitDetailModal({ kit, localQtds, setLocalQtds, itemName, itemUnitPrice,
                     </div>
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>R$ {(unit * qty).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  {canEditCost && (
+                    <td style={{ ...tdStyle, textAlign: 'right', fontSize: 12, fontWeight: 600, color: semCusto ? theme.muted : margem >= 30 ? '#43C17B' : margem >= 15 ? theme.gold : '#E55B5B' }}>
+                      {semCusto ? '—' : `${margem.toFixed(0)}%`}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -520,14 +824,21 @@ function KitDetailModal({ kit, localQtds, setLocalQtds, itemName, itemUnitPrice,
         </table>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderTop: `2px solid ${theme.gold}44`, marginTop: 8 }}>
           <div>
-            <span style={{ fontSize: 14, color: theme.muted }}>Total estimado</span>
+            <span style={{ fontSize: 14, color: theme.muted }}>Total venda</span>
             {hasChanges && <span style={{ marginLeft: 10, fontSize: 11, color: theme.gold, border: `1px solid ${theme.gold}44`, borderRadius: 6, padding: '2px 7px' }}>modificado</span>}
           </div>
           <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
         </div>
+        {canEditCost && totalCusto > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8 }}>
+            <span style={{ fontSize: 13, color: theme.muted }}>Total custo · Margem {margemMedia.toFixed(1)}%</span>
+            <span style={{ fontSize: 16, fontWeight: 600, color: '#5B9BD5' }}>R$ {totalCusto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           {hasChanges && <button onClick={resetQtds} style={btnSoft}>Resetar qtds</button>}
           <div style={{ flex: 1 }} />
+          {canEditCost && <button onClick={onSaveCustos} style={{ ...btnSoft, borderColor: '#5B9BD5', color: '#5B9BD5' }}>Salvar Custos</button>}
           <button onClick={onClose} style={btnGold}>Fechar</button>
         </div>
       </div>

@@ -15,13 +15,14 @@ import { TecnicoPerformanceChart } from '../../components/charts/TecnicoPerforma
 import { ReceitaCustosBarChart } from '../../components/charts/ReceitaCustosBarChart';
 import { CustosDonutChart } from '../../components/charts/CustosDonutChart';
 import { RetencaoMensalChart } from '../../components/charts/RetencaoMensalChart';
+import { FaturamentoAnualChart } from '../../components/charts/FaturamentoAnualChart';
 import { RetencaoDonutChart } from '../../components/charts/RetencaoDonutChart';
 import { ChartDetailModal, InsightCard, DataTable } from '../../components/charts/ChartDetailModal';
 import { KpiCard } from '../../components/dashboard/KpiCard';
 import { CustosConfigModal } from '../../components/dashboard/CustosConfigModal';
 import { AppShell } from '../../components/layout/AppShell';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
-import { DashboardStats, FinanceiroDashboard, RetencaoDashboard, PeriodKey, SheetsLeadStats, TecnicoRow, CustosEmpresaConfig, DEFAULT_CUSTOS_CONFIG, ClienteAtivo } from '../../lib/dataSource/types';
+import { DashboardStats, FaturamentoAnualData, FinanceiroDashboard, RetencaoDashboard, PeriodKey, SheetsLeadStats, TecnicoRow, CustosEmpresaConfig, DEFAULT_CUSTOS_CONFIG, ClienteAtivo } from '../../lib/dataSource/types';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
 import { theme } from '../../components/common/theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -968,6 +969,10 @@ export function DashboardPage() {
   const [comodatoClientes, setComodatoClientes] = useState<ClienteAtivo[]>([]);
   const [comodatoLoading, setComodatoLoading] = useState(false);
 
+  const [fatAnual, setFatAnual] = useState<FaturamentoAnualData | null>(null);
+  const [fatAnualLoading, setFatAnualLoading] = useState(true);
+  const [fatModFiltro, setFatModFiltro] = useState<string | null>(null);
+
   const showPerformance = role === 'ADMIN' || role === 'GESTOR';
 
   useEffect(() => {
@@ -991,6 +996,24 @@ export function DashboardPage() {
     load();
     return () => { cancelled = true; };
   }, [preset, customStart, customEnd]);
+
+  // Faturamento anual — carrega uma vez (não depende de filtro de período)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFatAnual() {
+      try {
+        const ds = createDataSource();
+        const result = await ds.dashboard.getFaturamentoAnual();
+        if (!cancelled) setFatAnual(result);
+      } catch {
+        if (!cancelled) setFatAnual(null);
+      } finally {
+        if (!cancelled) setFatAnualLoading(false);
+      }
+    }
+    loadFatAnual();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1376,6 +1399,140 @@ export function DashboardPage() {
         </div>
       </>)}
 
+      {/* ── Histórico de Faturamento Anual ── */}
+      <SectionDivider label="Histórico de Faturamento Anual" />
+      {fatAnualLoading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: theme.muted, fontSize: 13 }}>Carregando histórico...</div>
+      ) : fatAnual && fatAnual.porAno.length > 0 ? (() => {
+        // Coletar modalidades disponíveis
+        const allFatMods = new Map<string, string>();
+        for (const a of fatAnual.porAno) for (const m of a.porModalidade) if (m.codigo) allFatMods.set(m.codigo, m.modalidade);
+        const fatModList = [...allFatMods.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const MOD_COL: Record<string, string> = { L: '#43C17B', V: '#C8A951', R: '#5B9BD5' };
+
+        // Dados filtrados por modalidade
+        const filteredData = fatAnual.porAno.map((row) => {
+          if (!fatModFiltro) return row;
+          const m = row.porModalidade.find((p) => p.codigo === fatModFiltro);
+          return m ? { ...row, equipamentos: m.equipamentos, instalacao: m.instalacao, monitoramento: m.monitoramento, total: m.total, orcamentos: m.orcamentos, ticketMedio: m.orcamentos > 0 ? Math.round(m.total / m.orcamentos) : 0 } : { ...row, equipamentos: 0, instalacao: 0, monitoramento: 0, total: 0, orcamentos: 0, ticketMedio: 0 };
+        });
+        const totalHist = filteredData.reduce((s, a) => s + a.total, 0);
+        const bestRow = filteredData.reduce((a, b) => a.total > b.total ? a : b);
+
+        return (<>
+        {/* Filtro por modalidade */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          <span style={{ color: theme.muted, fontSize: 13, fontWeight: 600 }}>Modalidade:</span>
+          <button
+            onClick={() => setFatModFiltro(null)}
+            style={{
+              padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontWeight: 600, fontSize: 12,
+              background: !fatModFiltro ? theme.gold : theme.soft,
+              color: !fatModFiltro ? '#0B0B0B' : theme.text,
+            }}
+          >
+            Todas
+          </button>
+          {fatModList.map(([cod, label]) => (
+            <button
+              key={cod}
+              onClick={() => setFatModFiltro(fatModFiltro === cod ? null : cod)}
+              style={{
+                padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                fontWeight: 600, fontSize: 12,
+                background: fatModFiltro === cod ? (MOD_COL[cod] ?? theme.gold) : theme.soft,
+                color: fatModFiltro === cod ? '#0B0B0B' : theme.text,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* KPIs do histórico */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 16 }}>
+          <KpiCard
+            label="Total Histórico"
+            value={fmtCurrency(totalHist)}
+            description={`${fatAnual.porAno.length} anos de dados${fatModFiltro ? ` (${allFatMods.get(fatModFiltro)})` : ''}`}
+          />
+          <KpiCard
+            label="Crescimento Médio"
+            value={(fatAnual.crescimentoMedio >= 0 ? '+' : '') + fatAnual.crescimentoMedio.toFixed(1) + '%'}
+            description="Variação média anual (geral)"
+          />
+          <KpiCard
+            label="Melhor Ano"
+            value={`${bestRow.ano}`}
+            description={fmtCurrency(bestRow.total) + ' faturados'}
+            accent={theme.gold}
+          />
+          <KpiCard
+            label="Ticket Médio Atual"
+            value={fmtCurrency(filteredData[filteredData.length - 1]?.ticketMedio ?? 0)}
+            description={`Em ${filteredData[filteredData.length - 1]?.ano ?? '-'}`}
+          />
+        </div>
+
+        {/* Gráfico */}
+        <ChartCard title={`Evolução do Faturamento por Ano${fatModFiltro ? ` — ${allFatMods.get(fatModFiltro)}` : ''}`}>
+          <FaturamentoAnualChart data={fatAnual.porAno} filtroModalidade={fatModFiltro} />
+        </ChartCard>
+
+        {/* Tabela detalhada com breakdown por modalidade */}
+        <div style={{
+          background: theme.panel, border: `1px solid ${theme.border}`,
+          borderRadius: 12, padding: 20, marginTop: 16, marginBottom: 24,
+        }}>
+          <h3 style={{ color: theme.gold, margin: '0 0 12px', fontSize: 14, fontWeight: 700 }}>
+            Detalhamento por Ano {fatModFiltro ? `— ${allFatMods.get(fatModFiltro)}` : '— Todas as Modalidades'}
+          </h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+                  {['Ano', ...(fatModFiltro ? [] : fatModList.map(([, l]) => l)), 'Total', 'Orçamentos', 'Ticket Médio', 'Crescimento'].map((h) => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Ano' ? 'left' : 'right', color: theme.muted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredData.map((row, i) => {
+                  const prev = i > 0 ? filteredData[i - 1] : null;
+                  const cresc = prev && prev.total > 0 ? ((row.total - prev.total) / prev.total) * 100 : null;
+                  const origRow = fatAnual.porAno[i];
+                  return (
+                    <tr key={row.ano} style={{ borderBottom: `1px solid ${theme.soft}` }}>
+                      <td style={{ padding: '8px 12px', color: theme.text, fontWeight: 600 }}>{row.ano}</td>
+                      {!fatModFiltro && fatModList.map(([cod]) => {
+                        const m = origRow.porModalidade.find((p) => p.codigo === cod);
+                        return (
+                          <td key={cod} style={{ padding: '8px 12px', textAlign: 'right', color: MOD_COL[cod] ?? theme.text, fontWeight: 500 }}>
+                            {m && m.total > 0 ? fmtCurrency(m.total) : '—'}
+                          </td>
+                        );
+                      })}
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: theme.gold, fontWeight: 700 }}>{fmtCurrency(row.total)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: theme.text }}>{row.orcamentos}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: theme.text }}>{fmtCurrency(row.ticketMedio)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: cresc === null ? theme.muted : cresc >= 0 ? '#43C17B' : '#E55B5B' }}>
+                        {cresc === null ? '—' : `${cresc >= 0 ? '+' : ''}${cresc.toFixed(1)}%`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>);
+      })() : (
+        <div style={{ textAlign: 'center', padding: 40, color: theme.muted, fontSize: 13 }}>
+          Sem dados de faturamento histórico disponíveis
+        </div>
+      )}
+
       </>)}
 
       {/* ─── Tab: Operacional ─── */}
@@ -1524,7 +1681,6 @@ export function DashboardPage() {
         <SectionDivider label="Segmentação por Modalidade" />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
           {retencao.porModalidade.map((mod) => {
-            const modChurn = mod.ativos + mod.cancelados > 0 ? (mod.cancelados / (mod.ativos + mod.cancelados)) * 100 : 0;
             return (
               <div key={mod.codigo} style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1553,7 +1709,7 @@ export function DashboardPage() {
                   </div>
                   <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px' }}>
                     <div style={{ fontSize: 11, color: theme.muted }}>Churn Rate</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: modChurn <= 5 ? '#43C17B' : modChurn <= 10 ? theme.gold : '#E55B5B' }}>{fmtPct(mod.churnRate)}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: mod.churnRate <= 5 ? '#43C17B' : mod.churnRate <= 10 ? theme.gold : '#E55B5B' }}>{fmtPct(mod.churnRate)}</div>
                     {mod.tempoMedio > 0 && <div style={{ fontSize: 10, color: '#E55B5B' }}>Cancelados: {mod.tempoMedio}m</div>}
                   </div>
                   <div style={{ background: theme.soft, borderRadius: 8, padding: '8px 10px', gridColumn: '1 / -1' }}>
