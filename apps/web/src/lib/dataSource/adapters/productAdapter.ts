@@ -36,7 +36,7 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
-function inferBrand(product: ProductApiDto): Marca {
+export function inferBrand(product: ProductApiDto): Marca {
   if (typeof product.codMarca === 'number' && product.codMarca in BRAND_CODE_MAP) {
     return BRAND_CODE_MAP[product.codMarca];
   }

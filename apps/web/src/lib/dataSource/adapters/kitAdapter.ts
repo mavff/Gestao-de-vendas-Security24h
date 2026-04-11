@@ -1,5 +1,6 @@
 import { Kit } from '../../../types';
 import { KitApiDto, ProductKitItemApiDto } from '../types';
+import { inferBrand } from './productAdapter';
 
 function toNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -52,6 +53,7 @@ export function mapKitToUi(kit: KitApiDto): Kit {
   return {
     id: String(kit.codProduto),
     name: kit.descricao || `Kit ${kit.codProduto}`,
+    marca: inferBrand(kit),
     items: Array.from(aggregatedItems.entries()).map(([equipmentId, v]) => ({
       equipmentId,
       quantity: v.quantity,

@@ -270,6 +270,87 @@ export type SolucaoTecnica = {
 
 // --- Vistoria ---
 
+// --- Venda do Vendedor (Mini CRM) ---
+
+export type VendaLocalStatus =
+  | 'rascunho'
+  | 'solucao_pronta'
+  | 'proposta_gerada'
+  | 'cliente_aprovou'
+  | 'vistoria'
+  | 'em_instalacao'
+  | 'entrega'
+  | 'concluida';
+
+export type VendaLocal = {
+  id: string;
+  clienteNome: string;
+  clienteTelefone: string;
+  clienteEmail: string;
+  clienteEndereco: string;
+  clienteEmpresa: string;
+  tipoLocal: 'Residencial' | 'Comercial' | 'Condomínio' | 'Industrial';
+  observacoes: string;
+  status: VendaLocalStatus;
+  solucaoId: string;
+  vistoriaId: string;
+  ordemId: string;
+  propostaId: string;
+  criadoPor: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Pipeline lead linkage (optional) */
+  leadId?: string;
+  /** Proposta — modalidade escolhida */
+  modalidade?: 'venda' | 'comodato' | 'ambos';
+  /** Proposta — monitoramento mensal ajustado */
+  monitoramentoMensal?: number;
+  /** Proposta — mão de obra */
+  maoDeObra?: number;
+  /** Proposta — prazo comodato */
+  prazoComodato?: 24 | 36 | 48;
+  /** Proposta — acréscimo instalação */
+  acrescimoInstalacao?: number;
+  /** Proposta — valor CREA */
+  valorCrea?: number;
+  /** Flag: cliente aprovou a proposta */
+  clienteAprovado?: boolean;
+  /** Visita 1 concluída (pré-instalação) */
+  visita1Concluida?: boolean;
+  /** Visita 2 concluída (entrega/conferência) */
+  visita2Concluida?: boolean;
+};
+
+export type ActivityLogType =
+  | 'venda_criada'
+  | 'cliente_editado'
+  | 'solucao_salva'
+  | 'solucao_enviada'
+  | 'solucao_aprovada'
+  | 'vistoria_iniciada'
+  | 'ambiente_adicionado'
+  | 'ponto_adicionado'
+  | 'foto_adicionada'
+  | 'vistoria_concluida'
+  | 'proposta_gerada'
+  | 'proposta_enviada'
+  | 'os_criada'
+  | 'instalacao_iniciada'
+  | 'entrega_concluida'
+  | 'status_alterado'
+  | 'observacao';
+
+export type ActivityLog = {
+  id: string;
+  vendaId: string;
+  tipo: ActivityLogType;
+  descricao: string;
+  criadoPor: string;
+  createdAt: string;
+  /** Optional metadata (e.g. photo count, equipment name) */
+  meta?: Record<string, string | number>;
+};
+
 export type VistoriaStatus = 'pendente' | 'em_andamento' | 'concluida';
 
 export type AmbienteVistoria = {

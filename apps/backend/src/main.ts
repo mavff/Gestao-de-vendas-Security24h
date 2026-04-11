@@ -1,12 +1,20 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { JsonLoggerInterceptor } from './common/json-logger.interceptor';
 import { RateLimitMiddleware } from './common/rate-limit.middleware';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log'],
+    bodyParser: false,
+  });
+
+  // Raise body limit to support photo uploads (base64 JSON payloads)
+  app.use(bodyParser.json({ limit: '50mb' }));
+  app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
   app.use(helmet());
   app.use(new RateLimitMiddleware().use);

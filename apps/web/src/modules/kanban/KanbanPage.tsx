@@ -337,7 +337,7 @@ export function KanbanPage() {
                   if (lead.endereco) params.set('endereco', lead.endereco);
                   if (lead.empresa) params.set('empresa', lead.empresa);
                   if (lead.tipoLocal) params.set('tipoLocal', lead.tipoLocal);
-                  router.push(`/solucoes?${params.toString()}`);
+                  router.push(`/vendas?${params.toString()}`);
                 } : undefined}
               />
             );
@@ -417,7 +417,7 @@ export function KanbanPage() {
             if (selectedLead.endereco) params.set('endereco', selectedLead.endereco);
             if (selectedLead.empresa) params.set('empresa', selectedLead.empresa);
             if (selectedLead.tipoLocal) params.set('tipoLocal', selectedLead.tipoLocal);
-            router.push(`/solucoes?${params.toString()}`);
+            router.push(`/vendas?${params.toString()}`);
           } : undefined}
           onAgendarVisita={canManage ? () => {
             const updated = { ...stageOverrides, [selectedLead.id]: 'visita' as StageId };
@@ -776,7 +776,7 @@ function LeadDetailPanel({ lead, onClose, canManage, onDismiss, onMarkLost, onRe
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           {onCriarProposta && (
             <button onClick={onCriarProposta} style={{ ...btnStyle, background: theme.gold, flex: 1 }}>
-              Criar Proposta
+              Iniciar Venda
             </button>
           )}
           {onAgendarVisita && (

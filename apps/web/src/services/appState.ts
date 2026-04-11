@@ -36,6 +36,9 @@ export async function loadState<T>(key: string, fallback: T): Promise<T> {
 
 /**
  * Save state to SQLite (API mode) and localStorage (as cache/fallback).
+ * Never throws — API errors are logged (with error object) and the value
+ * remains in localStorage. Open DevTools console to see the real reason
+ * if a save doesn't stick across devices.
  */
 export async function saveState<T>(key: string, value: T): Promise<void> {
   // Always update memory cache
@@ -48,8 +51,8 @@ export async function saveState<T>(key: string, value: T): Promise<void> {
 
   try {
     await apiClient.put(`/app-state/${encodeURIComponent(key)}`, { body: { value } });
-  } catch {
-    console.warn(`[appState] Falha ao salvar "${key}" na API, mantido em localStorage`);
+  } catch (err) {
+    console.warn(`[appState] Falha ao salvar "${key}" na API, mantido em localStorage`, err);
   }
 }
 

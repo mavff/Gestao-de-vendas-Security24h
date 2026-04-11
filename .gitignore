@@ -12,3 +12,6 @@ ios/Pods
 out/
 NUL
 *.sqlite
+*.tsbuildinfo
+*_tmp.json
+clientes_tmp.json
