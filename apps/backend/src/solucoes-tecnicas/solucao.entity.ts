@@ -26,11 +26,11 @@ export class Solucao {
   @Column({ length: 50 })
   marca!: string;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
-  blocos!: SolucaoBlocoJson[];
+  @Column({ type: 'simple-json' })
+  blocos: SolucaoBlocoJson[] = [];
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
-  servicos!: SolucaoServicoJson[];
+  @Column({ type: 'simple-json' })
+  servicos: SolucaoServicoJson[] = [];
 
   @Column({ type: 'text', default: '' })
   observacaoGeral!: string;

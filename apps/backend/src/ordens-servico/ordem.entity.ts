@@ -31,13 +31,13 @@ export class OrdemServico {
   @Column({ length: 100, default: '' })
   tecnicoId!: string;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
-  checklist!: ChecklistItemJson[];
+  @Column({ type: 'simple-json' })
+  checklist: ChecklistItemJson[] = [];
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
-  pontos!: PontoJson[];
+  @Column({ type: 'simple-json' })
+  pontos: PontoJson[] = [];
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'simple-json', nullable: true })
   ambientes!: AmbienteJson[] | null;
 
   @Column({ type: 'text', default: '' })

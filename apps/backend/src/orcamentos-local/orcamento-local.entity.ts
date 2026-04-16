@@ -41,8 +41,8 @@ export class OrcamentoLocal {
   @Column({ type: 'int', default: 0 })
   zonas!: number;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
-  itens!: OrcamentoItemJson[];
+  @Column({ type: 'simple-json' })
+  itens: OrcamentoItemJson[] = [];
 
   @Column({ type: 'float', default: 0 })
   subtotalEquipamentos!: number;
@@ -77,7 +77,7 @@ export class OrcamentoLocal {
   @Column({ length: 20 })
   modalidade!: string;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'simple-json', nullable: true })
   comodato!: ComodatoJson | null;
 
   @Column({ length: 40 })

@@ -41,7 +41,8 @@ ENV PHOTOS_DIR=/data/photos
 
 RUN apk add --no-cache libc6-compat \
  && addgroup -S app && adduser -S app -G app \
- && mkdir -p /data/photos && chown -R app:app /data
+ && mkdir -p /data/photos /app/apps/backend/data \
+ && chown -R app:app /data /app
 
 # Manifests para instalar só prod deps
 COPY package.json package-lock.json* ./

@@ -35,8 +35,8 @@ export class Vistoria {
   @Column({ length: 20 })
   tipoVistoria!: TipoVistoria;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
-  ambientes!: AmbienteJson[];
+  @Column({ type: 'simple-json' })
+  ambientes: AmbienteJson[] = [];
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   plantaUrl!: string | null;

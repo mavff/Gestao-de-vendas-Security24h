@@ -31,8 +31,8 @@ export class PropostaLocal {
   @Column({ length: 50 })
   marca!: string;
 
-  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
-  itens!: PropostaItemJson[];
+  @Column({ type: 'simple-json' })
+  itens: PropostaItemJson[] = [];
 
   @Column({ type: 'text', default: '' })
   observacoes!: string;
