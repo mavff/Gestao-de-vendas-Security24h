@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { usePollingRefresh } from '../../hooks/usePollingRefresh';
 import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
@@ -260,6 +261,7 @@ export function SolucoesPage() {
   }, []);
 
   useRefreshOnFocus(() => { loadFromBackend(); });
+  usePollingRefresh(() => { loadFromBackend(); }, 120_000);
 
   // Auto-fill from pipeline (query params: ?leadId=&nome=&tel=&endereco=&empresa=&tipoLocal=)
   useEffect(() => {

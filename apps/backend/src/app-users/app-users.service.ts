@@ -75,7 +75,11 @@ export class AppUsersService implements OnModuleInit {
   }
 
   async validatePassword(user: AppUser, password: string): Promise<boolean> {
-    return bcrypt.compare(password, user.passwordHash);
+    try {
+      return await bcrypt.compare(password, user.passwordHash);
+    } catch {
+      return false;
+    }
   }
 
   async create(dto: CreateDto) {

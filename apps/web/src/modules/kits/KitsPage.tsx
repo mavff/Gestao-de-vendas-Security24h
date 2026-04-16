@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePollingRefresh } from '../../hooks/usePollingRefresh';
 import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
@@ -113,6 +114,7 @@ export function KitsPage() {
 
   /* ---- Refetch ao voltar pra aba (preços do ERP podem ter mudado) ---- */
   useRefreshOnFocus(() => { reloadFromBackend(); });
+  usePollingRefresh(() => { reloadFromBackend(); }, 120_000);
 
   /* ---- Kit helpers ---- */
   function eqName(id: string) { return equipments.find((e) => e.id === id)?.name ?? id; }

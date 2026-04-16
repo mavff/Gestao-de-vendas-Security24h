@@ -519,7 +519,9 @@ export class CrmService {
     const text = await res.text();
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    const json = JSON.parse(text.slice(start, end + 1));
+    if (start === -1 || end === -1 || end <= start) return [];
+    let json: any;
+    try { json = JSON.parse(text.slice(start, end + 1)); } catch { return []; }
 
     const cols: string[] = (json.table?.cols ?? []).map(
       (c: any) => String(c.label || c.id || '').trim(),
@@ -542,7 +544,9 @@ export class CrmService {
     const text = await res.text();
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    const json = JSON.parse(text.slice(start, end + 1));
+    if (start === -1 || end === -1 || end <= start) return [];
+    let json: any;
+    try { json = JSON.parse(text.slice(start, end + 1)); } catch { return []; }
 
     const cols: string[] = (json.table?.cols ?? []).map(
       (c: any) => String(c.label || c.id || '').trim(),

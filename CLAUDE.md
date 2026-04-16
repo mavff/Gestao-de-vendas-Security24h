@@ -14,7 +14,7 @@ packages/shared/   Types compartilhados
 | Frontend | Next.js 14, React 18, TS 5                    |
 | Backend  | NestJS 10, Prisma 6, TypeORM 0.3              |
 | BD ERP   | SQL Server (Prisma + TypeORM) — READ-ONLY     |
-| BD App   | SQLite (better-sqlite3 via TypeORM)           |
+| BD App   | PostgreSQL (TypeORM) / SQLite fallback dev    |
 | Auth     | JWT (access 15min + refresh 7d), RBAC 7 roles |
 | Sheets   | Google Sheets público via gviz (sem API key)  |
 | Estilo   | Inline styles, tema dark (preto/dourado/cinza)|
@@ -60,13 +60,23 @@ Ordem da sidebar (funil cronológico):
 ### Usuários de teste (seed .env → SQLite)
 `admin/admin123` (ADMIN), `ana.gestora` (GESTOR), `carlos.sdr` (SDR), `julia.vendas` (VENDEDOR), `pedro.tecnico` (TECNICO) — todos senha `test123` exceto admin.
 
-## SQLite — Dados do App
-Arquivo: `apps/backend/data/app.sqlite` (TypeORM `synchronize: true`, conexão `'sqlite'`)
+## Banco App — Dados do Aplicativo
+PostgreSQL via `APP_DATABASE_URL` (TypeORM `synchronize: true`, conexão `'app'`). Fallback dev: SQLite em `apps/backend/data/app.sqlite`.
 
 | Tabela      | Descrição                                   | Entity                         |
 | ----------- | ------------------------------------------- | ------------------------------ |
 | `app_users` | Usuários da plataforma (bcrypt, CRUD)       | `app-users/app-user.entity.ts` |
 | `app_kv`    | Key-value store genérico                    | `app-users/app-kv.entity.ts`   |
+| `vendas`    | Vendas do vendedor (Mini CRM)               | `vendas/venda.entity.ts`       |
+| `solucoes`  | Soluções técnicas                            | `solucoes-tecnicas/solucao.entity.ts` |
+| `vistorias` | Vistorias (1ª visita + entregas)             | `vistorias/vistoria.entity.ts` |
+| `ordens_servico` | Ordens de serviço                       | `ordens-servico/ordem.entity.ts` |
+| `propostas_local` | Propostas locais                       | `propostas-local/proposta-local.entity.ts` |
+| `orcamentos_local` | Orçamentos locais                     | `orcamentos-local/orcamento-local.entity.ts` |
+| `photos`    | Metadados de fotos (arquivo em disco)        | `photos/photo.entity.ts`       |
+
+### Entities — `@AfterLoad()` normaliza JSON nullable
+Colunas `simple-json` (`blocos`, `servicos`, `ambientes`, `checklist`, `pontos`, `itens`) são `nullable: true` no Postgres (registros legados podem ter null). Cada entity tem `@AfterLoad()` que normaliza `null → []` — o frontend nunca recebe null.
 
 ### AppUsers — gestão de usuários do app
 - Endpoints `GET/POST/PUT/DELETE /app-users` — JWT + ADMIN
@@ -119,8 +129,14 @@ const isCustomId = (id: string) => id.startsWith('E'); // ou 'K' para kits
 ```
 Editar/excluir item do ERP → toast warning. Só custom persiste via `saveState`.
 
-### Refetch on focus — `useRefreshOnFocus`
-Hook em `apps/web/src/hooks/useRefreshOnFocus.ts`. Aplicado em KitsPage, SolucoesPage, VendaPage — refaz `createDataSource().kits/equipment/preOrcamentos.list()` quando a aba volta a foco (debounce 500ms). Preços do ERP podem ter mudado.
+### Atualização automática de preços do ERP
+Dois hooks complementares garantem que preços do ERP (SQL Server) se reflitam no frontend sem rebuild:
+
+1. **`useRefreshOnFocus`** (`apps/web/src/hooks/useRefreshOnFocus.ts`) — refetch ao voltar para a aba (debounce 500ms)
+2. **`usePollingRefresh`** (`apps/web/src/hooks/usePollingRefresh.ts`) — polling a cada 2 min enquanto a aba está visível; pausa quando oculta
+
+Aplicados em: VendaPage, SolucoesPage, KitsPage, OrcamentosPage, EquipmentPage.
+Backend NÃO faz cache de preços — cada request consulta o SQL Server ao vivo.
 
 ## Propostas — `/solucoes` (vendedor)
 Fluxo simplificado. Lead (pipeline) → proposta → PDF.

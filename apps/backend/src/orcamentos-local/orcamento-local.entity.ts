@@ -1,4 +1,4 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { AfterLoad, Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
 export interface OrcamentoItemJson {
   equipmentId: string;
@@ -41,8 +41,8 @@ export class OrcamentoLocal {
   @Column({ type: 'int', default: 0 })
   zonas!: number;
 
-  @Column({ type: 'simple-json' })
-  itens: OrcamentoItemJson[] = [];
+  @Column({ type: 'simple-json', nullable: true })
+  itens: OrcamentoItemJson[] | null = [];
 
   @Column({ type: 'float', default: 0 })
   subtotalEquipamentos!: number;
@@ -82,4 +82,9 @@ export class OrcamentoLocal {
 
   @Column({ length: 40 })
   createdAt!: string;
+
+  @AfterLoad()
+  normalizeJsonFields() {
+    if (!this.itens) this.itens = [];
+  }
 }

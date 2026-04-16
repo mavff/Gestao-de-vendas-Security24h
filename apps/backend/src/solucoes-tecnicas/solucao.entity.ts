@@ -1,4 +1,4 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { AfterLoad, Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
 export interface SolucaoBlocoJson {
   categoria: string;
@@ -26,11 +26,11 @@ export class Solucao {
   @Column({ length: 50 })
   marca!: string;
 
-  @Column({ type: 'simple-json' })
-  blocos: SolucaoBlocoJson[] = [];
+  @Column({ type: 'simple-json', nullable: true })
+  blocos: SolucaoBlocoJson[] | null = [];
 
-  @Column({ type: 'simple-json' })
-  servicos: SolucaoServicoJson[] = [];
+  @Column({ type: 'simple-json', nullable: true })
+  servicos: SolucaoServicoJson[] | null = [];
 
   @Column({ type: 'text', default: '' })
   observacaoGeral!: string;
@@ -46,4 +46,10 @@ export class Solucao {
 
   @Column({ length: 40 })
   updatedAt!: string;
+
+  @AfterLoad()
+  normalizeJsonFields() {
+    if (!this.blocos) this.blocos = [];
+    if (!this.servicos) this.servicos = [];
+  }
 }

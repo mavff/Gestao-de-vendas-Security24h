@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
@@ -8,6 +8,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
 import { FunnelStats, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockOrcamentos, mockPropostas, mockSolucoes } from '../../mocks/data';
+import { usePollingRefresh } from '../../hooks/usePollingRefresh';
+import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { loadLocalCache, saveLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
 import {
@@ -166,7 +168,7 @@ export function OrcamentosPage() {
       if (localSolucoesRef.current) return;
       setSolucoes(s.length ? s : loadLocalCache('mock_solucoes', mockSolucoes));
     });
-    setEquipments(loadLocalCache('mock_equipments', mockEquipments));
+    loadEquipmentsFromBackend();
     loadState<Proposta[]>('propostas_legacy', []).then((s) => {
       if (localPropostasRef.current) return;
       setPropostas(s.length ? s : loadLocalCache('mock_propostas', mockPropostas));
@@ -179,7 +181,9 @@ export function OrcamentosPage() {
     if (solId) {
       setTimeout(async () => {
         const sols = await loadState<SolucaoTecnica[]>('solucoes', loadLocalCache('mock_solucoes', mockSolucoes));
-        const eqs = loadLocalCache('mock_equipments', mockEquipments);
+        const ds = createDataSource();
+        const eqRes = await ds.equipment.list({ pageSize: 500 }).catch(() => null);
+        const eqs = eqRes ? eqRes.data : loadLocalCache('mock_equipments', mockEquipments);
         const custoMap = await loadState<Record<string, number>>('config:precos_custo', {});
         const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'enviada');
         if (sol) {
@@ -197,6 +201,16 @@ export function OrcamentosPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refetch de equipamentos do ERP — preços podem ter mudado.
+  const loadEquipmentsFromBackend = useCallback(async () => {
+    const ds = createDataSource();
+    const res = await ds.equipment.list({ pageSize: 500 }).catch(() => null);
+    if (res) setEquipments(res.data);
+  }, []);
+
+  useRefreshOnFocus(() => { loadEquipmentsFromBackend(); });
+  usePollingRefresh(() => { loadEquipmentsFromBackend(); }, 120_000);
 
   // Dispara busca: presets disparam direto; custom só via botão Consultar
   function handlePresetChange(p: PeriodPreset) {

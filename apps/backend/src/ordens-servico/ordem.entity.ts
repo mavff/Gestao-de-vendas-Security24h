@@ -1,4 +1,4 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { AfterLoad, Column, Entity, Index, PrimaryColumn } from 'typeorm';
 import type { AmbienteJson, PontoJson } from '../vistorias/vistoria.entity';
 
 export interface ChecklistItemJson {
@@ -31,11 +31,11 @@ export class OrdemServico {
   @Column({ length: 100, default: '' })
   tecnicoId!: string;
 
-  @Column({ type: 'simple-json' })
-  checklist: ChecklistItemJson[] = [];
+  @Column({ type: 'simple-json', nullable: true })
+  checklist: ChecklistItemJson[] | null = [];
 
-  @Column({ type: 'simple-json' })
-  pontos: PontoJson[] = [];
+  @Column({ type: 'simple-json', nullable: true })
+  pontos: PontoJson[] | null = [];
 
   @Column({ type: 'simple-json', nullable: true })
   ambientes!: AmbienteJson[] | null;
@@ -48,4 +48,11 @@ export class OrdemServico {
 
   @Column({ length: 40 })
   createdAt!: string;
+
+  @AfterLoad()
+  normalizeJsonFields() {
+    if (!this.checklist) this.checklist = [];
+    if (!this.pontos) this.pontos = [];
+    if (!this.ambientes) this.ambientes = [];
+  }
 }

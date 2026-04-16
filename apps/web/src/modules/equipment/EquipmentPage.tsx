@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePollingRefresh } from '../../hooks/usePollingRefresh';
+import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { createDataSource } from '../../lib/dataSource/factory';
 import { mockEquipments } from '../../mocks/data';
 import { loadLocalCache } from '../../services/localCache';
@@ -49,29 +51,33 @@ export function EquipmentPage() {
   // Lista mesclada exibida na tabela
   const equipments = useMemo(() => [...equipmentsErp, ...equipmentsCustom], [equipmentsErp, equipmentsCustom]);
 
-  useEffect(() => {
-    async function loadAll() {
-      try {
-        const ds = createDataSource();
-        let page = 1;
-        let all: Equipment[] = [];
-        while (true) {
-          // apenasOrcamento:false → catálogo ERP completo (admin/infra/tecnico precisam ver tudo,
-          // não só produtos com GrupoOrçamento preenchido).
-          const result = await ds.equipment.list({ page, pageSize: 500, apenasOrcamento: false });
-          all = all.concat(result.data);
-          if (page >= result.meta.totalPages) break;
-          page++;
-        }
-        setEquipmentsErp(all);
-      } catch {
-        setEquipmentsErp(loadLocalCache('mock_equipments', mockEquipments));
+  const loadErpEquipments = useCallback(async () => {
+    try {
+      const ds = createDataSource();
+      let page = 1;
+      let all: Equipment[] = [];
+      while (true) {
+        // apenasOrcamento:false → catálogo ERP completo (admin/infra/tecnico precisam ver tudo,
+        // não só produtos com GrupoOrçamento preenchido).
+        const result = await ds.equipment.list({ page, pageSize: 500, apenasOrcamento: false });
+        all = all.concat(result.data);
+        if (page >= result.meta.totalPages) break;
+        page++;
       }
+      setEquipmentsErp(all);
+    } catch {
+      setEquipmentsErp(loadLocalCache('mock_equipments', mockEquipments));
     }
-    loadAll();
+  }, []);
+
+  useEffect(() => {
+    loadErpEquipments();
     // Carrega equipamentos custom do AppKv (SQLite) — compartilhado entre usuários
     loadState<Equipment[]>('equipments_custom', []).then(setEquipmentsCustom);
-  }, []);
+  }, [loadErpEquipments]);
+
+  useRefreshOnFocus(() => { loadErpEquipments(); });
+  usePollingRefresh(() => { loadErpEquipments(); }, 120_000);
 
   const filtered = useMemo(() =>
     equipments.filter((eq) => {

@@ -1,4 +1,4 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { AfterLoad, Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
 export interface PontoJson {
   id: string;
@@ -35,8 +35,8 @@ export class Vistoria {
   @Column({ length: 20 })
   tipoVistoria!: TipoVistoria;
 
-  @Column({ type: 'simple-json' })
-  ambientes: AmbienteJson[] = [];
+  @Column({ type: 'simple-json', nullable: true })
+  ambientes: AmbienteJson[] | null = [];
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   plantaUrl!: string | null;
@@ -55,4 +55,9 @@ export class Vistoria {
 
   @Column({ length: 40 })
   updatedAt!: string;
+
+  @AfterLoad()
+  normalizeJsonFields() {
+    if (!this.ambientes) this.ambientes = [];
+  }
 }

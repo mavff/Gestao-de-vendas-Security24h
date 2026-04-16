@@ -93,15 +93,44 @@ export async function uploadBase64Photo(dataUrl: string, meta: PhotoUploadMeta):
 /** Upload a signed contract (PDF/JPG/PNG) for a venda. Backend writes
  *  `contratoUrl` + `contratoAssinadoEm` atomically and returns the updated row. */
 export async function uploadContrato(vendaId: string, file: File): Promise<{ contratoUrl: string; contratoAssinadoEm: string }> {
+  const base = resolveBaseUrl();
   const form = new FormData();
   form.append('file', file, file.name);
-  const base = resolveBaseUrl();
-  const token = typeof window !== 'undefined' ? localStorage.getItem('sec24h_token') : null;
-  const res = await fetch(`${base}/vendas/${encodeURIComponent(vendaId)}/contrato`, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  });
+
+  async function doFetch(jwt: string | null): Promise<Response> {
+    const headers: Record<string, string> = {};
+    if (jwt) headers['Authorization'] = `Bearer ${jwt}`;
+    return fetch(`${base}/vendas/${encodeURIComponent(vendaId)}/contrato`, {
+      method: 'POST', headers, body: form,
+    });
+  }
+
+  let token = typeof window !== 'undefined' ? localStorage.getItem('sec24h_token') : null;
+  let res = await doFetch(token);
+
+  if (res.status === 401 && typeof window !== 'undefined') {
+    const refresh = localStorage.getItem('sec24h_refresh');
+    if (refresh) {
+      const r = await fetch(`${base}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: refresh }),
+      });
+      if (r.ok) {
+        const { accessToken } = await r.json() as { accessToken: string };
+        localStorage.setItem('sec24h_token', accessToken);
+        // Rebuild FormData (original was consumed)
+        const form2 = new FormData();
+        form2.append('file', file, file.name);
+        res = await fetch(`${base}/vendas/${encodeURIComponent(vendaId)}/contrato`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: form2,
+        });
+      }
+    }
+  }
+
   if (!res.ok) throw new Error(`Upload contrato falhou: HTTP ${res.status}`);
   const venda = await res.json() as { contratoUrl: string; contratoAssinadoEm: string };
   return { contratoUrl: venda.contratoUrl, contratoAssinadoEm: venda.contratoAssinadoEm };

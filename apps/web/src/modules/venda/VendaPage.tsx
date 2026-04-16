@@ -12,6 +12,7 @@ import { ComissaoConfig, DEFAULT_COMISSAO_CONFIG } from '../../lib/dataSource/ty
 import { compressImage } from '../../services/imageUtils';
 import { photoSrc, uploadBase64Photo } from '../../services/photoService';
 import { loadState, saveState } from '../../services/appState';
+import { usePollingRefresh } from '../../hooks/usePollingRefresh';
 import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { openPropostaPDF } from '../../components/proposal/PropostaPDF';
 import type {
@@ -135,6 +136,7 @@ export function VendaPage() {
   }, []);
 
   useRefreshOnFocus(() => { loadRefDataFromBackend(); });
+  usePollingRefresh(() => { loadRefDataFromBackend(); }, 120_000);
 
   // Merged equipments: include synthetic entries from kit items
   const mergedEquipments = useMemo<Equipment[]>(() => {

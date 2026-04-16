@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Photo } from './photo.entity';
@@ -42,10 +42,15 @@ export class PhotosService {
     const ext = extForMime(mimeType);
 
     const dir = path.join(this.baseDir, meta.entityType, meta.entityId);
-    await fs.mkdir(dir, { recursive: true });
-
-    const filePath = path.join(dir, `${id}.${ext}`);
-    await fs.writeFile(filePath, buffer);
+    let filePath: string;
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      filePath = path.join(dir, `${id}.${ext}`);
+      await fs.writeFile(filePath, buffer);
+    } catch (err) {
+      this.logger.error(`Falha ao salvar foto em ${dir}: ${(err as Error).message}`);
+      throw new InternalServerErrorException('Não foi possível salvar a foto no servidor');
+    }
 
     const photo = this.repo.create({
       id,

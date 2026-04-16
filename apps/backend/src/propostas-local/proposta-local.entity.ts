@@ -1,4 +1,4 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { AfterLoad, Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
 export interface PropostaItemJson {
   equipamentoId: string;
@@ -31,8 +31,8 @@ export class PropostaLocal {
   @Column({ length: 50 })
   marca!: string;
 
-  @Column({ type: 'simple-json' })
-  itens: PropostaItemJson[] = [];
+  @Column({ type: 'simple-json', nullable: true })
+  itens: PropostaItemJson[] | null = [];
 
   @Column({ type: 'text', default: '' })
   observacoes!: string;
@@ -51,4 +51,9 @@ export class PropostaLocal {
 
   @Column({ length: 40 })
   updatedAt!: string;
+
+  @AfterLoad()
+  normalizeJsonFields() {
+    if (!this.itens) this.itens = [];
+  }
 }
