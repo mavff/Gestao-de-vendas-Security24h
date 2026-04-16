@@ -23,6 +23,8 @@ export type EquipmentQuery = ListQuery & {
   codGrupo?: number;
   codCategoria?: number;
   cancelado?: boolean;
+  /** Se false, retorna catálogo ERP completo (padrão backend: true = só com GrupoOrçamento). */
+  apenasOrcamento?: boolean;
 };
 
 export type KitsQuery = ListQuery & {

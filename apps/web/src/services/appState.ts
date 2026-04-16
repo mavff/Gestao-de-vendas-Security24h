@@ -1,12 +1,29 @@
 'use client';
 
 import { apiClient } from '../lib/apiClient';
+import { isRelationalKey, loadRelational, saveRelational } from './relationalBridge';
 
 const isApiMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_DATA_SOURCE === 'api';
 
 // In-memory cache to avoid repeated API calls within the same session
 const cache = new Map<string, { value: unknown; ts: number }>();
 const CACHE_TTL = 30_000; // 30s
+
+// Contador de writes em voo. Se > 0, beforeunload avisa o usuário.
+let pendingWrites = 0;
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', (e) => {
+    if (pendingWrites > 0) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+}
+
+export function hasPendingWrites(): boolean {
+  return pendingWrites > 0;
+}
 
 /**
  * Load state from SQLite (API mode) or localStorage (mock mode).
@@ -21,6 +38,17 @@ export async function loadState<T>(key: string, fallback: T): Promise<T> {
 
   if (!isApiMode) {
     return loadLocal(key, fallback);
+  }
+
+  if (isRelationalKey(key)) {
+    try {
+      const value = (await loadRelational(key)) as unknown as T;
+      cache.set(key, { value, ts: Date.now() });
+      saveLocal(key, value);
+      return value;
+    } catch (err) {
+      console.warn(`[appState] loadRelational falhou para "${key}", usando KV/localStorage`, err);
+    }
   }
 
   try {
@@ -41,6 +69,9 @@ export async function loadState<T>(key: string, fallback: T): Promise<T> {
  * if a save doesn't stick across devices.
  */
 export async function saveState<T>(key: string, value: T): Promise<void> {
+  // Snapshot previous value BEFORE overwriting cache (needed by relational diff).
+  const prev = cache.get(key)?.value ?? loadLocal<T | null>(key, null);
+
   // Always update memory cache
   cache.set(key, { value, ts: Date.now() });
 
@@ -49,10 +80,32 @@ export async function saveState<T>(key: string, value: T): Promise<void> {
 
   if (!isApiMode) return;
 
+  pendingWrites++;
   try {
-    await apiClient.put(`/app-state/${encodeURIComponent(key)}`, { body: { value } });
-  } catch (err) {
-    console.warn(`[appState] Falha ao salvar "${key}" na API, mantido em localStorage`, err);
+    if (isRelationalKey(key) && Array.isArray(value)) {
+      try {
+        await saveRelational(
+          key,
+          value as unknown as Array<{ id: string }>,
+          (prev as unknown as Array<{ id: string }> | null) ?? null,
+        );
+        return;
+      } catch (err) {
+        console.warn(`[appState] saveRelational falhou para "${key}", caindo para KV`, err);
+      }
+    }
+
+    try {
+      // Writes podem carregar base64 de fotos (vistorias) — timeout alto pra evitar abort.
+      await apiClient.put(`/app-state/${encodeURIComponent(key)}`, {
+        body: { value },
+        timeoutMs: 60_000,
+      });
+    } catch (err) {
+      console.warn(`[appState] Falha ao salvar "${key}" na API, mantido em localStorage`, err);
+    }
+  } finally {
+    pendingWrites--;
   }
 }
 

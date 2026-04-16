@@ -26,7 +26,7 @@ export type Lead = {
   probabilidade?: number;
 };
 
-export type UserRole = 'ADMIN' | 'GESTOR' | 'SDR' | 'VENDEDOR' | 'TECNICO' | 'INFRA' | 'MONITOR';
+export type UserRole = 'ADMIN' | 'GESTOR' | 'SDR' | 'VENDEDOR' | 'TECNICO';
 
 export type User = { id: string; name: string; role: UserRole; status: 'ativo' | 'inativo' };
 
@@ -280,7 +280,8 @@ export type VendaLocalStatus =
   | 'vistoria'
   | 'em_instalacao'
   | 'entrega'
-  | 'concluida';
+  | 'concluida'
+  | 'perdida';
 
 export type VendaLocal = {
   id: string;
@@ -319,6 +320,14 @@ export type VendaLocal = {
   visita1Concluida?: boolean;
   /** Visita 2 concluída (entrega/conferência) */
   visita2Concluida?: boolean;
+  /** Contrato assinado anexado (token do PhotoService, ex.: photo:<uuid>) */
+  contratoUrl?: string;
+  /** ISO timestamp do anexo do contrato assinado */
+  contratoAssinadoEm?: string;
+  /** ISO timestamp do agendamento da instalação */
+  instalacaoAgendadaEm?: string;
+  /** ISO timestamp da conclusão da instalação */
+  instalacaoConcluidaEm?: string;
 };
 
 export type ActivityLogType =

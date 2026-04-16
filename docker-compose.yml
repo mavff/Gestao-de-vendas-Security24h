@@ -1,12 +1,18 @@
-version: '3.9'
 services:
-  backend:
-    image: node:20
-    working_dir: /app
-    volumes:
-      - ./:/app
-    command: bash -lc "npm install && npm run dev:backend"
+  postgres:
+    image: postgres:16-alpine
+    container_name: sec24h-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sec24h
+      POSTGRES_PASSWORD: sec24h_dev
+      POSTGRES_DB: sec24h_app
     ports:
-      - '3000:3000'
-    env_file:
-      - apps/backend/.env
+      - "5433:5432"
+    volumes:
+      - ./.data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sec24h -d sec24h_app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

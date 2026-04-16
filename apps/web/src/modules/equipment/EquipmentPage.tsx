@@ -7,7 +7,8 @@ import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource } from '../../lib/dataSource/factory';
 import { mockEquipments } from '../../mocks/data';
-import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadLocalCache } from '../../services/localCache';
+import { loadState, saveState } from '../../services/appState';
 import { BlocoCategoria, Equipment, EquipmentCategory, Marca } from '../../types';
 
 const categories: EquipmentCategory[] = ['Câmera', 'Sensor', 'Central', 'Acessório'];
@@ -32,14 +33,21 @@ const emptyDraft: Equipment = { id: '', name: '', sku: '', category: 'Câmera', 
 export function EquipmentPage() {
   const { showToast } = useToast();
   const { role } = useAuth();
-  const canWrite = role === 'ADMIN' || role === 'INFRA';
+  const canWrite = role === 'ADMIN';
 
-  const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [equipmentsErp, setEquipmentsErp] = useState<Equipment[]>([]);
+  const [equipmentsCustom, setEquipmentsCustom] = useState<Equipment[]>([]);
   const [category, setCategory] = useState('Todas');
   const [marcaFilter, setMarcaFilter] = useState('Todas');
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<Equipment>(emptyDraft);
+
+  // ERP equipments têm ID numérico (codProduto). Custom usam prefixo "E" + timestamp.
+  const isCustomId = (id: string) => id.startsWith('E');
+
+  // Lista mesclada exibida na tabela
+  const equipments = useMemo(() => [...equipmentsErp, ...equipmentsCustom], [equipmentsErp, equipmentsCustom]);
 
   useEffect(() => {
     async function loadAll() {
@@ -48,21 +56,22 @@ export function EquipmentPage() {
         let page = 1;
         let all: Equipment[] = [];
         while (true) {
-          const result = await ds.equipment.list({ page, pageSize: 500 });
+          // apenasOrcamento:false → catálogo ERP completo (admin/infra/tecnico precisam ver tudo,
+          // não só produtos com GrupoOrçamento preenchido).
+          const result = await ds.equipment.list({ page, pageSize: 500, apenasOrcamento: false });
           all = all.concat(result.data);
           if (page >= result.meta.totalPages) break;
           page++;
         }
-        setEquipments(all);
+        setEquipmentsErp(all);
       } catch {
-        setEquipments(loadMock('mock_equipments', mockEquipments));
+        setEquipmentsErp(loadLocalCache('mock_equipments', mockEquipments));
       }
     }
     loadAll();
+    // Carrega equipamentos custom do AppKv (SQLite) — compartilhado entre usuários
+    loadState<Equipment[]>('equipments_custom', []).then(setEquipmentsCustom);
   }, []);
-
-  // Persiste apenas itens criados/editados localmente (backend é read-only)
-  useEffect(() => { if (equipments.length) saveMock('mock_equipments', equipments); }, [equipments]);
 
   const filtered = useMemo(() =>
     equipments.filter((eq) => {
@@ -83,20 +92,33 @@ export function EquipmentPage() {
     setModalOpen(true);
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!draft.name.trim() || !draft.sku.trim()) return;
+    if (draft.id && !isCustomId(draft.id)) {
+      showToast('Itens do ERP não podem ser editados aqui. Ajuste direto no ERP.', 'warning');
+      return;
+    }
+    let next: Equipment[];
     if (draft.id) {
-      setEquipments((cur) => cur.map((e) => e.id === draft.id ? draft : e));
+      next = equipmentsCustom.map((e) => e.id === draft.id ? draft : e);
       showToast('Equipamento atualizado.', 'success');
     } else {
-      setEquipments((cur) => [...cur, { ...draft, id: 'E' + Date.now() }]);
+      next = [...equipmentsCustom, { ...draft, id: 'E' + Date.now() }];
       showToast('Equipamento criado.', 'success');
     }
+    setEquipmentsCustom(next);
+    await saveState('equipments_custom', next);
     setModalOpen(false);
   }
 
-  function handleDelete(id: string) {
-    setEquipments((cur) => cur.filter((e) => e.id !== id));
+  async function handleDelete(id: string) {
+    if (!isCustomId(id)) {
+      showToast('Itens do ERP não podem ser excluídos daqui.', 'warning');
+      return;
+    }
+    const next = equipmentsCustom.filter((e) => e.id !== id);
+    setEquipmentsCustom(next);
+    await saveState('equipments_custom', next);
     showToast('Equipamento excluído.', 'warning');
   }
 

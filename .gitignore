@@ -13,5 +13,7 @@ out/
 NUL
 *.sqlite
 *.tsbuildinfo
+.data/
+apps/backend/data/photos/
 *_tmp.json
 clientes_tmp.json

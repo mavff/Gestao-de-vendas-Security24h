@@ -6,7 +6,7 @@ import { theme } from '../../components/common/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { loadState, saveState } from '../../services/appState';
 import { AppShell } from '../../components/layout/AppShell';
-import type { VendaLocal, VendaLocalStatus, ActivityLog } from '../../types';
+import type { VendaLocal, VendaLocalStatus, ActivityLog, SolucaoTecnica, Vistoria, OrdemDeServico } from '../../types';
 
 /* ================================================================
    Status config
@@ -21,6 +21,7 @@ const STATUS_CONFIG: Record<VendaLocalStatus, { label: string; color: string; et
   em_instalacao:     { label: 'Em Instalação',      color: '#FF9800',     etapa: 4 },
   entrega:           { label: 'Entrega',            color: '#43C17B',     etapa: 5 },
   concluida:         { label: 'Concluída',          color: theme.success, etapa: 5 },
+  perdida:           { label: 'Perdida',             color: theme.danger,  etapa: 0 },
 };
 
 const ETAPAS = ['Dados', 'Solução', 'Proposta', '1ª Visita', 'Instalação', 'Entrega'];
@@ -49,7 +50,7 @@ export function VendasListPage() {
   }, []);
 
   /* --- Auto-create venda from pipeline query params --- */
-  const handleAutoCreate = useCallback((nome: string, tel: string, empresa: string, endereco: string, tipoLocal: string, leadId: string) => {
+  const handleAutoCreate = useCallback(async (nome: string, tel: string, empresa: string, endereco: string, tipoLocal: string, leadId: string) => {
     const now = new Date().toISOString();
     const id = 'VND' + Date.now();
     const nova: VendaLocal = {
@@ -65,13 +66,14 @@ export function VendasListPage() {
       descricao: `Venda criada a partir do pipeline para ${nome}`,
       criadoPor: user?.username ?? '', createdAt: now,
     };
-    loadState<VendaLocal[]>('vendedor_vendas', []).then((current) => {
-      const updated = [nova, ...current];
-      saveState('vendedor_vendas', updated);
-    });
-    loadState<ActivityLog[]>('vendedor_logs', []).then((current) => {
-      saveState('vendedor_logs', [log, ...current]);
-    });
+    const [currentVendas, currentLogs] = await Promise.all([
+      loadState<VendaLocal[]>('vendedor_vendas', []),
+      loadState<ActivityLog[]>('vendedor_logs', []),
+    ]);
+    await Promise.all([
+      saveState('vendedor_vendas', [nova, ...currentVendas]),
+      saveState('vendedor_logs', [log, ...currentLogs]),
+    ]);
     router.replace(`/venda/${id}`);
   }, [user, router]);
 
@@ -135,7 +137,7 @@ export function VendasListPage() {
   }, [logs]);
 
   /* --- create new venda --- */
-  function handleCriarVenda(data: { nome: string; telefone: string; empresa: string; endereco: string; tipoLocal: VendaLocal['tipoLocal'] }) {
+  async function handleCriarVenda(data: { nome: string; telefone: string; empresa: string; endereco: string; tipoLocal: VendaLocal['tipoLocal'] }) {
     const now = new Date().toISOString();
     const id = 'VND' + Date.now();
     const nova: VendaLocal = {
@@ -170,20 +172,36 @@ export function VendasListPage() {
     const newLogs = [log, ...logs];
     setVendas(newVendas);
     setLogs(newLogs);
-    saveState('vendedor_vendas', newVendas);
-    saveState('vendedor_logs', newLogs);
+    await Promise.all([
+      saveState('vendedor_vendas', newVendas),
+      saveState('vendedor_logs', newLogs),
+    ]);
     setShowNovaVenda(false);
     router.push(`/venda/${id}`);
   }
 
-  /* --- delete venda --- */
-  function handleDeleteVenda(id: string) {
+  /* --- delete venda — limpa entidades relacionadas --- */
+  async function handleDeleteVenda(id: string) {
     const updated = vendas.filter((v) => v.id !== id);
     const updatedLogs = logs.filter((l) => l.vendaId !== id);
     setVendas(updated);
     setLogs(updatedLogs);
-    saveState('vendedor_vendas', updated);
-    saveState('vendedor_logs', updatedLogs);
+    await Promise.all([
+      saveState('vendedor_vendas', updated),
+      saveState('vendedor_logs', updatedLogs),
+      loadState<SolucaoTecnica[]>('solucoes', []).then((all) =>
+        saveState('solucoes', all.filter((s) => s.leadId !== id)),
+      ),
+      loadState<Vistoria[]>('vistorias', []).then((all) =>
+        saveState('vistorias', all.filter((v) => v.leadId !== id)),
+      ),
+      loadState<Vistoria[]>('entregas', []).then((all) =>
+        saveState('entregas', all.filter((v) => v.leadId !== id)),
+      ),
+      loadState<OrdemDeServico[]>('ordens_servico', []).then((all) =>
+        saveState('ordens_servico', all.filter((o) => o.leadId !== id)),
+      ),
+    ]);
     setConfirmDelete(null);
   }
 

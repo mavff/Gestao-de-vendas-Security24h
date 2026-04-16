@@ -10,7 +10,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource } from '../../lib/dataSource/factory';
 import { ComissaoConfig, DEFAULT_COMISSAO_CONFIG } from '../../lib/dataSource/types';
 import { compressImage } from '../../services/imageUtils';
+import { photoSrc, uploadBase64Photo } from '../../services/photoService';
 import { loadState, saveState } from '../../services/appState';
+import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { openPropostaPDF } from '../../components/proposal/PropostaPDF';
 import type {
   ActivityLog, ActivityLogType, AmbienteVistoria, BlocoCategoria, BlocoTecnico,
@@ -57,6 +59,9 @@ export function VendaPage() {
   const [ordem, setOrdem] = useState<OrdemDeServico | null>(null);
   const [allOrdens, setAllOrdens] = useState<OrdemDeServico[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
+  // Ref sempre atual dos logs — evita side-effect dentro de setLogs (que duplicaria em Strict Mode).
+  const logsRef = useRef<ActivityLog[]>([]);
+  useEffect(() => { logsRef.current = logs; }, [logs]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [kits, setKits] = useState<Kit[]>([]);
   const [activeStep, setActiveStep] = useState<StepName>('Cliente');
@@ -65,10 +70,19 @@ export function VendaPage() {
   const [monitConfig, setMonitConfig] = useState<MonitoramentoConfig>(DEFAULT_MONIT_CONFIG);
   const [comissaoConfig, setComissaoConfig] = useState<ComissaoConfig>(DEFAULT_COMISSAO_CONFIG);
   const [maoDeObraConfig, setMaoDeObraConfig] = useState<MaoDeObraConfig>(DEFAULT_MAO_DE_OBRA_CONFIG);
+  // Guards contra corrida entre load inicial async e escritas locais do usuário.
+  // Se o usuário clicar/editar antes do loadState resolver, não sobrescrevemos.
+  const localEditsRef = useRef({ venda: false, solucao: false, vistoria: false, ordem: false });
+  const localEntregaRef = useRef(false);
 
   /* --- load --- */
   useEffect(() => {
+    // Reset das flags quando navega entre vendas (vendaId muda) —
+    // permite que o loadState popule o state da nova venda.
+    localEditsRef.current = { venda: false, solucao: false, vistoria: false, ordem: false };
+    localEntregaRef.current = false;
     loadState<VendaLocal[]>('vendedor_vendas', []).then((all) => {
+      if (localEditsRef.current.venda) return;
       setVendas(all);
       const found = all.find((v) => v.id === vendaId);
       setVenda(found ?? null);
@@ -83,14 +97,17 @@ export function VendaPage() {
       }
     });
     loadState<SolucaoTecnica[]>('solucoes', []).then((all) => {
+      if (localEditsRef.current.solucao) return;
       setAllSolucoes(all);
       setSolucao(all.find((s) => s.leadId === vendaId) ?? null);
     });
     loadState<Vistoria[]>('vistorias', []).then((all) => {
+      if (localEditsRef.current.vistoria) return;
       setAllVistorias(all);
       setVistoria(all.find((v) => v.leadId === vendaId) ?? null);
     });
     loadState<OrdemDeServico[]>('ordens_servico', []).then((all) => {
+      if (localEditsRef.current.ordem) return;
       setAllOrdens(all);
       setOrdem(all.find((o) => o.leadId === vendaId) ?? null);
     });
@@ -99,23 +116,25 @@ export function VendaPage() {
     loadState<ComissaoConfig>('config:comissoes', DEFAULT_COMISSAO_CONFIG).then(setComissaoConfig);
     loadState<MaoDeObraConfig>(MAO_DE_OBRA_KEY, DEFAULT_MAO_DE_OBRA_CONFIG).then(setMaoDeObraConfig);
 
-    let cancelled = false;
-    async function loadRefData() {
-      const ds = createDataSource();
-      const [eqRes, kitsRes, modelosRes] = await Promise.allSettled([
-        ds.equipment.list({ pageSize: 500 }),
-        ds.kits.list({ pageSize: 200 }),
-        ds.preOrcamentos.list({ pageSize: 200 }),
-      ]);
-      if (cancelled) return;
-      if (eqRes.status === 'fulfilled') setEquipments(eqRes.value.data);
-      const dbKits = kitsRes.status === 'fulfilled' ? kitsRes.value.data : [];
-      const modeloKits = modelosRes.status === 'fulfilled' ? modelosRes.value.data.map(preOrcToKit) : [];
-      setKits([...modeloKits, ...dbKits]);
-    }
-    loadRefData();
-    return () => { cancelled = true; };
+    loadRefDataFromBackend();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendaId]);
+
+  // Refetch de kits/equipments/modelos do ERP (preços podem ter mudado).
+  const loadRefDataFromBackend = useCallback(async () => {
+    const ds = createDataSource();
+    const [eqRes, kitsRes, modelosRes] = await Promise.allSettled([
+      ds.equipment.list({ pageSize: 500 }),
+      ds.kits.list({ pageSize: 200 }),
+      ds.preOrcamentos.list({ pageSize: 200 }),
+    ]);
+    if (eqRes.status === 'fulfilled') setEquipments(eqRes.value.data);
+    const dbKits = kitsRes.status === 'fulfilled' ? kitsRes.value.data : [];
+    const modeloKits = modelosRes.status === 'fulfilled' ? modelosRes.value.data.map(preOrcToKit) : [];
+    setKits([...modeloKits, ...dbKits]);
+  }, []);
+
+  useRefreshOnFocus(() => { loadRefDataFromBackend(); });
 
   // Merged equipments: include synthetic entries from kit items
   const mergedEquipments = useMemo<Equipment[]>(() => {
@@ -147,78 +166,81 @@ export function VendaPage() {
       createdAt: new Date().toISOString(),
       meta,
     };
-    setLogs((prev) => {
-      const updated = [log, ...prev];
-      saveState('vendedor_logs', updated);
-      return updated;
-    });
+    const updated = [log, ...logsRef.current];
+    logsRef.current = updated;
+    setLogs(updated);
+    saveState('vendedor_logs', updated);
   }, [vendaId, username]);
 
-  /* --- persist helpers --- */
-  function updateVenda(patch: Partial<VendaLocal>) {
+  /* --- persist helpers (retornam Promise pra handlers aguardarem o save) --- */
+  async function updateVenda(patch: Partial<VendaLocal>): Promise<void> {
     if (!venda) return;
+    localEditsRef.current.venda = true;
     const updated = { ...venda, ...patch, updatedAt: new Date().toISOString() };
+    const next = vendas.map((v) => v.id === vendaId ? updated : v);
     setVenda(updated);
-    setVendas((prev) => {
-      const next = prev.map((v) => v.id === vendaId ? updated : v);
-      saveState('vendedor_vendas', next);
-      return next;
-    });
+    setVendas(next);
+    await saveState('vendedor_vendas', next);
   }
 
-  function updateSolucao(sol: SolucaoTecnica) {
+  async function updateSolucao(sol: SolucaoTecnica): Promise<void> {
+    localEditsRef.current.solucao = true;
+    const exists = allSolucoes.some((s) => s.id === sol.id);
+    const next = exists ? allSolucoes.map((s) => s.id === sol.id ? sol : s) : [...allSolucoes, sol];
     setSolucao(sol);
-    setAllSolucoes((prev) => {
-      const exists = prev.some((s) => s.id === sol.id);
-      const next = exists ? prev.map((s) => s.id === sol.id ? sol : s) : [...prev, sol];
-      saveState('solucoes', next);
-      return next;
-    });
+    setAllSolucoes(next);
+    await saveState('solucoes', next);
   }
 
-  function updateVistoria(vis: Vistoria) {
+  async function updateVistoria(vis: Vistoria): Promise<void> {
+    localEditsRef.current.vistoria = true;
+    const exists = allVistorias.some((v) => v.id === vis.id);
+    const next = exists ? allVistorias.map((v) => v.id === vis.id ? vis : v) : [...allVistorias, vis];
     setVistoria(vis);
-    setAllVistorias((prev) => {
-      const exists = prev.some((v) => v.id === vis.id);
-      const next = exists ? prev.map((v) => v.id === vis.id ? vis : v) : [...prev, vis];
-      saveState('vistorias', next);
-      return next;
-    });
+    setAllVistorias(next);
+    await saveState('vistorias', next);
   }
 
-  function updateOrdem(os: OrdemDeServico) {
+  async function updateOrdem(os: OrdemDeServico): Promise<void> {
+    localEditsRef.current.ordem = true;
+    const exists = allOrdens.some((o) => o.id === os.id);
+    const next = exists ? allOrdens.map((o) => o.id === os.id ? os : o) : [...allOrdens, os];
     setOrdem(os);
-    setAllOrdens((prev) => {
-      const exists = prev.some((o) => o.id === os.id);
-      const next = exists ? prev.map((o) => o.id === os.id ? os : o) : [...prev, os];
-      saveState('ordens_servico', next);
-      return next;
-    });
+    setAllOrdens(next);
+    await saveState('ordens_servico', next);
   }
 
   /* --- delete venda --- */
-  function handleDeleteVenda() {
-    loadState<VendaLocal[]>('vendedor_vendas', []).then((all) => {
-      saveState('vendedor_vendas', all.filter((v) => v.id !== vendaId));
-    });
-    loadState<ActivityLog[]>('vendedor_logs', []).then((all) => {
-      saveState('vendedor_logs', all.filter((l) => l.vendaId !== vendaId));
-    });
+  async function handleDeleteVenda() {
+    const tasks: Promise<void>[] = [
+      loadState<VendaLocal[]>('vendedor_vendas', []).then((all) =>
+        saveState('vendedor_vendas', all.filter((v) => v.id !== vendaId)),
+      ),
+      loadState<ActivityLog[]>('vendedor_logs', []).then((all) =>
+        saveState('vendedor_logs', all.filter((l) => l.vendaId !== vendaId)),
+      ),
+    ];
     if (solucao) {
-      loadState<SolucaoTecnica[]>('solucoes', []).then((all) => {
-        saveState('solucoes', all.filter((s) => s.id !== solucao.id));
-      });
+      tasks.push(loadState<SolucaoTecnica[]>('solucoes', []).then((all) =>
+        saveState('solucoes', all.filter((s) => s.id !== solucao.id)),
+      ));
     }
     if (vistoria) {
-      loadState<Vistoria[]>('vistorias', []).then((all) => {
-        saveState('vistorias', all.filter((v) => v.id !== vistoria.id));
-      });
+      tasks.push(loadState<Vistoria[]>('vistorias', []).then((all) =>
+        saveState('vistorias', all.filter((v) => v.id !== vistoria.id)),
+      ));
+    }
+    if (entregaVistoria) {
+      tasks.push(loadState<Vistoria[]>('entregas', []).then((all) =>
+        saveState('entregas', all.filter((v) => v.id !== entregaVistoria.id)),
+      ));
     }
     if (ordem) {
-      loadState<OrdemDeServico[]>('ordens_servico', []).then((all) => {
-        saveState('ordens_servico', all.filter((o) => o.id !== ordem.id));
-      });
+      tasks.push(loadState<OrdemDeServico[]>('ordens_servico', []).then((all) =>
+        saveState('ordens_servico', all.filter((o) => o.id !== ordem.id)),
+      ));
     }
+    await Promise.all(tasks);
     showToast('Venda excluída.', 'success');
     router.push('/vendas');
   }
@@ -282,26 +304,30 @@ export function VendaPage() {
      Actions — Step 2: Solução
      ============================================= */
 
-  function handleSaveSolucao() {
+  async function handleSaveSolucao() {
     if (!solDraft) return;
     const now = new Date().toISOString().slice(0, 10);
     const id = solDraft.id || 'SOL' + Date.now();
     const updated: SolucaoTecnica = { ...solDraft, id, updatedAt: now };
-    updateSolucao(updated);
     setSolDraft(updated);
-    updateVenda({ solucaoId: id });
+    await Promise.all([
+      updateSolucao(updated),
+      updateVenda({ solucaoId: id }),
+    ]);
     addLog('solucao_salva', 'Solução técnica salva');
     showToast('Solução salva.', 'success');
   }
 
-  function handleSolucaoPronta() {
+  async function handleSolucaoPronta() {
     if (!solDraft) return;
     const now = new Date().toISOString().slice(0, 10);
     const id = solDraft.id || 'SOL' + Date.now();
     const pronta: SolucaoTecnica = { ...solDraft, id, status: 'enviada', updatedAt: now };
-    updateSolucao(pronta);
     setSolDraft(pronta);
-    updateVenda({ solucaoId: id, status: 'solucao_pronta' });
+    await Promise.all([
+      updateSolucao(pronta),
+      updateVenda({ solucaoId: id, status: 'solucao_pronta' }),
+    ]);
     addLog('solucao_enviada', 'Solução finalizada');
     showToast('Solução pronta! Avance para gerar a proposta.', 'success');
     setActiveStep('Proposta');
@@ -357,9 +383,9 @@ export function VendaPage() {
     }
   }
 
-  function handleClienteAprovou() {
+  async function handleClienteAprovou() {
     if (!venda) return;
-    updateVenda({ status: 'cliente_aprovou', clienteAprovado: true });
+    await updateVenda({ status: 'cliente_aprovou', clienteAprovado: true });
     addLog('solucao_aprovada', 'Cliente aprovou a proposta');
     showToast('Cliente aprovou! Faça a 1ª visita ao local.', 'success');
     setActiveStep('1ª Visita');
@@ -369,26 +395,26 @@ export function VendaPage() {
      Actions — Step 3: Vistoria (Fotos/Pontos)
      ============================================= */
 
-  function ensureVistoria(): Vistoria {
-    if (vistoria) return vistoria;
+  function handleAddAmbiente(nome: string) {
     const now = new Date().toISOString().slice(0, 10);
-    const newVis: Vistoria = {
+    const newAmb: AmbienteVistoria = { id: 'AMB' + Date.now(), nome, pontos: [], status: 'pendente' };
+    // Cria vistoria + ambiente em UMA chamada pra evitar race entre setStates
+    const base: Vistoria = vistoria ?? {
       id: 'VIS' + Date.now(), leadId: vendaId, propostaId: '',
       ambientes: [], observacoes: '', status: 'pendente',
       criadoPor: username, createdAt: now, updatedAt: now,
     };
-    updateVistoria(newVis);
-    updateVenda({ vistoriaId: newVis.id, status: 'vistoria' });
-    addLog('vistoria_iniciada', 'Vistoria do local iniciada');
-    return newVis;
-  }
-
-  function handleAddAmbiente(nome: string) {
-    const vis = ensureVistoria();
-    const now = new Date().toISOString().slice(0, 10);
-    const newAmb: AmbienteVistoria = { id: 'AMB' + Date.now(), nome, pontos: [], status: 'pendente' };
-    const updated: Vistoria = { ...vis, ambientes: [...vis.ambientes, newAmb], status: 'em_andamento', updatedAt: now };
+    const updated: Vistoria = {
+      ...base,
+      ambientes: [...base.ambientes, newAmb],
+      status: 'em_andamento',
+      updatedAt: now,
+    };
     updateVistoria(updated);
+    if (!vistoria) {
+      updateVenda({ vistoriaId: updated.id, status: 'vistoria' });
+      addLog('vistoria_iniciada', 'Vistoria do local iniciada');
+    }
     addLog('ambiente_adicionado', `Ambiente "${nome}" adicionado`, { ambiente: nome });
   }
 
@@ -406,7 +432,7 @@ export function VendaPage() {
     updateVistoria(updated);
   }
 
-  function handleConcluirVistoria() {
+  async function handleConcluirVistoria() {
     if (!vistoria) return;
     const hasPhoto = vistoria.ambientes.some((a) => a.pontos.some((p) => p.photos.length > 0));
     if (vistoria.ambientes.length === 0) {
@@ -420,10 +446,11 @@ export function VendaPage() {
 
     const now = new Date().toISOString().slice(0, 10);
     const concluida: Vistoria = { ...vistoria, status: 'concluida', updatedAt: now };
-    updateVistoria(concluida);
+    await updateVistoria(concluida);
     addLog('vistoria_concluida', `Vistoria concluída com ${vistoria.ambientes.length} ambientes`);
 
     // Auto-create OS
+    let ordemIdFinal: string | undefined;
     if (solucao && !ordem) {
       const allPontos: InstallationPoint[] = vistoria.ambientes.flatMap((a) => a.pontos);
       let ckIdx = 0;
@@ -438,12 +465,16 @@ export function VendaPage() {
         cliente: venda?.clienteNome ?? '', dataAgendada: '', tecnicoId: '',
         checklist, pontos: allPontos, observacoes: '', status: 'pendente', createdAt: now,
       };
-      updateOrdem(newOS);
-      updateVenda({ ordemId: newOS.id });
+      await updateOrdem(newOS);
+      ordemIdFinal = newOS.id;
       addLog('os_criada', 'Ordem de serviço criada automaticamente');
     }
 
-    updateVenda({ visita1Concluida: true, status: 'em_instalacao' });
+    await updateVenda({
+      visita1Concluida: true,
+      status: 'em_instalacao',
+      ...(ordemIdFinal ? { ordemId: ordemIdFinal } : {}),
+    });
     showToast('1ª Visita concluída! OS criada.', 'success');
     setActiveStep('Entrega');
   }
@@ -458,31 +489,19 @@ export function VendaPage() {
 
   useEffect(() => {
     loadState<Vistoria[]>('entregas', []).then((all) => {
+      if (localEntregaRef.current) return;
       setAllEntregas(all);
       setEntregaVistoria(all.find((v) => v.leadId === vendaId) ?? null);
     });
   }, [vendaId]);
 
-  function updateEntregaVistoria(vis: Vistoria) {
+  async function updateEntregaVistoria(vis: Vistoria): Promise<void> {
+    localEntregaRef.current = true;
+    const exists = allEntregas.some((v) => v.id === vis.id);
+    const next = exists ? allEntregas.map((v) => v.id === vis.id ? vis : v) : [...allEntregas, vis];
     setEntregaVistoria(vis);
-    setAllEntregas((prev) => {
-      const exists = prev.some((v) => v.id === vis.id);
-      const next = exists ? prev.map((v) => v.id === vis.id ? vis : v) : [...prev, vis];
-      saveState('entregas', next);
-      return next;
-    });
-  }
-
-  function ensureEntregaVistoria(): Vistoria {
-    if (entregaVistoria) return entregaVistoria;
-    const now = new Date().toISOString().slice(0, 10);
-    const newVis: Vistoria = {
-      id: 'ENT' + Date.now(), leadId: vendaId, propostaId: '',
-      ambientes: [], observacoes: '', status: 'pendente',
-      criadoPor: username, createdAt: now, updatedAt: now,
-    };
-    updateEntregaVistoria(newVis);
-    return newVis;
+    setAllEntregas(next);
+    await saveState('entregas', next);
   }
 
   function handleIniciarInstalacao() {
@@ -491,43 +510,68 @@ export function VendaPage() {
     showToast('Instalação marcada como iniciada.', 'success');
   }
 
-  function handleAddAmbienteEntrega(nome: string) {
-    const vis = ensureEntregaVistoria();
+  // Auto-sincroniza a estrutura (ambientes/pontos) da Entrega a partir da Vistoria.
+  // Usuário NÃO adiciona ambientes na 2ª visita — só tira fotos de conferência
+  // dos mesmos pontos marcados na 1ª visita.
+  // Só roda quando o usuário de fato abre a aba Entrega, pra não criar registros órfãos.
+  useEffect(() => {
+    if (activeStep !== 'Entrega') return;
+    if (!vistoria || vistoria.ambientes.length === 0) return;
     const now = new Date().toISOString().slice(0, 10);
-    const newAmb: AmbienteVistoria = { id: 'EAMB' + Date.now(), nome, pontos: [], status: 'pendente' };
-    const updated: Vistoria = { ...vis, ambientes: [...vis.ambientes, newAmb], status: 'em_andamento', updatedAt: now };
-    updateEntregaVistoria(updated);
-    addLog('ambiente_adicionado', `Entrega: ambiente "${nome}" registrado`, { ambiente: nome });
-  }
+    const base: Vistoria = entregaVistoria ?? {
+      id: 'ENT' + Date.now(), leadId: vendaId, propostaId: '',
+      ambientes: [], observacoes: '', status: 'pendente',
+      criadoPor: username, createdAt: now, updatedAt: now,
+    };
+    const syncedAmbientes: AmbienteVistoria[] = vistoria.ambientes.map((va) => {
+      const existAmb = base.ambientes.find((a) => a.id === va.id);
+      const pontos: InstallationPoint[] = va.pontos.map((vp) => {
+        const existPt = existAmb?.pontos.find((p) => p.id === vp.id);
+        return existPt
+          ? { ...existPt, environment: va.nome, type: vp.type, note: vp.note, equipmentId: vp.equipmentId, locationTag: vp.locationTag }
+          : { id: vp.id, environment: va.nome, type: vp.type, note: vp.note, status: 'Pendente', photos: [], equipmentId: vp.equipmentId, locationTag: vp.locationTag };
+      });
+      return { id: va.id, nome: va.nome, pontos, status: (existAmb?.status ?? 'pendente') as 'pendente' | 'concluido' };
+    });
+    // Só persiste se a estrutura realmente mudou (evita loop infinito)
+    const changed = JSON.stringify(syncedAmbientes.map((a) => ({ id: a.id, pontos: a.pontos.map((p) => p.id) })))
+      !== JSON.stringify(base.ambientes.map((a) => ({ id: a.id, pontos: a.pontos.map((p) => p.id) })));
+    if (changed || !entregaVistoria) {
+      updateEntregaVistoria({ ...base, ambientes: syncedAmbientes, updatedAt: now });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStep, vistoria?.id, vistoria?.ambientes]);
 
-  function handleUpdateAmbienteEntrega(ambId: string, amb: AmbienteVistoria) {
+  function handleUpdatePontoEntrega(ambId: string, pontoId: string, updated: InstallationPoint) {
     if (!entregaVistoria) return;
     const now = new Date().toISOString().slice(0, 10);
-    const updated: Vistoria = { ...entregaVistoria, ambientes: entregaVistoria.ambientes.map((a) => a.id === ambId ? amb : a), updatedAt: now };
-    updateEntregaVistoria(updated);
+    const updatedVis: Vistoria = {
+      ...entregaVistoria,
+      ambientes: entregaVistoria.ambientes.map((a) =>
+        a.id === ambId ? { ...a, pontos: a.pontos.map((p) => p.id === pontoId ? updated : p) } : a,
+      ),
+      updatedAt: now,
+    };
+    updateEntregaVistoria(updatedVis);
   }
 
-  function handleRemoveAmbienteEntrega(ambId: string) {
+  async function handleConcluirEntrega() {
     if (!entregaVistoria) return;
-    const now = new Date().toISOString().slice(0, 10);
-    const updated: Vistoria = { ...entregaVistoria, ambientes: entregaVistoria.ambientes.filter((a) => a.id !== ambId), updatedAt: now };
-    updateEntregaVistoria(updated);
-  }
-
-  function handleConcluirEntrega() {
-    if (!entregaVistoria) return;
-    const hasPhoto = entregaVistoria.ambientes.some((a) => a.pontos.some((p) => p.photos.length > 0));
-    if (entregaVistoria.ambientes.length === 0) {
-      showToast('Adicione pelo menos 1 ambiente na entrega.', 'error');
+    const totalPontos = entregaVistoria.ambientes.reduce((s, a) => s + a.pontos.length, 0);
+    const pontosComFoto = entregaVistoria.ambientes.reduce((s, a) => s + a.pontos.filter((p) => p.photos.length > 0).length, 0);
+    if (totalPontos === 0) {
+      showToast('Nenhum ponto da vistoria foi encontrado.', 'error');
       return;
     }
-    if (!hasPhoto) {
-      showToast('Tire pelo menos 1 foto de conferência.', 'error');
+    if (pontosComFoto < totalPontos) {
+      showToast(`Falta conferir ${totalPontos - pontosComFoto} ponto(s) com foto.`, 'error');
       return;
     }
     const now = new Date().toISOString().slice(0, 10);
-    updateEntregaVistoria({ ...entregaVistoria, status: 'concluida', updatedAt: now });
-    updateVenda({ visita2Concluida: true, status: 'concluida' });
+    await Promise.all([
+      updateEntregaVistoria({ ...entregaVistoria, status: 'concluida', updatedAt: now }),
+      updateVenda({ visita2Concluida: true, status: 'concluida' }),
+    ]);
     addLog('entrega_concluida', `Entrega concluída com ${entregaVistoria.ambientes.length} ambientes conferidos`);
     showToast('Entrega concluída! Venda finalizada.', 'success');
     setActiveStep('Resumo');
@@ -734,12 +778,11 @@ export function VendaPage() {
         <StepEntrega
           venda={venda}
           vistoria={vistoria}
+          entregaVistoria={entregaVistoria}
           ordem={ordem}
           onIniciarInstalacao={handleIniciarInstalacao}
           onConcluirEntrega={handleConcluirEntrega}
-          onAddAmbiente={handleAddAmbienteEntrega}
-          onUpdateAmbiente={handleUpdateAmbienteEntrega}
-          onRemoveAmbiente={handleRemoveAmbienteEntrega}
+          onUpdatePonto={handleUpdatePontoEntrega}
           onPhotoAdded={onPhotoAdded}
           canEdit={canEdit}
         />
@@ -750,6 +793,7 @@ export function VendaPage() {
           venda={venda}
           solucao={solucao}
           vistoria={vistoria}
+          entregaVistoria={entregaVistoria}
           ordem={ordem}
           equipments={mergedEquipments}
           logs={vendaLogs}
@@ -1116,7 +1160,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   monitConfig: MonitoramentoConfig;
   comissaoConfig: ComissaoConfig;
   maoDeObraConfig: MaoDeObraConfig;
-  onUpdateVenda: (patch: Partial<VendaLocal>) => void;
+  onUpdateVenda: (patch: Partial<VendaLocal>) => Promise<void>;
   onGerarPDF: () => void;
   onClienteAprovou: () => void;
   onMaoDeObraConfigChange: (cfg: MaoDeObraConfig) => void;
@@ -1183,14 +1227,32 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   const totalItens = flatItems.reduce((s, i) => s + i.quantidade, 0);
   const desconto = monitAjuste !== null && monitAjuste < monitBase ? ((1 - monitAjuste / monitBase) * 100) : 0;
 
-  function handleSaveAndGenerate() {
-    onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
-    setTimeout(() => onGerarPDF(), 100);
+  // Auto-save: sempre que o usuário mexe em modalidade/monitoramento/prazo/mão-de-obra,
+  // persiste na venda (evita perda se fechar sem clicar Gerar PDF/Aprovar).
+  // Skip on first mount — só dispara quando valores mudam.
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) { didMountRef.current = true; return; }
+    if (approved) return; // venda já aprovada — congela valores
+    onUpdateVenda({
+      modalidade,
+      monitoramentoMensal: monitValor,
+      maoDeObra,
+      prazoComodato: prazo,
+      acrescimoInstalacao: 0,
+      valorCrea: 0,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalidade, monitValor, maoDeObra, prazo]);
+
+  async function handleSaveAndGenerate() {
+    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
+    onGerarPDF();
   }
 
-  function handleApprove() {
-    onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
-    setTimeout(() => onClienteAprovou(), 100);
+  async function handleApprove() {
+    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
+    onClienteAprovou();
   }
 
   /* Row helper — touch-friendly */
@@ -1220,9 +1282,9 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
         <MaoDeObraConfigModal
           config={maoDeObraConfig}
           faixas={monitConfig.faixas}
-          onSave={(cfg) => {
+          onSave={async (cfg) => {
             onMaoDeObraConfigChange(cfg);
-            saveState(MAO_DE_OBRA_KEY, cfg);
+            await saveState(MAO_DE_OBRA_KEY, cfg);
             setShowMaoDeObraConfigModal(false);
           }}
           onClose={() => setShowMaoDeObraConfigModal(false)}
@@ -1515,7 +1577,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
 function MaoDeObraConfigModal({ config, faixas, onSave, onClose }: {
   config: MaoDeObraConfig;
   faixas: FaixaMonitoramento[];
-  onSave: (cfg: MaoDeObraConfig) => void;
+  onSave: (cfg: MaoDeObraConfig) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [markups, setMarkups] = useState<Record<string, number>>(() => ({ ...config.markupPorBloco }));
@@ -1672,7 +1734,11 @@ function StepVistoria({ vistoria, onAddAmbiente, onUpdateAmbiente, onRemoveAmbie
       if (!ponto) return;
       const newPhotos: string[] = [];
       for (let i = 0; i < files.length; i++) {
-        newPhotos.push(await compressImage(files[i]));
+        const base64 = await compressImage(files[i]);
+        const token = vistoria
+          ? await uploadBase64Photo(base64, { entityType: 'vistoria', entityId: vistoria.id, pontoId })
+          : base64;
+        newPhotos.push(token);
       }
       handleUpdatePonto(ambId, pontoId, { ...ponto, photos: [...ponto.photos, ...newPhotos] });
       onPhotoAdded(amb.nome);
@@ -1693,7 +1759,7 @@ function StepVistoria({ vistoria, onAddAmbiente, onUpdateAmbiente, onRemoveAmbie
     setCameraPontoId(pontoId);
   }
 
-  function handleCameraCapture(base64: string) {
+  async function handleCameraCapture(base64: string) {
     if (!cameraAmbId || !cameraPontoId) return;
     if (annotate) {
       // Close the camera and open the annotator for this photo
@@ -1706,20 +1772,26 @@ function StepVistoria({ vistoria, onAddAmbiente, onUpdateAmbiente, onRemoveAmbie
     if (!amb) return;
     const ponto = amb.pontos.find((p) => p.id === cameraPontoId);
     if (!ponto) return;
-    handleUpdatePonto(cameraAmbId, cameraPontoId, { ...ponto, photos: [...ponto.photos, base64] });
+    const token = vistoria
+      ? await uploadBase64Photo(base64, { entityType: 'vistoria', entityId: vistoria.id, pontoId: cameraPontoId })
+      : base64;
+    handleUpdatePonto(cameraAmbId, cameraPontoId, { ...ponto, photos: [...ponto.photos, token] });
     onPhotoAdded(amb.nome);
     setCameraAmbId(null);
     setCameraPontoId(null);
   }
 
-  function handleAnnotatorSave(annotated: string) {
+  async function handleAnnotatorSave(annotated: string) {
     if (!pendingAnnotate) return;
     const { ambId, pontoId } = pendingAnnotate;
     const amb = ambientes.find((a) => a.id === ambId);
     if (!amb) { setPendingAnnotate(null); return; }
     const ponto = amb.pontos.find((p) => p.id === pontoId);
     if (!ponto) { setPendingAnnotate(null); return; }
-    handleUpdatePonto(ambId, pontoId, { ...ponto, photos: [...ponto.photos, annotated] });
+    const token = vistoria
+      ? await uploadBase64Photo(annotated, { entityType: 'vistoria', entityId: vistoria.id, pontoId })
+      : annotated;
+    handleUpdatePonto(ambId, pontoId, { ...ponto, photos: [...ponto.photos, token] });
     onPhotoAdded(amb.nome);
     setPendingAnnotate(null);
   }
@@ -1748,7 +1820,7 @@ function StepVistoria({ vistoria, onAddAmbiente, onUpdateAmbiente, onRemoveAmbie
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={() => setPhotoPreview(null)}>
           <div style={{ maxWidth: '90vw', maxHeight: '90vh', position: 'relative' }}>
-            <img src={photoPreview.src} alt="Preview" style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 12 }} />
+            <img src={photoSrc(photoPreview.src)} alt="Preview" style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 12 }} />
             <div style={{ textAlign: 'center', marginTop: 8, color: theme.text, fontSize: 13 }}>
               {photoPreview.ambNome} — {photoPreview.pontoType || 'Ponto'}
             </div>
@@ -1854,7 +1926,7 @@ function StepVistoria({ vistoria, onAddAmbiente, onUpdateAmbiente, onRemoveAmbie
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                         {ponto.photos.map((photo, pi) => (
                           <div key={pi} style={{ position: 'relative' }}>
-                            <img src={photo} width={80} height={60} alt={`Foto ${pi + 1}`}
+                            <img src={photoSrc(photo)} width={80} height={60} alt={`Foto ${pi + 1}`}
                               style={{ borderRadius: 6, objectFit: 'cover', border: `1px solid ${theme.border}`, cursor: 'pointer' }}
                               onClick={() => setPhotoPreview({ src: photo, ambNome: amb.nome, pontoType: ponto.type })}
                             />
@@ -2108,96 +2180,160 @@ function CameraModal({ onCapture, onClose }: { onCapture: (base64: string) => vo
 }
 
 /* ================================================================
-   Step 5: Entrega (2ª Visita)
+   Referência visual da 1ª Visita (read-only, usado na Entrega)
    ================================================================ */
 
-function StepEntrega({ venda, vistoria, ordem, onIniciarInstalacao, onConcluirEntrega, onAddAmbiente, onUpdateAmbiente, onRemoveAmbiente, onPhotoAdded, canEdit }: {
+function VistoriaReference({ vistoria }: { vistoria: Vistoria }) {
+  const [expanded, setExpanded] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<{ src: string; ambiente: string; ponto: string } | null>(null);
+
+  const totalPhotos = vistoria.ambientes.reduce((s, a) => s + a.pontos.reduce((ss, p) => ss + p.photos.length, 0), 0);
+  const totalPontos = vistoria.ambientes.reduce((s, a) => s + a.pontos.length, 0);
+
+  return (
+    <>
+      <div style={{ background: '#C077DB12', border: '1px solid #C077DB33', borderRadius: 12, marginBottom: 16, overflow: 'hidden' }}>
+        <div
+          onClick={() => setExpanded(!expanded)}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16 }}>📋</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#C077DB' }}>Referência da 1ª Visita</div>
+              <div style={{ fontSize: 11, color: theme.muted }}>{vistoria.ambientes.length} amb. · {totalPontos} pontos · {totalPhotos} fotos com marcação</div>
+            </div>
+          </div>
+          <span style={{ color: theme.muted, fontSize: 16 }}>{expanded ? '▲' : '▼'}</span>
+        </div>
+
+        {expanded && (
+          <div style={{ padding: '0 16px 16px', borderTop: '1px solid #C077DB22' }}>
+            <div style={{ fontSize: 11, color: theme.muted, padding: '8px 0 12px', lineHeight: 1.5 }}>
+              Fotos da vistoria com os pontos marcados (X vermelho). Use como referência para verificar se a instalação foi feita nos locais corretos.
+            </div>
+
+            {vistoria.ambientes.map((amb) => {
+              const ambPhotos = amb.pontos.reduce((s, p) => s + p.photos.length, 0);
+              if (ambPhotos === 0) return null;
+
+              return (
+                <div key={amb.id} style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: theme.text, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {amb.nome}
+                    <span style={{ fontSize: 11, color: theme.muted, fontWeight: 400 }}>{amb.pontos.length} pontos</span>
+                  </div>
+
+                  {amb.pontos.map((ponto) => {
+                    if (ponto.photos.length === 0) return null;
+                    return (
+                      <div key={ponto.id} style={{ background: theme.soft, borderRadius: 8, padding: 10, marginBottom: 6, border: `1px solid ${theme.border}` }}>
+                        <div style={{ fontSize: 12, color: theme.text, marginBottom: 6 }}>
+                          <strong>{ponto.type || 'Ponto'}</strong>
+                          {ponto.note && <span style={{ color: theme.muted }}> — {ponto.note}</span>}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {ponto.photos.map((photo, pi) => (
+                            <div key={pi} style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedPhoto({ src: photo, ambiente: amb.nome, ponto: ponto.type || 'Ponto' })}>
+                              <img src={photoSrc(photo)} width={90} height={68} alt={`1ª Visita - ${amb.nome} - ${pi + 1}`}
+                                style={{ borderRadius: 6, objectFit: 'cover', border: '2px solid #C077DB44' }} />
+                              <div style={{ position: 'absolute', top: 2, right: 2, background: '#C077DBcc', borderRadius: 4, padding: '1px 5px', fontSize: 9, color: '#fff', fontWeight: 700 }}>1ª</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal fullscreen para ver foto ampliada */}
+      {selectedPhoto && (
+        <div
+          onClick={() => setSelectedPhoto(null)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.92)', zIndex: 9999,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: 16, cursor: 'pointer',
+          }}
+        >
+          <div style={{ fontSize: 13, color: '#C077DB', marginBottom: 8, fontWeight: 600 }}>
+            1ª Visita — {selectedPhoto.ambiente} — {selectedPhoto.ponto}
+          </div>
+          <img src={photoSrc(selectedPhoto.src)} alt="Foto ampliada" style={{ maxWidth: '95vw', maxHeight: '80vh', borderRadius: 8, objectFit: 'contain' }} />
+          <div style={{ fontSize: 12, color: theme.muted, marginTop: 10 }}>Toque para fechar</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ================================================================
+   Step 5: Entrega (2ª Visita) — conferência lado a lado da vistoria
+   ================================================================ */
+
+function StepEntrega({ venda, vistoria, entregaVistoria, ordem, onIniciarInstalacao, onConcluirEntrega, onUpdatePonto, onPhotoAdded, canEdit }: {
   venda: VendaLocal;
   vistoria: Vistoria | null;
+  entregaVistoria: Vistoria | null;
   ordem: OrdemDeServico | null;
   onIniciarInstalacao: () => void;
   onConcluirEntrega: () => void;
-  onAddAmbiente: (nome: string) => void;
-  onUpdateAmbiente: (ambId: string, amb: AmbienteVistoria) => void;
-  onRemoveAmbiente: (ambId: string) => void;
+  onUpdatePonto: (ambId: string, pontoId: string, updated: InstallationPoint) => void;
   onPhotoAdded: (ambienteNome: string) => void;
   canEdit: boolean;
 }) {
   const isInstalando = venda.status === 'em_instalacao' || venda.status === 'entrega';
   const entregaConcluida = venda.visita2Concluida === true;
 
-  // Load entrega vistoria
-  const [entregaVis, setEntregaVis] = useState<Vistoria | null>(null);
-  useEffect(() => {
-    loadState<Vistoria[]>('entregas', []).then((all) => {
-      setEntregaVis(all.find((v) => v.leadId === venda.id) ?? null);
-    });
-  }, [venda.id]);
-
-  // Sync with parent state changes
-  useEffect(() => {
-    loadState<Vistoria[]>('entregas', []).then((all) => {
-      setEntregaVis(all.find((v) => v.leadId === venda.id) ?? null);
-    });
-  }, [venda.status, venda.id]);
-
-  const [novoAmbiente, setNovoAmbiente] = useState('');
   const [expandedAmbId, setExpandedAmbId] = useState<string | null>(null);
 
-  const ambientes = entregaVis?.ambientes ?? [];
-  const totalPhotos = ambientes.reduce((s, a) => s + a.pontos.reduce((ss, p) => ss + p.photos.length, 0), 0);
+  // Estrutura (ambientes/pontos) vem SEMPRE da vistoria (1ª visita).
+  // Fotos de conferência ficam no entregaVistoria espelho.
+  const vistoriaAmbientes = vistoria?.ambientes ?? [];
+  const totalPontos = vistoriaAmbientes.reduce((s, a) => s + a.pontos.length, 0);
+  const entregaPontosComFoto = (entregaVistoria?.ambientes ?? []).reduce(
+    (s, a) => s + a.pontos.filter((p) => p.photos.length > 0).length, 0,
+  );
 
-  function handleAddAmbiente() {
-    if (!novoAmbiente.trim()) return;
-    onAddAmbiente(novoAmbiente.trim());
-    setNovoAmbiente('');
-    // Reload
-    setTimeout(() => loadState<Vistoria[]>('entregas', []).then((all) => setEntregaVis(all.find((v) => v.leadId === venda.id) ?? null)), 200);
-  }
-
-  function handleAddPonto(ambId: string) {
-    const amb = ambientes.find((a) => a.id === ambId);
-    if (!amb) return;
-    const newPonto: InstallationPoint = {
-      id: 'EPT' + Date.now(), environment: amb.nome, type: '', note: '',
-      status: 'Pendente', photos: [],
-    };
-    onUpdateAmbiente(ambId, { ...amb, pontos: [...amb.pontos, newPonto] });
-    setTimeout(() => loadState<Vistoria[]>('entregas', []).then((all) => setEntregaVis(all.find((v) => v.leadId === venda.id) ?? null)), 200);
-  }
-
-  function handleUpdatePonto(ambId: string, pontoId: string, updated: InstallationPoint) {
-    const amb = ambientes.find((a) => a.id === ambId);
-    if (!amb) return;
-    onUpdateAmbiente(ambId, { ...amb, pontos: amb.pontos.map((p) => p.id === pontoId ? updated : p) });
-    setTimeout(() => loadState<Vistoria[]>('entregas', []).then((all) => setEntregaVis(all.find((v) => v.leadId === venda.id) ?? null)), 200);
+  function getEntregaPonto(ambId: string, pontoId: string): InstallationPoint | null {
+    const amb = entregaVistoria?.ambientes.find((a) => a.id === ambId);
+    return amb?.pontos.find((p) => p.id === pontoId) ?? null;
   }
 
   async function handleAddPhotoFromFile(ambId: string, pontoId: string, e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const amb = ambientes.find((a) => a.id === ambId);
-    if (!amb) return;
-    const ponto = amb.pontos.find((p) => p.id === pontoId);
+    if (!files || files.length === 0 || !entregaVistoria) return;
+    const ponto = getEntregaPonto(ambId, pontoId);
     if (!ponto) return;
-
+    const amb = entregaVistoria.ambientes.find((a) => a.id === ambId);
     const newPhotos: string[] = [];
     for (let i = 0; i < files.length; i++) {
       const base64 = await compressImage(files[i]);
-      newPhotos.push(base64);
+      const token = await uploadBase64Photo(base64, { entityType: 'entrega', entityId: entregaVistoria.id, pontoId });
+      newPhotos.push(token);
     }
-    handleUpdatePonto(ambId, pontoId, { ...ponto, photos: [...ponto.photos, ...newPhotos] });
-    onPhotoAdded(amb.nome);
+    onUpdatePonto(ambId, pontoId, { ...ponto, photos: [...ponto.photos, ...newPhotos] });
+    if (amb) onPhotoAdded(amb.nome);
     e.target.value = '';
   }
 
-  const suggestedAmbientes = ['Fachada', 'Recepção', 'Estoque', 'Corredor', 'Garagem', 'Escritório', 'Área externa', 'Portaria'];
+  function handleRemovePhoto(ambId: string, pontoId: string, photoIdx: number) {
+    const ponto = getEntregaPonto(ambId, pontoId);
+    if (!ponto) return;
+    onUpdatePonto(ambId, pontoId, { ...ponto, photos: ponto.photos.filter((_, i) => i !== photoIdx) });
+  }
 
   return (
     <div style={{ maxWidth: 800 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Entrega — 2ª Visita</h3>
-        <span style={{ fontSize: 12, color: theme.muted }}>{ambientes.length} amb. · {totalPhotos} fotos</span>
+        <span style={{ fontSize: 12, color: theme.muted }}>{entregaPontosComFoto}/{totalPontos} pontos conferidos</span>
       </div>
 
       {/* Timeline visual */}
@@ -2241,98 +2377,121 @@ function StepEntrega({ venda, vistoria, ordem, onIniciarInstalacao, onConcluirEn
       {/* Entrega instructions */}
       {!entregaConcluida && (
         <div style={{ background: '#43C17B15', border: '1px solid #43C17B33', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#43C17B', lineHeight: 1.6 }}>
-          <strong>Entrega do serviço:</strong> Após a instalação, faça a 2ª visita para conferir tudo com o cliente.
-          Registre fotos dos equipamentos instalados como comprovação.
+          <strong>Conferência da instalação:</strong> para cada ponto marcado na 1ª visita, tire uma foto comprovando
+          que o equipamento foi instalado exatamente onde você indicou com o X vermelho. Os ambientes e pontos são os mesmos da vistoria.
         </div>
       )}
 
-      {/* Add ambiente for delivery photos */}
-      {canEdit && !entregaConcluida && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-            <input value={novoAmbiente} onChange={(e) => setNovoAmbiente(e.target.value)}
-              placeholder="Ambiente conferido (ex: Fachada, Recepção...)"
-              style={{ ...inputStyle, flex: '1 1 200px', marginBottom: 0 }}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleAddAmbiente(); }}
-            />
-            <button onClick={handleAddAmbiente} style={{ ...btnGold, minHeight: 44, flex: '0 0 auto' }} disabled={!novoAmbiente.trim()}>+ Ambiente</button>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {suggestedAmbientes
-              .filter((s) => !ambientes.some((a) => a.nome === s))
-              .map((sugg) => (
-                <button key={sugg} onClick={() => { onAddAmbiente(sugg); setTimeout(() => loadState<Vistoria[]>('entregas', []).then((all) => setEntregaVis(all.find((v) => v.leadId === venda.id) ?? null)), 200); }}
-                  style={{ background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: theme.muted, minHeight: 36 }}>
-                  + {sugg}
-                </button>
-              ))}
-          </div>
+      {/* Aviso quando não há vistoria */}
+      {(!vistoria || vistoriaAmbientes.length === 0) && (
+        <div style={{ background: theme.warning + '15', border: `1px solid ${theme.warning}44`, borderRadius: 10, padding: 14, fontSize: 13, color: theme.warning, textAlign: 'center' }}>
+          Faça a 1ª visita primeiro — a conferência se baseia nos pontos marcados lá.
         </div>
       )}
 
-      {/* Ambientes list */}
+      {/* Lista de ambientes/pontos espelhando a vistoria, lado-a-lado */}
       <div style={{ display: 'grid', gap: 10 }}>
-        {ambientes.map((amb) => {
-          const isExpanded = expandedAmbId === amb.id;
-          const ambPhotos = amb.pontos.reduce((s, p) => s + p.photos.length, 0);
+        {vistoriaAmbientes.map((vAmb) => {
+          const isExpanded = expandedAmbId === vAmb.id;
+          const entregaAmb = entregaVistoria?.ambientes.find((a) => a.id === vAmb.id);
+          const pontosComFoto = (entregaAmb?.pontos ?? []).filter((p) => p.photos.length > 0).length;
+          const totalAmb = vAmb.pontos.length;
+          const allOk = totalAmb > 0 && pontosComFoto === totalAmb;
 
           return (
-            <div key={amb.id} style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, overflow: 'hidden' }}>
-              <div onClick={() => setExpandedAmbId(isExpanded ? null : amb.id)}
+            <div key={vAmb.id} style={{ background: theme.panel, border: `1px solid ${allOk ? theme.success + '66' : theme.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <div onClick={() => setExpandedAmbId(isExpanded ? null : vAmb.id)}
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{amb.nome}</span>
-                  <span style={{ fontSize: 12, color: theme.muted }}>{amb.pontos.length} pontos · {ambPhotos} fotos</span>
+                  <span style={{ fontSize: 16 }}>{allOk ? '✓' : '◎'}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{vAmb.nome}</span>
+                  <span style={{ fontSize: 12, color: allOk ? theme.success : theme.muted }}>
+                    {pontosComFoto}/{totalAmb} pontos
+                  </span>
                 </div>
                 <span style={{ color: theme.muted, fontSize: 18 }}>{isExpanded ? '▲' : '▼'}</span>
               </div>
               {isExpanded && (
                 <div style={{ padding: '0 16px 16px', borderTop: `1px solid ${theme.border}` }}>
-                  {amb.pontos.map((ponto) => (
-                    <div key={ponto.id} style={{ background: theme.soft, borderRadius: 8, padding: 10, marginTop: 10, border: `1px solid ${theme.border}` }}>
-                      <input placeholder="Equipamento conferido (ex: Câmera Dome instalada)" value={ponto.type}
-                        onChange={(e) => handleUpdatePonto(amb.id, ponto.id, { ...ponto, type: e.target.value })}
-                        disabled={entregaConcluida}
-                        style={{ ...inputStyle, marginBottom: 6, fontSize: 12 }}
-                      />
-                      <input placeholder="Observação (ex: funcionando, testado)" value={ponto.note}
-                        onChange={(e) => handleUpdatePonto(amb.id, ponto.id, { ...ponto, note: e.target.value })}
-                        disabled={entregaConcluida}
-                        style={{ ...inputStyle, marginBottom: 6, fontSize: 12 }}
-                      />
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                        {ponto.photos.map((photo, pi) => (
-                          <div key={pi} style={{ position: 'relative' }}>
-                            <img src={photo} width={80} height={60} alt={`Foto ${pi + 1}`}
-                              style={{ borderRadius: 6, objectFit: 'cover', border: `1px solid ${theme.border}` }} />
-                            <div style={{ textAlign: 'center', fontSize: 9, color: theme.muted, marginTop: 2 }}>#{pi + 1}</div>
-                          </div>
-                        ))}
-                        {canEdit && !entregaConcluida && (
-                          <label style={{
-                            display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                            background: '#43C17B22', border: '1px solid #43C17B44', borderRadius: 8,
-                            padding: '8px 12px', cursor: 'pointer', color: '#43C17B', fontSize: 11, fontWeight: 600,
-                          }}>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                              <circle cx="12" cy="13" r="4" />
-                            </svg>
-                            Foto
-                            <input type="file" accept="image/*" multiple style={{ display: 'none' }}
-                              onChange={(e) => handleAddPhotoFromFile(amb.id, ponto.id, e)} />
-                          </label>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {canEdit && !entregaConcluida && (
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                      <button onClick={() => handleAddPonto(amb.id)} style={{ ...btnGold, fontSize: 13, flex: '1 1 160px', minHeight: 44 }}>+ Ponto conferido</button>
-                      <button onClick={() => { onRemoveAmbiente(amb.id); setTimeout(() => loadState<Vistoria[]>('entregas', []).then((all) => setEntregaVis(all.find((v) => v.leadId === venda.id) ?? null)), 200); }}
-                        style={{ ...btnSoft, fontSize: 13, color: theme.danger, borderColor: theme.danger, flex: '1 1 140px', minHeight: 44 }}>Remover</button>
+                  {vAmb.pontos.length === 0 && (
+                    <div style={{ fontSize: 12, color: theme.muted, padding: 12, textAlign: 'center' }}>
+                      Nenhum ponto marcado na 1ª visita para este ambiente.
                     </div>
                   )}
+                  {vAmb.pontos.map((vPonto) => {
+                    const entregaPonto = getEntregaPonto(vAmb.id, vPonto.id);
+                    const entregaPhotos = entregaPonto?.photos ?? [];
+                    const hasConf = entregaPhotos.length > 0;
+                    return (
+                      <div key={vPonto.id} style={{ background: theme.soft, borderRadius: 8, padding: 10, marginTop: 10, border: `1px solid ${hasConf ? theme.success + '66' : theme.border}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{vPonto.type || 'Ponto'}</span>
+                          {vPonto.note && <span style={{ fontSize: 11, color: theme.muted }}>· {vPonto.note}</span>}
+                          <span style={{
+                            marginLeft: 'auto', fontSize: 10, padding: '2px 8px', borderRadius: 10,
+                            background: hasConf ? theme.success + '22' : theme.warning + '22',
+                            color: hasConf ? theme.success : theme.warning, fontWeight: 600,
+                          }}>
+                            {hasConf ? 'Conferido' : 'Pendente'}
+                          </span>
+                        </div>
+
+                        {/* Side-by-side: vistoria (com X) vs entrega */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          {/* Coluna 1ª Visita */}
+                          <div>
+                            <div style={{ fontSize: 10, color: '#C077DB', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase' }}>1ª Visita (marcação)</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                              {vPonto.photos.length === 0 && (
+                                <span style={{ fontSize: 11, color: theme.muted, fontStyle: 'italic' }}>Sem foto na 1ª visita</span>
+                              )}
+                              {vPonto.photos.map((photo, pi) => (
+                                <img key={pi} src={photoSrc(photo)} width={100} height={75} alt={`Marcação ${pi + 1}`}
+                                  style={{ borderRadius: 6, objectFit: 'cover', border: '1px solid #C077DB66' }} />
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Coluna 2ª Visita */}
+                          <div>
+                            <div style={{ fontSize: 10, color: '#43C17B', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase' }}>2ª Visita (conferência)</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                              {entregaPhotos.map((photo, pi) => (
+                                <div key={pi} style={{ position: 'relative' }}>
+                                  <img src={photoSrc(photo)} width={100} height={75} alt={`Conferência ${pi + 1}`}
+                                    style={{ borderRadius: 6, objectFit: 'cover', border: '1px solid #43C17B66' }} />
+                                  {canEdit && !entregaConcluida && (
+                                    <button onClick={() => handleRemovePhoto(vAmb.id, vPonto.id, pi)}
+                                      style={{
+                                        position: 'absolute', top: -4, right: -4, width: 18, height: 18,
+                                        borderRadius: '50%', background: theme.danger, border: 'none',
+                                        color: '#fff', fontSize: 10, cursor: 'pointer',
+                                      }}>x</button>
+                                  )}
+                                </div>
+                              ))}
+                              {canEdit && !entregaConcluida && (
+                                <label style={{
+                                  display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                                  background: '#43C17B22', border: '1px solid #43C17B44', borderRadius: 8,
+                                  padding: '8px 10px', cursor: 'pointer', color: '#43C17B', fontSize: 10, fontWeight: 600,
+                                  minHeight: 75, justifyContent: 'center',
+                                }}>
+                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                                    <circle cx="12" cy="13" r="4" />
+                                  </svg>
+                                  + Foto
+                                  <input type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }}
+                                    onChange={(e) => handleAddPhotoFromFile(vAmb.id, vPonto.id, e)} />
+                                </label>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2341,10 +2500,18 @@ function StepEntrega({ venda, vistoria, ordem, onIniciarInstalacao, onConcluirEn
       </div>
 
       {/* Concluir entrega */}
-      {canEdit && !entregaConcluida && ambientes.length > 0 && (
+      {canEdit && !entregaConcluida && totalPontos > 0 && (
         <div style={{ marginTop: 20, borderTop: `1px solid ${theme.border}`, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <button onClick={onConcluirEntrega} style={{ ...btnGold, background: theme.success, padding: '14px 20px', fontSize: 15, fontWeight: 700, borderRadius: 12, width: '100%' }}>Concluir Entrega — Finalizar Venda</button>
-          <span style={{ fontSize: 12, color: theme.muted, textAlign: 'center' }}>Requer pelo menos 1 ambiente com 1 foto</span>
+          <button onClick={onConcluirEntrega}
+            disabled={entregaPontosComFoto < totalPontos}
+            style={{ ...btnGold, background: theme.success, padding: '14px 20px', fontSize: 15, fontWeight: 700, borderRadius: 12, width: '100%', opacity: entregaPontosComFoto < totalPontos ? 0.5 : 1, cursor: entregaPontosComFoto < totalPontos ? 'not-allowed' : 'pointer' }}>
+            Concluir Entrega — Finalizar Venda
+          </button>
+          <span style={{ fontSize: 12, color: theme.muted, textAlign: 'center' }}>
+            {entregaPontosComFoto < totalPontos
+              ? `Falta conferir ${totalPontos - entregaPontosComFoto} de ${totalPontos} pontos`
+              : `Todos os ${totalPontos} pontos conferidos`}
+          </span>
         </div>
       )}
     </div>
@@ -2355,23 +2522,26 @@ function StepEntrega({ venda, vistoria, ordem, onIniciarInstalacao, onConcluirEn
    Step 6: Resumo Final — everything together + timeline
    ================================================================ */
 
-function StepResumoFinal({ venda, solucao, vistoria, ordem, equipments, logs }: {
+function StepResumoFinal({ venda, solucao, vistoria, entregaVistoria, ordem, equipments, logs }: {
   venda: VendaLocal;
   solucao: SolucaoTecnica | null;
   vistoria: Vistoria | null;
+  entregaVistoria: Vistoria | null;
   ordem: OrdemDeServico | null;
   equipments: Equipment[];
   logs: ActivityLog[];
 }) {
   const totalPhotos = vistoria?.ambientes.reduce((s, a) => s + a.pontos.reduce((ss, p) => ss + p.photos.length, 0), 0) ?? 0;
+  const totalEntregaPhotos = entregaVistoria?.ambientes.reduce((s, a) => s + a.pontos.reduce((ss, p) => ss + p.photos.length, 0), 0) ?? 0;
   const totalPontos = vistoria?.ambientes.reduce((s, a) => s + a.pontos.length, 0) ?? 0;
   const totalItens = solucao?.blocos.reduce((s, b) => s + b.itens.reduce((ss, i) => ss + i.quantidade, 0), 0) ?? 0;
   const valorTotal = solucao?.blocos.reduce((s, b) => s + b.itens.reduce((ss, i) => { const eq = equipments.find((e) => e.id === i.equipmentId); return ss + (eq?.price ?? 0) * i.quantidade; }, 0), 0) ?? 0;
 
   const [showAllPhotos, setShowAllPhotos] = useState(false);
+  const [showEntregaPhotos, setShowEntregaPhotos] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
 
-  // Collect all photos
+  // Collect all vistoria photos
   const allPhotos = useMemo(() => {
     const photos: { src: string; ambiente: string; ponto: string }[] = [];
     for (const amb of vistoria?.ambientes ?? []) {
@@ -2384,6 +2554,19 @@ function StepResumoFinal({ venda, solucao, vistoria, ordem, equipments, logs }: 
     return photos;
   }, [vistoria]);
 
+  // Collect all entrega photos
+  const allEntregaPhotos = useMemo(() => {
+    const photos: { src: string; ambiente: string; ponto: string }[] = [];
+    for (const amb of entregaVistoria?.ambientes ?? []) {
+      for (const ponto of amb.pontos) {
+        for (const photo of ponto.photos) {
+          photos.push({ src: photo, ambiente: amb.nome, ponto: ponto.type || 'Ponto' });
+        }
+      }
+    }
+    return photos;
+  }, [entregaVistoria]);
+
   return (
     <div style={{ maxWidth: 700 }}>
       <h3 style={{ margin: '0 0 16px', color: theme.gold, fontSize: 16 }}>Resumo da Venda</h3>
@@ -2395,7 +2578,8 @@ function StepResumoFinal({ venda, solucao, vistoria, ordem, equipments, logs }: 
           { label: 'Valor est.', value: `R$ ${fmtCurrency(valorTotal)}`, color: theme.gold },
           { label: 'Ambientes', value: String(vistoria?.ambientes.length ?? 0), color: '#C077DB' },
           { label: 'Pontos', value: String(totalPontos), color: '#5B9BD5' },
-          { label: 'Fotos', value: String(totalPhotos), color: theme.success },
+          { label: 'Fotos 1ª', value: String(totalPhotos), color: '#C077DB' },
+          { label: 'Fotos 2ª', value: String(totalEntregaPhotos), color: theme.success },
         ]).map((kpi) => (
           <div key={kpi.label} style={{
             background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 10,
@@ -2430,11 +2614,11 @@ function StepResumoFinal({ venda, solucao, vistoria, ordem, equipments, logs }: 
         </div>
       )}
 
-      {/* Vistoria summary with photos */}
+      {/* 1ª Visita — Fotos da vistoria */}
       {vistoria && vistoria.ambientes.length > 0 && (
         <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <h4 style={{ margin: 0, fontSize: 13, color: theme.gold, textTransform: 'uppercase', letterSpacing: 0.5 }}>Vistoria / Fotos</h4>
+            <h4 style={{ margin: 0, fontSize: 13, color: '#C077DB', textTransform: 'uppercase', letterSpacing: 0.5 }}>1ª Visita — Vistoria</h4>
             {totalPhotos > 0 && (
               <button onClick={() => setShowAllPhotos(!showAllPhotos)} style={{ ...btnSoft, fontSize: 11, padding: '3px 10px' }}>
                 {showAllPhotos ? 'Ocultar fotos' : `Ver todas (${totalPhotos})`}
@@ -2451,19 +2635,61 @@ function StepResumoFinal({ venda, solucao, vistoria, ordem, equipments, logs }: 
               {amb.pontos.map((ponto) => (
                 <div key={ponto.id} style={{ paddingLeft: 12, fontSize: 12, color: theme.muted, marginBottom: 2 }}>
                   {ponto.type || '(sem tipo)'} {ponto.note && `— ${ponto.note}`}
-                  <span style={{ color: theme.success, marginLeft: 6 }}>{ponto.photos.length} foto(s)</span>
+                  <span style={{ color: '#C077DB', marginLeft: 6 }}>{ponto.photos.length} foto(s)</span>
                 </div>
               ))}
             </div>
           ))}
 
-          {/* All photos gallery */}
           {showAllPhotos && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.border}` }}>
               {allPhotos.map((photo, i) => (
                 <div key={i} style={{ textAlign: 'center' }}>
-                  <img src={photo.src} width={100} height={75} alt={`Foto ${i + 1}`}
-                    style={{ borderRadius: 6, objectFit: 'cover', border: `1px solid ${theme.border}` }} />
+                  <img src={photoSrc(photo.src)} width={100} height={75} alt={`1ª Visita ${i + 1}`}
+                    style={{ borderRadius: 6, objectFit: 'cover', border: '2px solid #C077DB44' }} />
+                  <div style={{ fontSize: 9, color: theme.muted, marginTop: 2 }}>{photo.ambiente}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2ª Visita — Fotos da entrega */}
+      {entregaVistoria && entregaVistoria.ambientes.length > 0 && totalEntregaPhotos > 0 && (
+        <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <h4 style={{ margin: 0, fontSize: 13, color: theme.success, textTransform: 'uppercase', letterSpacing: 0.5 }}>2ª Visita — Instalação</h4>
+            <button onClick={() => setShowEntregaPhotos(!showEntregaPhotos)} style={{ ...btnSoft, fontSize: 11, padding: '3px 10px' }}>
+              {showEntregaPhotos ? 'Ocultar fotos' : `Ver todas (${totalEntregaPhotos})`}
+            </button>
+          </div>
+          {entregaVistoria.ambientes.map((amb) => {
+            const ambPhotos = amb.pontos.reduce((s, p) => s + p.photos.length, 0);
+            if (ambPhotos === 0) return null;
+            return (
+              <div key={amb.id} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{amb.nome}
+                  <span style={{ fontSize: 11, color: theme.muted, fontWeight: 400, marginLeft: 6 }}>
+                    {amb.pontos.length} pontos · {ambPhotos} fotos
+                  </span>
+                </div>
+                {amb.pontos.map((ponto) => (
+                  <div key={ponto.id} style={{ paddingLeft: 12, fontSize: 12, color: theme.muted, marginBottom: 2 }}>
+                    {ponto.type || '(sem tipo)'} {ponto.note && `— ${ponto.note}`}
+                    <span style={{ color: theme.success, marginLeft: 6 }}>{ponto.photos.length} foto(s)</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+
+          {showEntregaPhotos && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.border}` }}>
+              {allEntregaPhotos.map((photo, i) => (
+                <div key={i} style={{ textAlign: 'center' }}>
+                  <img src={photoSrc(photo.src)} width={100} height={75} alt={`2ª Visita ${i + 1}`}
+                    style={{ borderRadius: 6, objectFit: 'cover', border: '2px solid #43C17B44' }} />
                   <div style={{ fontSize: 9, color: theme.muted, marginTop: 2 }}>{photo.ambiente}</div>
                 </div>
               ))}

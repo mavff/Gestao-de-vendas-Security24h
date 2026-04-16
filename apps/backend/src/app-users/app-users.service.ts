@@ -10,12 +10,21 @@ type UpdateDto = Partial<CreateDto> & { active?: boolean };
 @Injectable()
 export class AppUsersService implements OnModuleInit {
   constructor(
-    @InjectRepository(AppUser, 'sqlite')
+    @InjectRepository(AppUser, 'app')
     private readonly repo: Repository<AppUser>,
   ) {}
 
-  /** Seed: migra usuários do .env na primeira execução */
+  /** Seed + migração de roles legadas na inicialização */
   async onModuleInit() {
+    // Migração: roles INFRA/MONITOR foram removidas — rebaixa pra VENDEDOR pra não perder login.
+    // Admin pode ajustar o role pela tela /usuarios depois.
+    const legacy = await this.repo.find({ where: [{ role: 'INFRA' }, { role: 'MONITOR' }] });
+    if (legacy.length) {
+      for (const u of legacy) u.role = 'VENDEDOR';
+      await this.repo.save(legacy);
+      console.log(`[AppUsers] Migração: ${legacy.length} usuário(s) com role legada (INFRA/MONITOR) → VENDEDOR`);
+    }
+
     const count = await this.repo.count();
     if (count > 0) return; // Já tem dados — não refaz seed
 
@@ -25,8 +34,6 @@ export class AppUsersService implements OnModuleInit {
       SDR_USERS: 'SDR',
       VENDEDOR_USERS: 'VENDEDOR',
       TECNICO_USERS: 'TECNICO',
-      INFRA_USERS: 'INFRA',
-      MONITOR_USERS: 'MONITOR',
     };
 
     for (const [envKey, role] of Object.entries(envRoles)) {

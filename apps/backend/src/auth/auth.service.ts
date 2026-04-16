@@ -40,8 +40,6 @@ export class AuthService {
       ...parseLocalUsers(process.env.SDR_USERS, 'SDR'),
       ...parseLocalUsers(process.env.VENDEDOR_USERS, 'VENDEDOR'),
       ...parseLocalUsers(process.env.TECNICO_USERS, 'TECNICO'),
-      ...parseLocalUsers(process.env.INFRA_USERS, 'INFRA'),
-      ...parseLocalUsers(process.env.MONITOR_USERS, 'MONITOR'),
     ];
   }
 

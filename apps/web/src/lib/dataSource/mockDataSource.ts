@@ -1,7 +1,7 @@
 import { Equipment, Kit, Lead } from '../../types';
 import { mockEquipments, mockKits, mockLeads } from '../../mocks/data';
 import { dashboardDataByPeriod } from '../../mocks/dashboard';
-import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadLocalCache, saveLocalCache } from '../../services/localCache';
 import { DataSourceRegistry, IComissoesDataSource, ICrmDataSource, IDashboardDataSource, IEquipmentDataSource, IKitsDataSource, IOrcamentosDataSource, IPreOrcamentosDataSource, IProspectsDataSource, ISdrDataSource, ISheetsDataSource } from './interfaces';
 import {
   DashboardStats,
@@ -33,7 +33,7 @@ import {
 
 class MockEquipmentDataSource implements IEquipmentDataSource {
   async list(query: EquipmentQuery = {}): Promise<PaginatedResult<Equipment>> {
-    const stored = loadMock<Equipment[]>('mock_equipments', mockEquipments);
+    const stored = loadLocalCache<Equipment[]>('mock_equipments', mockEquipments);
     const q = (query.q || '').trim().toLowerCase();
 
     const filtered = !q
@@ -44,14 +44,14 @@ class MockEquipmentDataSource implements IEquipmentDataSource {
   }
 
   async getById(id: string): Promise<Equipment | null> {
-    const stored = loadMock<Equipment[]>('mock_equipments', mockEquipments);
+    const stored = loadLocalCache<Equipment[]>('mock_equipments', mockEquipments);
     return stored.find((item) => item.id === id) ?? null;
   }
 }
 
 class MockKitsDataSource implements IKitsDataSource {
   async list(query: KitsQuery = {}): Promise<PaginatedResult<Kit>> {
-    const stored = loadMock<Kit[]>('mock_kits', mockKits);
+    const stored = loadLocalCache<Kit[]>('mock_kits', mockKits);
     const q = (query.q || '').trim().toLowerCase();
 
     const filtered = !q
@@ -62,7 +62,7 @@ class MockKitsDataSource implements IKitsDataSource {
   }
 
   async getById(id: string): Promise<Kit | null> {
-    const stored = loadMock<Kit[]>('mock_kits', mockKits);
+    const stored = loadLocalCache<Kit[]>('mock_kits', mockKits);
     return stored.find((item) => item.id === id) ?? null;
   }
 }
@@ -82,7 +82,7 @@ function leadToProspect(lead: Lead, index: number): ProspectApiDto {
 
 class MockProspectsDataSource implements IProspectsDataSource {
   async list(query: ProspectsQuery = {}): Promise<PaginatedResult<ProspectApiDto>> {
-    const leads = loadMock<Lead[]>('mock_leads', mockLeads);
+    const leads = loadLocalCache<Lead[]>('mock_leads', mockLeads);
     const prospects = leads.map(leadToProspect);
 
     const q = (query.q || '').trim().toLowerCase();
@@ -98,7 +98,7 @@ class MockProspectsDataSource implements IProspectsDataSource {
   }
 
   async getById(id: string | number): Promise<ProspectApiDto | null> {
-    const leads = loadMock<Lead[]>('mock_leads', mockLeads);
+    const leads = loadLocalCache<Lead[]>('mock_leads', mockLeads);
     const prospects = leads.map(leadToProspect);
     const normalizedId = Number(id);
     return prospects.find((item) => item.codProspect === normalizedId) ?? null;

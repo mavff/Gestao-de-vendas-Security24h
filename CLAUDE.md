@@ -35,8 +35,8 @@ npx tsc --noEmit --project apps/web/tsconfig.json
 npx tsc --noEmit --project apps/backend/tsconfig.json
 ```
 
-## RBAC — 7 Roles
-`ADMIN` · `GESTOR` · `SDR` · `VENDEDOR` · `TECNICO` · `INFRA` · `MONITOR`
+## RBAC — 5 Roles
+`ADMIN` · `GESTOR` · `SDR` · `VENDEDOR` · `TECNICO`
 
 Definido em `apps/web/src/config/rbac.ts`. Funções:
 - `canAccess(role, pathname)` / `getNavForRole(role)` / `getFallbackRouteForRole(role)`
@@ -47,8 +47,6 @@ Ordem da sidebar (funil cronológico):
 - **VENDEDOR**: Pipeline → Kits → Minhas Vendas
 - **SDR**: SDR → Pipeline
 - **TECNICO**: Propostas → Equipamentos
-- **INFRA**: Pipeline → Equipamentos
-- **MONITOR**: sem acesso ao Dashboard (apenas ADMIN/GESTOR)
 
 ## Autenticação
 - Frontend: `apps/web/src/contexts/AuthContext.tsx`
@@ -60,7 +58,7 @@ Ordem da sidebar (funil cronológico):
 - localStorage: `sec24h_token`, `sec24h_refresh`, `sec24h_user`
 
 ### Usuários de teste (seed .env → SQLite)
-`admin/admin123` (ADMIN), `ana.gestora` (GESTOR), `carlos.sdr` (SDR), `julia.vendas` (VENDEDOR), `pedro.tecnico` (TECNICO), `lucas.infra` (INFRA), `maria.monitor` (MONITOR) — todos senha `test123` exceto admin.
+`admin/admin123` (ADMIN), `ana.gestora` (GESTOR), `carlos.sdr` (SDR), `julia.vendas` (VENDEDOR), `pedro.tecnico` (TECNICO) — todos senha `test123` exceto admin.
 
 ## SQLite — Dados do App
 Arquivo: `apps/backend/data/app.sqlite` (TypeORM `synchronize: true`, conexão `'sqlite'`)
@@ -84,9 +82,8 @@ Arquivo: `apps/backend/data/app.sqlite` (TypeORM `synchronize: true`, conexão `
 #### Chaves usadas
 | Chave                          | Tipo                             | Descrição                                   |
 | ------------------------------ | -------------------------------- | ------------------------------------------- |
-| `crm_pipeline_stages`          | `Record<id, StageId>`            | Posição dos leads no kanban                 |
-| `crm_pipeline_dismissed`       | `Record<id, motivo>`             | Leads descartados + motivo                  |
-| `crm_pipeline_lost`            | `string[]`                       | IDs marcados como perdidos                  |
+| `kits_custom`                  | `Kit[]`                          | Kits criados no app (ERP é read-only)       |
+| `equipments_custom`            | `Equipment[]`                    | Equipamentos criados no app (ERP read-only) |
 | `config:monitoramento`         | `MonitoramentoConfig`            | Faixas de preço monitoramento (admin)       |
 | `config:mao_de_obra`           | `MaoDeObraConfig`                | Markup por equipamento + acréscimo por porte|
 | `config:precos_custo`          | `Record<id, number>`             | Preço de custo por equipamento (admin)      |
@@ -102,7 +99,28 @@ Arquivo: `apps/backend/data/app.sqlite` (TypeORM `synchronize: true`, conexão `
 | `vendedor_vendas`              | `VendaLocal[]`                   | Vendas do vendedor (Mini CRM)               |
 | `vendedor_logs`                | `ActivityLog[]`                  | Timeline de atividades                      |
 
-**Dados de negócio sempre via `saveState`/`loadState`** — nunca `saveMock`/`loadMock` (apenas fallback de leitura para migração).
+**Dados de negócio sempre via `saveState`/`loadState`** — nunca `saveLocalCache`/`loadLocalCache` (esses são cache puro de localStorage, usado só para migração ou fallback de leitura do ERP).
+
+### Padrão: auto-save via useEffect + `loadedRef`
+Módulos que usam `useEffect(() => saveState(k, arr), [arr])` precisam de um `loadedRef` pra evitar salvar `[]` em cima do BD antes do `loadState` inicial resolver. **Não use `if (arr.length) saveState(...)`** — isso impede salvar a exclusão do último item (data loss bug). Padrão correto:
+```tsx
+const loadedRef = useRef(false);
+useEffect(() => { loadState('k', []).then((s) => { setArr(s); loadedRef.current = true; }); }, []);
+useEffect(() => { if (loadedRef.current) saveState('k', arr); }, [arr]);
+```
+
+### ERP vs Custom (split pattern)
+`Equipment` e `Kit` vêm do ERP (SQL Server read-only). Itens criados no app são salvos separados em `equipments_custom` / `kits_custom`. Split de state:
+```tsx
+const [xErp, setXErp] = useState<T[]>([]);   // do ERP via API
+const [xCustom, setXCustom] = useState<T[]>([]); // do AppKv
+const items = useMemo(() => [...xErp, ...xCustom], [xErp, xCustom]);
+const isCustomId = (id: string) => id.startsWith('E'); // ou 'K' para kits
+```
+Editar/excluir item do ERP → toast warning. Só custom persiste via `saveState`.
+
+### Refetch on focus — `useRefreshOnFocus`
+Hook em `apps/web/src/hooks/useRefreshOnFocus.ts`. Aplicado em KitsPage, SolucoesPage, VendaPage — refaz `createDataSource().kits/equipment/preOrcamentos.list()` quando a aba volta a foco (debounce 500ms). Preços do ERP podem ter mudado.
 
 ## Propostas — `/solucoes` (vendedor)
 Fluxo simplificado. Lead (pipeline) → proposta → PDF.
@@ -117,9 +135,10 @@ Fluxo simplificado. Lead (pipeline) → proposta → PDF.
 `rascunho` → `enviada` → `aprovada` (cria OS). ADMIN/GESTOR pode cancelar `aprovada` → `enviada`.
 
 ### Dados de referência (READ-ONLY SQL Server)
-- `GET /pre-orcamentos` — 7 modelos (LINHA SEM FIO, KIT SMART, etc.)
-- `GET /products` — 409 produtos com preço
-- `GET /prospects` — leads ERP
+- `GET /pre-orcamentos` — 8 modelos (LINHA SEM FIO, KIT SMART, etc.)
+- `GET /products` — catálogo completo ERP (~1.965 não-cancelados). Default `apenasOrcamento=false`. `?apenasOrcamento=true` filtra pelos ~4 com `GrupoOrçamento` preenchido (campo pouco usado no ERP atual).
+- `GET /kits` — produtos com `produtoKit=true` (~1 no ERP atual; frontend complementa com `/pre-orcamentos` + `kits_custom`)
+- `GET /prospects` — leads ERP (~2.696)
 
 ### Configs de cálculo (AppKv)
 - `config:monitoramento` — faixas `{ nome, base, minimo }` por porte + mão de obra base por faixa
@@ -132,7 +151,7 @@ Fluxo simplificado. Lead (pipeline) → proposta → PDF.
 - **Comodato**: `parcela = subtotalCusto/prazo(24/36/48) + monitoramento mensal`
 - **Taxa de Adesão = mão de obra** — 1ª mensalidade paga na assinatura do contrato (para pagar o técnico). Após 30 dias o cliente paga monitoramento normal. **NÃO é** `mensalidade × multiplicador`.
 - **Custo total comodato**: `taxaAdesao + mensalidadeComodato × prazo`
-- **Merged equipments**: produtos de kits com `grupoOrcamento` vazio não aparecem em `/products` — frontend cria entradas sintéticas
+- **Merged equipments**: mantido por segurança — se algum consumidor passar `apenasOrcamento=true`, produtos de kits fora desse filtro são completados via entradas sintéticas no frontend (`SolucoesPage.mergedEquipments`).
 
 ### Pipeline → Minhas Vendas
 - `/kanban` botão "Iniciar Venda" → `/vendas?leadId=X&nome=X&tel=X&...` — auto-cria `VendaLocal`
@@ -313,11 +332,11 @@ Fonte: `GET /crm/leads` (leads reais das planilhas).
 | Fechado               | Fechado + fechou=SIM  | `#2ECC71` |
 
 ### Funcionalidades
-- Drag-drop persistido em `crm_pipeline_stages`
+- Estágios derivam do próprio `VendaLocal.status` (não há tabela separada de posição)
 - Iniciar Venda, Agendar Visita, Descartar (individual/lote + motivo), Marcar Perdido, Restaurar
 - Filtros (busca, origem, responsável, prioridade, período)
 - Painel lateral com WhatsApp/Ligar + ações
-- Acesso: ADMIN/GESTOR/SDR/VENDEDOR/INFRA · Ações: ADMIN/GESTOR/SDR/VENDEDOR
+- Acesso: ADMIN/GESTOR/SDR/VENDEDOR · Ações: ADMIN/GESTOR/SDR/VENDEDOR
 
 ## Backend — Endpoints principais
 | Método | Rota                              | Descrição                        |
@@ -418,10 +437,10 @@ Schema: `apps/backend/prisma/schema.prisma` · Mapeamento: `docs/DB_MAPPING.md`
 ### Código
 - Acentos em strings visíveis (Serviço, Técnico, Descrição)
 - Nomes de tipos sem acento (OrdemDeServico, PropostaServico)
-- RBAC: `const canWrite = role === 'ADMIN' || role === 'INFRA';`
+- RBAC: `const canWrite = role === 'ADMIN';`
 - Toast: `const { showToast } = useToast();`
 - Persistence: `loadState(key, fallback)` / `saveState(key, value)` em `services/appState.ts`
-- **Dados de negócio → sempre `saveState`/`loadState`** (nunca `saveMock`/`loadMock`)
+- **Dados de negócio → sempre `saveState`/`loadState`** (nunca `saveLocalCache`/`loadLocalCache` — esses são só cache de localStorage em `services/localCache.ts`)
 - Vendor custom (recharts, dnd-kit) em `apps/web/src/vendor/` — sem libs externas
 - Helpers reutilizáveis do módulo `venda/` ficam em `apps/web/src/modules/venda/shared/` (`constants.ts`, `configs.ts`, `styles.ts`, `PhotoAnnotator.tsx`) — `VendaPage.tsx` importa de lá
 

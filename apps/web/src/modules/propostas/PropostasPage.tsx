@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
@@ -8,7 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource } from '../../lib/dataSource/factory';
 import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockEquipments, mockLeads, mockOrdens, mockPropostas } from '../../mocks/data';
-import { loadMock } from '../../services/mockStorage';
+import { loadLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
 import { Equipment, Lead, OrdemDeServico, Proposta, PropostaItem, PropostaServico } from '../../types';
 
@@ -29,10 +29,19 @@ export function PropostasPage() {
   // Check for prefilled leadId from query string
   const [prefilledLeadId, setPrefilledLeadId] = useState<string | null>(null);
 
+  const propostasLoadedRef = useRef(false);
+  const ordensLoadedRef = useRef(false);
+
   useEffect(() => {
     // Load from SQLite (AppKv)
-    loadState<Proposta[]>('propostas_legacy', []).then((s) => setPropostas(s.length ? s : loadMock('mock_propostas', mockPropostas)));
-    loadState<OrdemDeServico[]>('ordens_servico', []).then((s) => setOrdens(s.length ? s : loadMock('mock_ordens', mockOrdens)));
+    loadState<Proposta[]>('propostas_legacy', []).then((s) => {
+      setPropostas(s.length ? s : loadLocalCache('mock_propostas', mockPropostas));
+      propostasLoadedRef.current = true;
+    });
+    loadState<OrdemDeServico[]>('ordens_servico', []).then((s) => {
+      setOrdens(s.length ? s : loadLocalCache('mock_ordens', mockOrdens));
+      ordensLoadedRef.current = true;
+    });
 
     const params = new URLSearchParams(window.location.search);
     const lid = params.get('leadId');
@@ -46,17 +55,18 @@ export function PropostasPage() {
         ds.prospects.list({ pageSize: 200 }),
       ]);
       if (cancelled) return;
-      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
+      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadLocalCache('mock_equipments', mockEquipments));
       setLeads(prospRes.status === 'fulfilled'
         ? prospRes.value.data.map((p) => prospectToLead(p))
-        : loadMock('mock_leads', mockLeads));
+        : loadLocalCache('mock_leads', mockLeads));
     }
     load();
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => { if (propostas.length) saveState('propostas_legacy', propostas); }, [propostas]);
-  useEffect(() => { if (ordens.length) saveState('ordens_servico', ordens); }, [ordens]);
+  // Persist após load inicial — sem guard de length, pra que delete-all persista.
+  useEffect(() => { if (propostasLoadedRef.current) saveState('propostas_legacy', propostas); }, [propostas]);
+  useEffect(() => { if (ordensLoadedRef.current) saveState('ordens_servico', ordens); }, [ordens]);
 
   function handleSave(proposta: Proposta) {
     setPropostas((cur) => {

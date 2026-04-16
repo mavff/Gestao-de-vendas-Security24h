@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
@@ -8,7 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource } from '../../lib/dataSource/factory';
 import { PreOrcamentoApiDto, PreOrcamentoProdutoApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockKits } from '../../mocks/data';
-import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
 import { Equipment, Kit, KitCategoria, Marca } from '../../types';
 
@@ -56,8 +57,12 @@ export function KitsPage() {
   const [viewModelo, setViewModelo] = useState<PreOrcamentoApiDto | null>(null);
   const [modeloQtds, setModeloQtds] = useState<Record<number, number>>({});
 
-  // --- Kits (local) state ---
-  const [kits, setKits] = useState<Kit[]>([]);
+  // --- Kits state ---
+  // ERP kits têm ID numérico (codProduto). Custom usam prefixo "K" + timestamp.
+  const [kitsErp, setKitsErp] = useState<Kit[]>([]);
+  const [kitsCustom, setKitsCustom] = useState<Kit[]>([]);
+  const kits = useMemo(() => [...kitsErp, ...kitsCustom], [kitsErp, kitsCustom]);
+  const isCustomKitId = (id: string) => id.startsWith('K');
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [kitsLoading, setKitsLoading] = useState(true);
   const [kitSearch, setKitSearch] = useState('');
@@ -67,49 +72,47 @@ export function KitsPage() {
   const [viewKit, setViewKit] = useState<Kit | null>(null);
   const [kitQtds, setKitQtds] = useState<Record<string, number>>({});
 
-  /* ---- Load modelos ---- */
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setModelosLoading(true);
+  const [lastRefresh, setLastRefresh] = useState<number>(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  /* ---- Reload do BD (chamado no mount, no foco e no botão Atualizar) ---- */
+  const reloadFromBackend = useCallback(async () => {
+    setRefreshing(true);
+    const ds = createDataSource();
+    const [modelosRes, kitsRes, eqRes] = await Promise.allSettled([
+      ds.preOrcamentos.list({ pageSize: 200 }),
+      ds.kits.list({ pageSize: 500 }),
+      ds.equipment.list({ pageSize: 500 }),
+    ]);
+
+    if (modelosRes.status === 'fulfilled') {
+      setModelos(modelosRes.value.data);
       setModelosErro(null);
-      try {
-        const ds = createDataSource();
-        const res = await ds.preOrcamentos.list({ pageSize: 200 });
-        if (!cancelled) setModelos(res.data);
-      } catch {
-        if (!cancelled) setModelosErro('Não foi possível carregar os modelos. Verifique a conexão.');
-      } finally {
-        if (!cancelled) setModelosLoading(false);
-      }
+    } else {
+      setModelosErro('Não foi possível carregar os modelos. Verifique a conexão.');
     }
-    load();
-    return () => { cancelled = true; };
+    setModelosLoading(false);
+
+    setKitsErp(kitsRes.status === 'fulfilled' ? kitsRes.value.data : loadLocalCache('mock_kits', mockKits));
+    setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadLocalCache('mock_equipments', mockEquipments));
+    setKitsLoading(false);
+    setLastRefresh(Date.now());
+    setRefreshing(false);
   }, []);
 
-  /* ---- Load kits + equipments + precos custo ---- */
+  /* ---- Load inicial + config de custos ---- */
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setKitsLoading(true);
-      const ds = createDataSource();
-      const [kitsRes, eqRes] = await Promise.allSettled([
-        ds.kits.list({ pageSize: 500 }),
-        ds.equipment.list({ pageSize: 500 }),
-      ]);
-      if (cancelled) return;
-      setKits(kitsRes.status === 'fulfilled' ? kitsRes.value.data : loadMock('mock_kits', mockKits));
-      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
-      setKitsLoading(false);
-    }
-    load();
+    reloadFromBackend();
     loadState<Record<string, number>>('config:precos_custo', {}).then((map) => {
-      if (!cancelled) { setPrecosCusto(map); setLocalCustos(map); }
+      setPrecosCusto(map);
+      setLocalCustos(map);
     });
-    return () => { cancelled = true; };
-  }, []);
+    // Carrega kits custom do AppKv (SQLite) — compartilhado entre usuários
+    loadState<Kit[]>('kits_custom', []).then(setKitsCustom);
+  }, [reloadFromBackend]);
 
-  useEffect(() => { if (kits.length) saveMock('mock_kits', kits); }, [kits]);
+  /* ---- Refetch ao voltar pra aba (preços do ERP podem ter mudado) ---- */
+  useRefreshOnFocus(() => { reloadFromBackend(); });
 
   /* ---- Kit helpers ---- */
   function eqName(id: string) { return equipments.find((e) => e.id === id)?.name ?? id; }
@@ -134,20 +137,33 @@ export function KitsPage() {
     setModeloQtds(qtds);
   }
 
-  function handleSaveKit(kit: Kit) {
+  async function handleSaveKit(kit: Kit) {
+    if (editId && !isCustomKitId(editId)) {
+      showToast('Kits do ERP não podem ser editados aqui. Ajuste direto no ERP.', 'warning');
+      return;
+    }
+    let next: Kit[];
     if (editId) {
-      setKits((cur) => cur.map((k) => k.id === editId ? kit : k));
+      next = kitsCustom.map((k) => k.id === editId ? kit : k);
       showToast('Kit atualizado.', 'success');
     } else {
-      setKits((cur) => [...cur, kit]);
+      next = [...kitsCustom, kit];
       showToast('Kit criado.', 'success');
     }
+    setKitsCustom(next);
+    await saveState('kits_custom', next);
     setModalOpen(false);
     setEditId(null);
   }
 
-  function handleDeleteKit(id: string) {
-    setKits((cur) => cur.filter((k) => k.id !== id));
+  async function handleDeleteKit(id: string) {
+    if (!isCustomKitId(id)) {
+      showToast('Kits do ERP não podem ser excluídos daqui.', 'warning');
+      return;
+    }
+    const next = kitsCustom.filter((k) => k.id !== id);
+    setKitsCustom(next);
+    await saveState('kits_custom', next);
     showToast('Kit excluído.', 'warning');
   }
 
@@ -238,6 +254,26 @@ export function KitsPage() {
   /* ---- Render ---- */
   return (
     <AppShell title="Kits & Modelos">
+
+      {/* Barra de atualização */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginBottom: 12 }}>
+        {lastRefresh > 0 && (
+          <span style={{ fontSize: 11, color: theme.muted }}>
+            Atualizado há {Math.max(1, Math.floor((Date.now() - lastRefresh) / 1000))}s
+          </span>
+        )}
+        <button
+          onClick={() => reloadFromBackend()}
+          disabled={refreshing}
+          style={{
+            background: 'transparent', border: `1px solid ${theme.border}`, borderRadius: 8,
+            color: refreshing ? theme.muted : theme.gold, padding: '6px 12px', fontSize: 12,
+            cursor: refreshing ? 'wait' : 'pointer',
+          }}
+        >
+          {refreshing ? 'Atualizando...' : '↻ Atualizar'}
+        </button>
+      </div>
 
       {/* Tab switcher */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: `1px solid ${theme.border}` }}>

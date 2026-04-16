@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
@@ -10,7 +11,7 @@ import { createDataSource } from '../../lib/dataSource/factory';
 import { ComissaoConfig, DEFAULT_COMISSAO_CONFIG, PreOrcamentoApiDto } from '../../lib/dataSource/types';
 import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockEquipments, mockKits, mockLeads, mockOrdens, mockSolucoes, mockUsers } from '../../mocks/data';
-import { loadMock } from '../../services/mockStorage';
+import { loadLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
 import {
   BlocoCategoria, Equipment, Kit, Lead, Marca, OrdemDeServico,
@@ -178,19 +179,24 @@ export function SolucoesPage() {
   const [draft, setDraft] = useState<PropostaLocal>(emptyProposta);
   const [search, setSearch] = useState('');
 
+  // Flags que evitam salvar [] em cima da BD antes do loadState inicial resolver.
+  const propostasLoadedRef = useRef(false);
+  const ordensLoadedRef = useRef(false);
+
   // Load data
   useEffect(() => {
     // Load propostas from SQLite (AppKv)
     loadState<PropostaLocal[]>('propostas', []).then((saved) => {
       // Migrate from old localStorage if AppKv is empty
       if (!saved.length) {
-        const oldLocal = loadMock<PropostaLocal[]>('mock_propostas_v2', []);
+        const oldLocal = loadLocalCache<PropostaLocal[]>('mock_propostas_v2', []);
         if (oldLocal.length) {
           setPropostas(oldLocal);
           saveState('propostas', oldLocal); // migrate to SQLite
+          propostasLoadedRef.current = true;
           return;
         }
-        const oldSol = loadMock<SolucaoTecnica[]>('mock_solucoes', mockSolucoes);
+        const oldSol = loadLocalCache<SolucaoTecnica[]>('mock_solucoes', mockSolucoes);
         if (oldSol.length) {
           const migrated: PropostaLocal[] = oldSol.map((s) => ({
             id: s.id, clienteNome: s.clienteNome, clienteTel: '', clienteEndereco: '',
@@ -205,50 +211,55 @@ export function SolucoesPage() {
       } else {
         setPropostas(saved);
       }
+      propostasLoadedRef.current = true;
     });
 
     // Load ordens from SQLite (AppKv)
     loadState<OrdemDeServico[]>('ordens_servico', []).then((saved) => {
       if (!saved.length) {
-        const oldLocal = loadMock<OrdemDeServico[]>('mock_ordens', mockOrdens);
+        const oldLocal = loadLocalCache<OrdemDeServico[]>('mock_ordens', mockOrdens);
         if (oldLocal.length) {
           setOrdens(oldLocal);
           saveState('ordens_servico', oldLocal); // migrate to SQLite
+          ordensLoadedRef.current = true;
           return;
         }
       }
       setOrdens(saved);
+      ordensLoadedRef.current = true;
     });
 
-    setUsers(loadMock('mock_users', mockUsers));
+    setUsers(loadLocalCache('mock_users', mockUsers));
 
     // Load from API
-    let cancelled = false;
-    async function load() {
-      const ds = createDataSource();
-      const [eqRes, prospRes, kitsRes, modelosRes] = await Promise.allSettled([
-        ds.equipment.list({ pageSize: 500 }),
-        ds.prospects.list({ pageSize: 200 }),
-        ds.kits.list({ pageSize: 500 }),
-        ds.preOrcamentos.list({ pageSize: 200 }),
-      ]);
-      if (cancelled) return;
-      setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadMock('mock_equipments', mockEquipments));
-      setLeads(prospRes.status === 'fulfilled'
-        ? prospRes.value.data.map((p) => prospectToLead(p))
-        : loadMock('mock_leads', mockLeads));
-      setKits(kitsRes.status === 'fulfilled' ? kitsRes.value.data : loadMock('mock_kits', mockKits));
-      if (modelosRes.status === 'fulfilled') setModelos(modelosRes.value.data);
-    }
-    load();
+    loadFromBackend();
 
     // Load configs
     loadState<Record<string, number>>('config:precos_custo', {}).then(setPrecosCusto);
     loadState<MonitoramentoConfig>(MONIT_KEY, DEFAULT_MONIT_CONFIG).then(setMonitConfig);
     loadState<ComissaoConfig>('config:comissoes', DEFAULT_COMISSAO_CONFIG).then(setComissaoConfig);
-
-    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refetch dos dados do ERP (kits, equipments, modelos) ao voltar pra aba.
+  // Preços e estrutura de kits podem ter mudado no BD.
+  const loadFromBackend = useCallback(async () => {
+    const ds = createDataSource();
+    const [eqRes, prospRes, kitsRes, modelosRes] = await Promise.allSettled([
+      ds.equipment.list({ pageSize: 500 }),
+      ds.prospects.list({ pageSize: 200 }),
+      ds.kits.list({ pageSize: 500 }),
+      ds.preOrcamentos.list({ pageSize: 200 }),
+    ]);
+    setEquipments(eqRes.status === 'fulfilled' ? eqRes.value.data : loadLocalCache('mock_equipments', mockEquipments));
+    setLeads(prospRes.status === 'fulfilled'
+      ? prospRes.value.data.map((p) => prospectToLead(p))
+      : loadLocalCache('mock_leads', mockLeads));
+    setKits(kitsRes.status === 'fulfilled' ? kitsRes.value.data : loadLocalCache('mock_kits', mockKits));
+    if (modelosRes.status === 'fulfilled') setModelos(modelosRes.value.data);
+  }, []);
+
+  useRefreshOnFocus(() => { loadFromBackend(); });
 
   // Auto-fill from pipeline (query params: ?leadId=&nome=&tel=&endereco=&empresa=&tipoLocal=)
   useEffect(() => {
@@ -272,9 +283,10 @@ export function SolucoesPage() {
     setView('editor');
   }, [searchParams, autoFillDone, users, role]);
 
-  // Persist to SQLite (AppKv)
-  useEffect(() => { if (propostas.length) saveState('propostas', propostas); }, [propostas]);
-  useEffect(() => { if (ordens.length) saveState('ordens_servico', ordens); }, [ordens]);
+  // Persist to SQLite (AppKv) — só após loadState inicial, pra não sobrescrever BD com [].
+  // Sem guard de length: deletar o último item PRECISA persistir.
+  useEffect(() => { if (propostasLoadedRef.current) saveState('propostas', propostas); }, [propostas]);
+  useEffect(() => { if (ordensLoadedRef.current) saveState('ordens_servico', ordens); }, [ordens]);
 
   // Unified kit options: DB models + local kits
   const kitOptions = useMemo<KitOption[]>(() => {

@@ -54,8 +54,6 @@ Monorepo com frontend Next.js e backend NestJS conectado a SQL Server real + SQL
 | `SDR`      | CRM, Pipeline, Dashboard                                   |
 | `VENDEDOR` | Pipeline, Propostas, Kits, Minhas Vendas                   |
 | `TECNICO`  | Propostas, Equipamentos                                    |
-| `INFRA`    | Pipeline, Equipamentos                                     |
-| `MONITOR`  | Dashboard (somente leitura)                                |
 
 ## Funcionalidades Principais
 

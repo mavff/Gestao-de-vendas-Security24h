@@ -33,7 +33,7 @@ function clearStorage() {
   localStorage.removeItem(USER_KEY);
 }
 
-const VALID_ROLES: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
+const VALID_ROLES: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO'];
 function isValidRole(v: string): v is UserRole {
   return VALID_ROLES.includes(v as UserRole);
 }

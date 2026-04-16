@@ -6,7 +6,7 @@ import { AppKv } from './app-kv.entity';
 @Injectable()
 export class AppKvService {
   constructor(
-    @InjectRepository(AppKv, 'sqlite')
+    @InjectRepository(AppKv, 'app')
     private readonly repo: Repository<AppKv>,
   ) {}
 

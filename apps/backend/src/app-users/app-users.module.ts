@@ -8,7 +8,7 @@ import { AppUsersService } from './app-users.service';
 import { AppKvService } from './app-kv.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AppUser, AppKv], 'sqlite')],
+  imports: [TypeOrmModule.forFeature([AppUser, AppKv], 'app')],
   controllers: [AppUsersController, AppKvController],
   providers: [AppUsersService, AppKvService],
   exports: [AppUsersService, AppKvService],

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { theme } from '../../components/common/theme';
 import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
@@ -8,7 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createDataSource, getDataSourceMode } from '../../lib/dataSource/factory';
 import { FunnelStats, MateriaisVendidosResult, OrcamentoApiDto, OrcamentoDetalheApiDto } from '../../lib/dataSource/types';
 import { mockEquipments, mockOrcamentos, mockPropostas, mockSolucoes } from '../../mocks/data';
-import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadLocalCache, saveLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
 import {
   BlocoCategoria, ComodatoConfig, Equipment, FAIXAS_ZONA, FaixaZona,
@@ -149,13 +149,28 @@ export function OrcamentosPage() {
   const [dbDetailLoading, setDbDetailLoading] = useState(false);
   const [showSolucaoModal, setShowSolucaoModal] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>('todas');
+  // Guard contra race entre load inicial e edits locais
+  const orcamentosLoadedRef = useRef(false);
+  const localOrcamentosRef = useRef(false);
+  const localSolucoesRef = useRef(false);
+  const localPropostasRef = useRef(false);
 
   // Load local data + precos de custo
   useEffect(() => {
-    loadState<Orcamento[]>('orcamentos_local', []).then((s) => setOrcamentos(s.length ? s : loadMock('mock_orcamentos', mockOrcamentos)));
-    loadState<SolucaoTecnica[]>('solucoes', []).then((s) => setSolucoes(s.length ? s : loadMock('mock_solucoes', mockSolucoes)));
-    setEquipments(loadMock('mock_equipments', mockEquipments));
-    loadState<Proposta[]>('propostas_legacy', []).then((s) => setPropostas(s.length ? s : loadMock('mock_propostas', mockPropostas)));
+    loadState<Orcamento[]>('orcamentos_local', []).then((s) => {
+      if (localOrcamentosRef.current) return;
+      setOrcamentos(s.length ? s : loadLocalCache('mock_orcamentos', mockOrcamentos));
+      orcamentosLoadedRef.current = true;
+    });
+    loadState<SolucaoTecnica[]>('solucoes', []).then((s) => {
+      if (localSolucoesRef.current) return;
+      setSolucoes(s.length ? s : loadLocalCache('mock_solucoes', mockSolucoes));
+    });
+    setEquipments(loadLocalCache('mock_equipments', mockEquipments));
+    loadState<Proposta[]>('propostas_legacy', []).then((s) => {
+      if (localPropostasRef.current) return;
+      setPropostas(s.length ? s : loadLocalCache('mock_propostas', mockPropostas));
+    });
     loadState<Record<string, number>>('config:precos_custo', {}).then(setPrecosCusto);
 
     // Auto-open from query param
@@ -163,8 +178,8 @@ export function OrcamentosPage() {
     const solId = params.get('solucaoId');
     if (solId) {
       setTimeout(async () => {
-        const sols = await loadState<SolucaoTecnica[]>('solucoes', loadMock('mock_solucoes', mockSolucoes));
-        const eqs = loadMock('mock_equipments', mockEquipments);
+        const sols = await loadState<SolucaoTecnica[]>('solucoes', loadLocalCache('mock_solucoes', mockSolucoes));
+        const eqs = loadLocalCache('mock_equipments', mockEquipments);
         const custoMap = await loadState<Record<string, number>>('config:precos_custo', {});
         const sol = sols.find((s: SolucaoTecnica) => s.id === solId && s.status === 'enviada');
         if (sol) {
@@ -244,9 +259,18 @@ export function OrcamentosPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTrigger]);
 
-  useEffect(() => { if (orcamentos.length) saveState('orcamentos_local', orcamentos); }, [orcamentos]);
-  useEffect(() => { if (solucoes.length) saveState('solucoes', solucoes); }, [solucoes]);
-  useEffect(() => { if (propostas.length) saveState('propostas_legacy', propostas); }, [propostas]);
+  useEffect(() => {
+    // Só salva depois do load inicial concluir — evita sobrescrever servidor com mock vazio
+    if (!orcamentosLoadedRef.current) return;
+    localOrcamentosRef.current = true;
+    saveState('orcamentos_local', orcamentos);
+  }, [orcamentos]);
+  useEffect(() => {
+    if (solucoes.length) { localSolucoesRef.current = true; saveState('solucoes', solucoes); }
+  }, [solucoes]);
+  useEffect(() => {
+    if (propostas.length) { localPropostasRef.current = true; saveState('propostas_legacy', propostas); }
+  }, [propostas]);
 
   function gerarOrcamentoDeSolucao(sol: SolucaoTecnica, eqs: Equipment[], custoMap: Record<string, number>): Orcamento {
     const itens: OrcamentoItem[] = [];

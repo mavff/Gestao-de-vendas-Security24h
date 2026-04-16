@@ -20,6 +20,21 @@ import { PreOrcamentosModule } from './pre-orcamentos/pre-orcamentos.module';
 import { ProductsModule } from './products/products.module';
 import { ProspectsModule } from './prospects/prospects.module';
 import { SenhaUser } from './database/senha-user.entity';
+import { PhotosModule } from './photos/photos.module';
+import { Photo } from './photos/photo.entity';
+import { VendasModule } from './vendas/vendas.module';
+import { Venda } from './vendas/venda.entity';
+import { SolucoesModule } from './solucoes-tecnicas/solucoes.module';
+import { Solucao } from './solucoes-tecnicas/solucao.entity';
+import { VistoriasModule } from './vistorias/vistorias.module';
+import { Vistoria } from './vistorias/vistoria.entity';
+import { OrdensModule } from './ordens-servico/ordens.module';
+import { OrdemServico } from './ordens-servico/ordem.entity';
+import { PropostasLocalModule } from './propostas-local/propostas-local.module';
+import { PropostaLocal } from './propostas-local/proposta-local.entity';
+import { OrcamentosLocalModule } from './orcamentos-local/orcamentos-local.module';
+import { OrcamentoLocal } from './orcamentos-local/orcamento-local.entity';
+import { RelationalMigrationModule } from './relational-migration/relational-migration.module';
 
 const logger = new Logger('AppModule');
 
@@ -89,16 +104,44 @@ function buildTypeOrmModule(): DynamicModule[] {
   ];
 }
 
-/** SQLite connection for app-specific data (users, settings, etc.) */
-function buildSqliteModule(): DynamicModule[] {
+/**
+ * App DB connection (name: 'app') — stores data owned by this application
+ * (users, settings, vendas, vistorias, fotos, logs, pipeline).
+ *
+ * Dual-mode:
+ * - If APP_DATABASE_URL is set → Postgres (dev via docker-compose, prod via EasyPanel).
+ * - Otherwise → SQLite fallback at apps/backend/data/app.sqlite (legado / dev offline).
+ *
+ * synchronize=true in non-production so new entities are created automatically.
+ * In production use TypeORM migrations (dist/migrations/*.js).
+ */
+function buildAppDbModule(): DynamicModule[] {
+  const isProd = process.env.NODE_ENV === 'production';
+  const pgUrl = process.env.APP_DATABASE_URL;
+
+  if (pgUrl) {
+    logger.log('App DB: Postgres (APP_DATABASE_URL set)');
+    return [
+      TypeOrmModule.forRoot({
+        name: 'app',
+        type: 'postgres',
+        url: pgUrl,
+        entities: [AppUser, AppKv, Photo, Venda, Solucao, Vistoria, OrdemServico, PropostaLocal, OrcamentoLocal],
+        synchronize: !isProd,
+        migrations: ['dist/migrations/*.js'],
+      }),
+    ];
+  }
+
   const dbPath = path.resolve(__dirname, '..', 'data', 'app.sqlite');
+  logger.warn(`App DB: SQLite fallback at ${dbPath} (set APP_DATABASE_URL for Postgres)`);
   return [
     TypeOrmModule.forRoot({
-      name: 'sqlite',
+      name: 'app',
       type: 'better-sqlite3',
       database: dbPath,
-      entities: [AppUser, AppKv],
-      synchronize: true, // Auto-create tables — safe for SQLite local
+      entities: [AppUser, AppKv, Photo, Venda, Solucao, Vistoria, OrdemServico, PropostaLocal, OrcamentoLocal],
+      synchronize: true,
     }),
   ];
 }
@@ -107,10 +150,18 @@ function buildSqliteModule(): DynamicModule[] {
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', path.resolve(__dirname, '..', '.env')] }),
     ...buildTypeOrmModule(),
-    ...buildSqliteModule(),
+    ...buildAppDbModule(),
     PrismaModule,
     HealthModule,
     AppUsersModule,
+    PhotosModule,
+    VendasModule,
+    SolucoesModule,
+    VistoriasModule,
+    OrdensModule,
+    PropostasLocalModule,
+    OrcamentosLocalModule,
+    RelationalMigrationModule,
     ProductsModule,
     KitsModule,
     LookupsModule,

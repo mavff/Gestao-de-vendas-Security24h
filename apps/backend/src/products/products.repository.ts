@@ -8,7 +8,7 @@ export interface ProductFilters extends PaginationQuery {
   codGrupo?: number;
   codCategoria?: number;
   cancelado?: boolean;
-  /** Filtrar apenas produtos com GrupoOrçamento preenchido (padrão: true) */
+  /** Filtrar apenas produtos com GrupoOrçamento preenchido (padrão: false — ERP atual tem só 4 com esse campo) */
   apenasOrcamento?: boolean;
   grupoOrcamento?: string;
 }
@@ -41,12 +41,18 @@ export class ProductsRepository {
       where.cancelado = false;
     }
 
-    // Por padrão retorna apenas produtos do catálogo de orçamentos (com GrupoOrçamento preenchido)
-    const apenasOrcamento = filters.apenasOrcamento !== false;
-    if (apenasOrcamento) {
-      where.grupoOrcamento = filters.grupoOrcamento
-        ? filters.grupoOrcamento
-        : { not: '' };
+    // Default: retorna catálogo completo (ERP atual só tem 4 produtos com grupoOrcamento preenchido).
+    // Para o subcatálogo "orçamento", passar explicitamente ?apenasOrcamento=true.
+    if (filters.apenasOrcamento === true) {
+      // NOT NULL e NOT empty — Prisma SQL Server exige AND explícito p/ cobrir NULL
+      where.AND = [
+        { grupoOrcamento: { not: null } },
+        { grupoOrcamento: { not: '' } },
+      ];
+      if (filters.grupoOrcamento) {
+        where.grupoOrcamento = filters.grupoOrcamento;
+        delete where.AND;
+      }
     } else if (filters.grupoOrcamento) {
       where.grupoOrcamento = filters.grupoOrcamento;
     }

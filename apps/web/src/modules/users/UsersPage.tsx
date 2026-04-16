@@ -6,13 +6,13 @@ import { useToast } from '../../components/common/Toast';
 import { AppShell } from '../../components/layout/AppShell';
 import { useAuth } from '../../contexts/AuthContext';
 import { mockUsers } from '../../mocks/data';
-import { loadMock, saveMock } from '../../services/mockStorage';
+import { loadLocalCache, saveLocalCache } from '../../services/localCache';
 import { User, UserRole } from '../../types';
 import { apiClient } from '../../lib/apiClient';
 
 const isApiMode = process.env.NEXT_PUBLIC_DATA_SOURCE === 'api';
 
-const roles: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO', 'INFRA', 'MONITOR'];
+const roles: UserRole[] = ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR', 'TECNICO'];
 
 const roleColors: Record<UserRole, string> = {
   ADMIN: '#E3B341',
@@ -20,8 +20,6 @@ const roleColors: Record<UserRole, string> = {
   SDR: '#5B9BD5',
   VENDEDOR: '#43C17B',
   TECNICO: '#C077DB',
-  INFRA: '#E8875B',
-  MONITOR: '#B5B5B5',
 };
 
 type AppUserDraft = {
@@ -61,7 +59,7 @@ export function UsersPage() {
 
   const fetchUsers = useCallback(async () => {
     if (!isApiMode) {
-      setUsers(loadMock('mock_users', mockUsers));
+      setUsers(loadLocalCache('mock_users', mockUsers));
       return;
     }
     setLoading(true);
@@ -69,7 +67,7 @@ export function UsersPage() {
       const { data } = await apiClient.get<unknown[]>('/app-users');
       setUsers(data.map(mapApiUser));
     } catch {
-      setUsers(loadMock('mock_users', mockUsers));
+      setUsers(loadLocalCache('mock_users', mockUsers));
       showToast('Falha ao buscar usuários da API. Exibindo dados locais.', 'warning');
     } finally {
       setLoading(false);
@@ -77,7 +75,7 @@ export function UsersPage() {
   }, [showToast]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
-  useEffect(() => { if (!isApiMode && users.length) saveMock('mock_users', users); }, [users]);
+  useEffect(() => { if (!isApiMode && users.length) saveLocalCache('mock_users', users); }, [users]);
 
   const filtered = users.filter((u) => {
     const byRole = filterRole === 'Todos' || u.role === filterRole;

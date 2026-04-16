@@ -67,8 +67,6 @@ export const mockUsers: User[] = [
   { id: 'U3', name: 'Carlos Oliveira', role: 'SDR', status: 'ativo' },
   { id: 'U4', name: 'Julia Santos', role: 'VENDEDOR', status: 'ativo' },
   { id: 'U5', name: 'Pedro Lima', role: 'TECNICO', status: 'ativo' },
-  { id: 'U6', name: 'Lucas Ferreira', role: 'INFRA', status: 'ativo' },
-  { id: 'U7', name: 'Maria Costa', role: 'MONITOR', status: 'ativo' },
 ];
 
 export const mockMissions: Mission[] = [
