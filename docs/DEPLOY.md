@@ -37,7 +37,7 @@ Guia passo-a-passo para subir **backend NestJS + frontend Next.js + Postgres** n
 
 ## 1. Preparar o repositório GitLab
 
-Essas alterações **já foram feitas** nesta branch. Commita e faz push para o GitLab:
+A infraestrutura de deploy já está commitada em `main` (commits `d27f004`, `59f363d`, `2356dab`). Garanta que seu `main` local está sincronizado com o GitLab:
 
 - `docker-compose.yml` na raiz (Postgres dev)
 - `apps/backend/Dockerfile` e `apps/backend/.dockerignore`
@@ -45,13 +45,13 @@ Essas alterações **já foram feitas** nesta branch. Commita e faz push para o 
 - `apps/web/next.config.js` com `output: 'standalone'`
 - `apps/backend/.env.example` com `APP_DATABASE_URL` e `PHOTOS_DIR`
 - Conexão TypeORM renomeada `sqlite` → `app` (dual-mode Postgres/SQLite)
+- Dockerfile backend: `mkdir -p /app/apps/backend/data && chown app:app` (evita EACCES no fallback SQLite dentro do container)
+- Entidades relacionais usando `simple-json` em vez de `jsonb` para funcionar em SQLite e Postgres
 
 ```bash
 cd "C:/Gestão de vendas sec24h/Gestao-de-vendas-Security24h"
-git add -A
-git status
-git commit -m "chore(infra): postgres dual-mode + dockerfiles + deploy docs"
-git push origin main
+git status          # esperado: clean
+git push origin main  # só se houver commits locais ainda não enviados
 ```
 
 No EasyPanel você precisará configurar um **Deploy Token** de leitura do GitLab:
@@ -275,6 +275,8 @@ tar czf photos-$(date +%F).tar.gz /var/lib/docker/volumes/sec24h-photos/_data
 | Build falha em `better-sqlite3` | Toolchain ausente | Já coberto pelo Dockerfile (`python3 make g++`) |
 | Prisma: `Cannot find module '.prisma/client'` | `prisma generate` não rodou | O Dockerfile já roda — checar logs da stage `build` |
 | Next.js: `Error: Cannot find module` em prod | Build sem `output: 'standalone'` | Confirmado no `next.config.js` desta branch |
+| Backend cai com `EACCES` ao tentar criar `data/app.sqlite` | Fallback SQLite em container sem permissão | Corrigido em `59f363d` (Dockerfile cria `data/` com dono `app`). Em prod o correto é setar `APP_DATABASE_URL` e não cair no fallback |
+| TypeORM: `column "blocos" is of type jsonb` ou similar ao iniciar contra Postgres | Entidades declaravam `jsonb` (Postgres-only) | Corrigido em `59f363d` com `simple-json` (cross-DB). Se reaparecer, revisar novas entidades que adicionem colunas JSON |
 
 ---
 

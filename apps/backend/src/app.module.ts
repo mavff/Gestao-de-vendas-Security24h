@@ -116,7 +116,6 @@ function buildTypeOrmModule(): DynamicModule[] {
  * In production use TypeORM migrations (dist/migrations/*.js).
  */
 function buildAppDbModule(): DynamicModule[] {
-  const isProd = process.env.NODE_ENV === 'production';
   const pgUrl = process.env.APP_DATABASE_URL;
 
   if (pgUrl) {
@@ -127,8 +126,7 @@ function buildAppDbModule(): DynamicModule[] {
         type: 'postgres',
         url: pgUrl,
         entities: [AppUser, AppKv, Photo, Venda, Solucao, Vistoria, OrdemServico, PropostaLocal, OrcamentoLocal],
-        synchronize: !isProd,
-        migrations: ['dist/migrations/*.js'],
+        synchronize: true,
       }),
     ];
   }
