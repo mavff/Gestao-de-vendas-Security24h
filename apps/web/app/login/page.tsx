@@ -242,10 +242,6 @@ export default function LoginPage() {
               </button>
             </form>
 
-            {/* Rodapé */}
-            <p style={{ textAlign: 'center', fontSize: 11, color: `${muted}55`, margin: 0 }}>
-              Use o mesmo usuário e senha do Service
-            </p>
           </div>
         </div>
 

@@ -1,10 +1,25 @@
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Photo } from './photo.entity';
+
+// Bloqueia traversal (..), separadores de path e null bytes no nome da pasta.
+// entityType/entityId viram segmentos de diretório em disco, então têm que ser
+// identificadores simples. IDs reais são UUIDs, 'ENT<timestamp>', 'VND<timestamp>' etc.
+function assertSafeSegment(value: string, field: string): void {
+  if (!value || typeof value !== 'string') {
+    throw new BadRequestException(`${field} inválido`);
+  }
+  if (value.length > 100) {
+    throw new BadRequestException(`${field} muito longo`);
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new BadRequestException(`${field} contém caracteres inválidos`);
+  }
+}
 
 function extForMime(mime: string): string {
   const m = mime.toLowerCase();
@@ -37,6 +52,9 @@ export class PhotosService {
   }
 
   async upload(buffer: Buffer, meta: PhotoUploadMeta): Promise<Photo> {
+    assertSafeSegment(meta.entityType, 'entityType');
+    assertSafeSegment(meta.entityId, 'entityId');
+
     const id = randomUUID();
     const mimeType = meta.mimeType || 'image/jpeg';
     const ext = extForMime(mimeType);

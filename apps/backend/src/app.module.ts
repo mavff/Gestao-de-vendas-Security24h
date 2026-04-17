@@ -170,7 +170,7 @@ function buildAppDbModule(): DynamicModule[] {
     SheetsModule,
     ComissoesModule,
     CrmModule,
-    ...(process.env.SQL_SERVER_HOST ? [AuthModule] : []),
+    AuthModule.register(),
   ],
 })
 export class AppModule {}

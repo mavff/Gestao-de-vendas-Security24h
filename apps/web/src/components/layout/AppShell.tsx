@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { getNavForRole } from '../../config/rbac';
 import { useAuth } from '../../contexts/AuthContext';
 import { theme } from '../common/theme';
+import { ChangePasswordModal } from '../auth/ChangePasswordModal';
 
 const MOBILE_BREAKPOINT = 900;
 const SIDEBAR_WIDTH = 188;
@@ -148,6 +149,13 @@ export function AppShell({ title, children }: { title: string; children: React.R
   const navItems = getNavForRole(role);
   const [isMobile, setIsMobile] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [pwdModalOpen, setPwdModalOpen] = useState(false);
+  const canChangePassword = user?.source === 'app';
+  const forcedPwdChange = !!user?.mustChangePassword && canChangePassword;
+
+  useEffect(() => {
+    if (forcedPwdChange) setPwdModalOpen(true);
+  }, [forcedPwdChange]);
 
   useEffect(() => {
     const onResize = () => {
@@ -318,6 +326,35 @@ export function AppShell({ title, children }: { title: string; children: React.R
                 {role}
               </span>
             </div>
+            {/* Botão alterar senha */}
+            {canChangePassword && (
+              <button
+                type="button"
+                onClick={() => setPwdModalOpen(true)}
+                title="Alterar senha"
+                style={{
+                  border: `1px solid ${theme.border}`,
+                  background: 'transparent',
+                  color: theme.muted,
+                  borderRadius: 6,
+                  padding: '4px 8px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  letterSpacing: 0.3,
+                  transition: 'color 150ms ease, border-color 150ms ease',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = theme.gold;
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = theme.gold;
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = theme.muted;
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = theme.border;
+                }}
+              >
+                Alterar senha
+              </button>
+            )}
             {/* Botão sair */}
             <button
               type="button"
@@ -349,6 +386,11 @@ export function AppShell({ title, children }: { title: string; children: React.R
         </div>
         {children}
       </main>
+      <ChangePasswordModal
+        open={pwdModalOpen}
+        forced={forcedPwdChange}
+        onClose={() => setPwdModalOpen(false)}
+      />
     </div>
   );
 }

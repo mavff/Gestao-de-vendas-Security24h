@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Optional, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -26,7 +26,10 @@ function parseLocalUsers(envValue: string | undefined, role: string): LocalUser[
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(SenhaUser) private readonly usersRepository: Repository<SenhaUser>,
+    // @Optional: quando SQL_SERVER_HOST não está setado, AuthModule não carrega
+    // o forFeature([SenhaUser]) e esse repo fica null — master (.env) e
+    // app_users continuam funcionando normalmente.
+    @Optional() @InjectRepository(SenhaUser) private readonly usersRepository: Repository<SenhaUser> | null,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly appUsers: AppUsersService,
@@ -43,7 +46,10 @@ export class AuthService {
     ];
   }
 
-  private async signTokens(payload: { sub: number; username: string; role: string; name: string }) {
+  private async signTokens(
+    payload: { sub: number; username: string; role: string; name: string },
+    extras: { mustChangePassword?: boolean; source?: 'master' | 'app' | 'erp' } = {},
+  ) {
     return {
       accessToken: await this.jwtService.signAsync(payload, {
         secret: process.env.JWT_ACCESS_SECRET,
@@ -53,7 +59,11 @@ export class AuthService {
         secret: process.env.JWT_REFRESH_SECRET,
         expiresIn: process.env.JWT_REFRESH_EXPIRES || '7d',
       }),
-      user: payload,
+      user: {
+        ...payload,
+        mustChangePassword: extras.mustChangePassword ?? false,
+        source: extras.source ?? 'erp',
+      },
     };
   }
 
@@ -62,7 +72,10 @@ export class AuthService {
     const masterUser = process.env.ADMIN_FALLBACK_USER;
     const masterPass = process.env.ADMIN_FALLBACK_PASS;
     if (masterUser && masterPass && username === masterUser && password === masterPass) {
-      return this.signTokens({ sub: 0, username, role: 'ADMIN', name: 'Admin Master' });
+      return this.signTokens(
+        { sub: 0, username, role: 'ADMIN', name: 'Admin Master' },
+        { source: 'master' },
+      );
     }
 
     // 2. Usuários do app (SQLite — bcrypt)
@@ -71,10 +84,17 @@ export class AuthService {
       if (!appUser.active) throw new UnauthorizedException('Usuário desativado');
       const valid = await this.appUsers.validatePassword(appUser, password);
       if (!valid) throw new UnauthorizedException('Credenciais inválidas');
-      return this.signTokens({ sub: appUser.id, username: appUser.username, role: appUser.role, name: appUser.name });
+      return this.signTokens(
+        { sub: appUser.id, username: appUser.username, role: appUser.role, name: appUser.name },
+        { mustChangePassword: appUser.mustChangePassword, source: 'app' },
+      );
     }
 
     // 3. Usuários do ERP (tabela Senhas — SQL Server)
+    // Se SQL Server não está configurado, pula direto para "credenciais inválidas".
+    if (!this.usersRepository) {
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
     let user: SenhaUser | null;
     try {
       user = await this.usersRepository.findOne({ where: { usuario: username } });
@@ -90,12 +110,23 @@ export class AuthService {
     }
 
     const role = await this.resolveRole(user);
-    return this.signTokens({
-      sub: user.idUsuario,
-      username: user.usuario,
-      role,
-      name: user.identificacao ?? user.usuario,
-    });
+    return this.signTokens(
+      {
+        sub: user.idUsuario,
+        username: user.usuario,
+        role,
+        name: user.identificacao ?? user.usuario,
+      },
+      { source: 'erp' },
+    );
+  }
+
+  /** Troca a senha do próprio usuário logado (apenas para app_users). */
+  async changeOwnPassword(userId: number, currentPassword: string, newPassword: string) {
+    if (!userId || userId <= 0) {
+      throw new UnauthorizedException('Esta conta não suporta troca de senha no app');
+    }
+    return this.appUsers.changeOwnPassword(userId, currentPassword, newPassword);
   }
 
   async refresh(refreshToken: string) {

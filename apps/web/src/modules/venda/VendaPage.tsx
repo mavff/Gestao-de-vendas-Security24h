@@ -488,12 +488,22 @@ export function VendaPage() {
   // Second vistoria for delivery photos
   const [entregaVistoria, setEntregaVistoria] = useState<Vistoria | null>(null);
   const [allEntregas, setAllEntregas] = useState<Vistoria[]>([]);
+  // Garante que o sync de estrutura (efeito abaixo) só dispare DEPOIS do load
+  // inicial da entrega — sem isso, se a página abre direto na etapa Entrega,
+  // o sync cria um ENT novo antes do loadState resolver e sobrescreve o
+  // registro antigo (localEntregaRef=true bloqueia o load subsequente).
+  const [entregaLoaded, setEntregaLoaded] = useState(false);
 
   useEffect(() => {
+    setEntregaLoaded(false);
     loadState<Vistoria[]>('entregas', []).then((all) => {
-      if (localEntregaRef.current) return;
+      if (localEntregaRef.current) {
+        setEntregaLoaded(true);
+        return;
+      }
       setAllEntregas(all);
       setEntregaVistoria(all.find((v) => v.leadId === vendaId) ?? null);
+      setEntregaLoaded(true);
     });
   }, [vendaId]);
 
@@ -518,6 +528,7 @@ export function VendaPage() {
   // Só roda quando o usuário de fato abre a aba Entrega, pra não criar registros órfãos.
   useEffect(() => {
     if (activeStep !== 'Entrega') return;
+    if (!entregaLoaded) return; // aguarda loadState('entregas') antes de decidir criar/atualizar
     if (!vistoria || vistoria.ambientes.length === 0) return;
     const now = new Date().toISOString().slice(0, 10);
     const base: Vistoria = entregaVistoria ?? {
@@ -542,7 +553,7 @@ export function VendaPage() {
       updateEntregaVistoria({ ...base, ambientes: syncedAmbientes, updatedAt: now });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStep, vistoria?.id, vistoria?.ambientes]);
+  }, [activeStep, entregaLoaded, vistoria?.id, vistoria?.ambientes]);
 
   function handleUpdatePontoEntrega(ambId: string, pontoId: string, updated: InstallationPoint) {
     if (!entregaVistoria) return;

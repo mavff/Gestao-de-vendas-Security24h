@@ -47,13 +47,33 @@ export class ApiClientError extends Error {
 const DEFAULT_API_BASE_URL = 'http://localhost:3001';
 const DEFAULT_TIMEOUT_MS = 5000;
 
+// Evento disparado quando o refresh falha — AuthContext escuta pra forçar logout.
+export const AUTH_EXPIRED_EVENT = 'sec24h:auth-expired';
+
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
+// Evita disparar o evento de expiração múltiplas vezes seguidas (várias
+// requests em voo retornam 401 ao mesmo tempo).
+let authExpiredDispatched = false;
+
+function dispatchAuthExpired(): void {
+  if (typeof window === 'undefined' || authExpiredDispatched) return;
+  authExpiredDispatched = true;
+  localStorage.removeItem('sec24h_token');
+  localStorage.removeItem('sec24h_refresh');
+  localStorage.removeItem('sec24h_user');
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  // Libera o flag depois pra suportar logar de novo na mesma aba.
+  setTimeout(() => { authExpiredDispatched = false; }, 2000);
+}
 
 async function tryRefreshToken(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   const refresh = localStorage.getItem('sec24h_refresh');
-  if (!refresh) return false;
+  if (!refresh) {
+    dispatchAuthExpired();
+    return false;
+  }
 
   if (isRefreshing && refreshPromise) return refreshPromise;
 
@@ -66,11 +86,15 @@ async function tryRefreshToken(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: refresh }),
       });
-      if (!res.ok) return false;
+      if (!res.ok) {
+        dispatchAuthExpired();
+        return false;
+      }
       const data = await res.json() as { accessToken: string };
       localStorage.setItem('sec24h_token', data.accessToken);
       return true;
     } catch {
+      // Erro de rede: não expira sessão — pode ser backend momentaneamente off.
       return false;
     } finally {
       isRefreshing = false;

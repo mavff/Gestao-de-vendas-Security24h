@@ -20,6 +20,9 @@ export class AppUser {
   @Column({ default: true })
   active!: boolean;
 
+  @Column({ default: false })
+  mustChangePassword!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

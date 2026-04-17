@@ -38,6 +38,16 @@ export class AppUsersController {
     return this.service.update(id, body);
   }
 
+  @Post(':id/reset-password')
+  resetPassword(
+    @Req() req: { user?: { role?: string } },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { tempPassword: string },
+  ) {
+    this.assertAdmin(req);
+    return this.service.resetPassword(id, body.tempPassword);
+  }
+
   @Delete(':id')
   remove(
     @Req() req: { user?: { role?: string } },

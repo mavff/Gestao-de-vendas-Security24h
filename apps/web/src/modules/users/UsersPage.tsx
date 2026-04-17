@@ -56,6 +56,10 @@ export function UsersPage() {
   const [draft, setDraft] = useState<AppUserDraft>(emptyDraft);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [resetTarget, setResetTarget] = useState<(User & { username?: string }) | null>(null);
+  const [resetPwd, setResetPwd] = useState('');
+  const [resetSaving, setResetSaving] = useState(false);
+  const [resetDone, setResetDone] = useState<{ username: string; tempPassword: string } | null>(null);
 
   const fetchUsers = useCallback(async () => {
     if (!isApiMode) {
@@ -154,6 +158,26 @@ export function UsersPage() {
     }
   }
 
+  function openReset(u: User & { username?: string }) {
+    setResetTarget(u);
+    setResetPwd(generateTempPassword());
+    setResetDone(null);
+  }
+
+  async function handleReset() {
+    if (!resetTarget || !resetPwd.trim()) return;
+    setResetSaving(true);
+    try {
+      await apiClient.post(`/app-users/${resetTarget.id}/reset-password`, { body: { tempPassword: resetPwd.trim() } });
+      setResetDone({ username: resetTarget.username || resetTarget.name, tempPassword: resetPwd.trim() });
+      showToast('Senha resetada. Compartilhe a senha temporária com o usuário.', 'success');
+    } catch (err) {
+      showToast((err as Error).message, 'error');
+    } finally {
+      setResetSaving(false);
+    }
+  }
+
   async function toggleStatus(u: User) {
     const newActive = u.status === 'ativo' ? false : true;
     if (isApiMode) {
@@ -226,6 +250,9 @@ export function UsersPage() {
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button onClick={() => openEdit(u)} style={btnSmall}>Editar</button>
+                        {isApiMode && (
+                          <button onClick={() => openReset(u)} style={{ ...btnSmall, borderColor: theme.gold, color: theme.gold }}>Resetar senha</button>
+                        )}
                         <button onClick={() => toggleStatus(u)} style={{ ...btnSmall, borderColor: u.status === 'ativo' ? theme.warning : theme.success, color: u.status === 'ativo' ? theme.warning : theme.success }}>
                           {u.status === 'ativo' ? 'Desativar' : 'Ativar'}
                         </button>
@@ -292,8 +319,79 @@ export function UsersPage() {
           </div>
         </div>
       )}
+
+      {/* Modal Reset de Senha */}
+      {resetTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: '#000a', display: 'grid', placeItems: 'center', zIndex: 50 }}>
+          <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 20, width: 460, maxWidth: '90vw' }}>
+            <h3 style={{ margin: '0 0 4px', color: theme.gold }}>Resetar senha</h3>
+            <p style={{ margin: '0 0 12px', fontSize: 12, color: theme.muted }}>
+              Usuário: <strong style={{ color: theme.text }}>{resetTarget.name}</strong> ({resetTarget.username || '—'})
+            </p>
+
+            {!resetDone ? (
+              <>
+                <label style={labelStyle}>Senha temporária *</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    value={resetPwd}
+                    onChange={(e) => setResetPwd(e.target.value)}
+                    style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                    autoFocus
+                  />
+                  <button onClick={() => setResetPwd(generateTempPassword())} style={btnSoft} title="Gerar nova">↻</button>
+                </div>
+                <p style={{ margin: '8px 0 0', fontSize: 11, color: theme.muted }}>
+                  O usuário será obrigado a trocar no próximo login.
+                </p>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setResetTarget(null)} style={btnSoft}>Cancelar</button>
+                  <button
+                    onClick={handleReset}
+                    disabled={resetSaving || !resetPwd.trim()}
+                    style={{ ...btnGold, opacity: (!resetSaving && resetPwd.trim()) ? 1 : 0.5 }}
+                  >
+                    {resetSaving ? 'Resetando…' : 'Confirmar reset'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ background: theme.soft, border: `1px solid ${theme.gold}66`, borderRadius: 8, padding: 14, margin: '8px 0' }}>
+                  <div style={{ fontSize: 11, color: theme.muted, marginBottom: 4 }}>Senha temporária (anote, não será exibida de novo):</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 18, color: theme.gold, fontWeight: 700, letterSpacing: 1 }}>
+                    {resetDone.tempPassword}
+                  </div>
+                </div>
+                <p style={{ margin: '0 0 0', fontSize: 12, color: theme.muted }}>
+                  Compartilhe com <strong style={{ color: theme.text }}>{resetDone.username}</strong> por um canal seguro.
+                </p>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => { navigator.clipboard?.writeText(resetDone.tempPassword); showToast('Senha copiada.', 'success'); }}
+                    style={btnSoft}
+                  >
+                    Copiar
+                  </button>
+                  <button onClick={() => { setResetTarget(null); setResetDone(null); }} style={btnGold}>Fechar</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </AppShell>
   );
+}
+
+function generateTempPassword(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let out = '';
+  for (let i = 0; i < 8; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return out;
 }
 
 /* ---- Helpers ---- */

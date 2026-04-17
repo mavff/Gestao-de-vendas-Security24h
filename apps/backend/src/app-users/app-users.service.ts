@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, OnModuleInit, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -110,6 +110,34 @@ export class AppUsersService implements OnModuleInit {
 
     const saved = await this.repo.save(user);
     return this.sanitize(saved);
+  }
+
+  /** Troca de senha pelo próprio usuário. Valida senha atual. */
+  async changeOwnPassword(id: number, currentPassword: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 4) {
+      throw new BadRequestException('Nova senha deve ter ao menos 4 caracteres');
+    }
+    const user = await this.repo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) throw new UnauthorizedException('Senha atual incorreta');
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.mustChangePassword = false;
+    await this.repo.save(user);
+    return { ok: true };
+  }
+
+  /** Reset por admin: grava senha temporária e força troca no próximo login. */
+  async resetPassword(id: number, tempPassword: string) {
+    if (!tempPassword || tempPassword.length < 4) {
+      throw new BadRequestException('Senha temporária deve ter ao menos 4 caracteres');
+    }
+    const user = await this.repo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    user.passwordHash = await bcrypt.hash(tempPassword, 10);
+    user.mustChangePassword = true;
+    await this.repo.save(user);
+    return { ok: true, username: user.username };
   }
 
   async remove(id: number) {

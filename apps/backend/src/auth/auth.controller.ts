@@ -23,6 +23,15 @@ export class AuthController {
     return req.user;
   }
 
+  @UseGuards(JwtGuard)
+  @Post('auth/change-password')
+  changePassword(
+    @Req() req: { user?: { sub?: number } },
+    @Body() body: { currentPassword: string; newPassword: string },
+  ) {
+    return this.authService.changeOwnPassword(req.user?.sub ?? 0, body.currentPassword, body.newPassword);
+  }
+
   /** Lista usuários da tabela Senhas — apenas para ADMIN. */
   @UseGuards(JwtGuard)
   @Get('users')
