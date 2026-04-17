@@ -34,6 +34,8 @@ import { PropostasLocalModule } from './propostas-local/propostas-local.module';
 import { PropostaLocal } from './propostas-local/proposta-local.entity';
 import { OrcamentosLocalModule } from './orcamentos-local/orcamentos-local.module';
 import { OrcamentoLocal } from './orcamentos-local/orcamento-local.entity';
+import { AprovacoesModule } from './orcamento-aprovacoes/aprovacoes.module';
+import { OrcamentoAprovacao } from './orcamento-aprovacoes/orcamento-aprovacao.entity';
 import { RelationalMigrationModule } from './relational-migration/relational-migration.module';
 
 const logger = new Logger('AppModule');
@@ -125,7 +127,7 @@ function buildAppDbModule(): DynamicModule[] {
         name: 'app',
         type: 'postgres',
         url: pgUrl,
-        entities: [AppUser, AppKv, Photo, Venda, Solucao, Vistoria, OrdemServico, PropostaLocal, OrcamentoLocal],
+        entities: [AppUser, AppKv, Photo, Venda, Solucao, Vistoria, OrdemServico, PropostaLocal, OrcamentoLocal, OrcamentoAprovacao],
         synchronize: true,
       }),
     ];
@@ -138,7 +140,7 @@ function buildAppDbModule(): DynamicModule[] {
       name: 'app',
       type: 'better-sqlite3',
       database: dbPath,
-      entities: [AppUser, AppKv, Photo, Venda, Solucao, Vistoria, OrdemServico, PropostaLocal, OrcamentoLocal],
+      entities: [AppUser, AppKv, Photo, Venda, Solucao, Vistoria, OrdemServico, PropostaLocal, OrcamentoLocal, OrcamentoAprovacao],
       synchronize: true,
     }),
   ];
@@ -159,6 +161,7 @@ function buildAppDbModule(): DynamicModule[] {
     OrdensModule,
     PropostasLocalModule,
     OrcamentosLocalModule,
+    AprovacoesModule,
     RelationalMigrationModule,
     ProductsModule,
     KitsModule,

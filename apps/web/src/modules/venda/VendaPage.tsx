@@ -15,6 +15,8 @@ import { loadState, saveState } from '../../services/appState';
 import { usePollingRefresh } from '../../hooks/usePollingRefresh';
 import { useRefreshOnFocus } from '../../hooks/useRefreshOnFocus';
 import { openPropostaPDF } from '../../components/proposal/PropostaPDF';
+import { AprovarComAssinaturaModal, type AprovacaoResponse } from '../../components/proposal/AprovarComAssinaturaModal';
+import { apiClient } from '../../lib/apiClient';
 import type {
   ActivityLog, ActivityLogType, AmbienteVistoria, BlocoCategoria, BlocoTecnico,
   Equipment, InstallationPoint, ItemSolucao, Kit, Marca,
@@ -73,6 +75,8 @@ export function VendaPage() {
   const [monitConfig, setMonitConfig] = useState<MonitoramentoConfig>(DEFAULT_MONIT_CONFIG);
   const [comissaoConfig, setComissaoConfig] = useState<ComissaoConfig>(DEFAULT_COMISSAO_CONFIG);
   const [instalacaoConfig, setInstalacaoConfig] = useState<InstalacaoConfig>(DEFAULT_INSTALACAO_CONFIG);
+  const [aprovacao, setAprovacao] = useState<AprovacaoResponse | null>(null);
+  const [showAprovarModal, setShowAprovarModal] = useState(false);
   // Guards contra corrida entre load inicial async e escritas locais do usuário.
   // Se o usuário clicar/editar antes do loadState resolver, não sobrescrevemos.
   const localEditsRef = useRef({ venda: false, solucao: false, vistoria: false, ordem: false });
@@ -120,6 +124,7 @@ export function VendaPage() {
     loadState<InstalacaoConfig>(INSTALACAO_KEY, DEFAULT_INSTALACAO_CONFIG).then(setInstalacaoConfig);
     loadState<Equipment[]>('equipments_custom', []).then(setEquipmentsCustom);
 
+    setAprovacao(null);
     loadRefDataFromBackend();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendaId]);
@@ -140,6 +145,18 @@ export function VendaPage() {
 
   useRefreshOnFocus(() => { loadRefDataFromBackend(); });
   usePollingRefresh(() => { loadRefDataFromBackend(); }, 120_000);
+
+  // Carrega a aprovação existente (assinatura do cliente) quando a venda tiver aprovacaoId.
+  // Se a rota falhar (backend sem o módulo), mantém null sem poluir o console.
+  useEffect(() => {
+    const id = venda?.aprovacaoId;
+    if (!id) { setAprovacao(null); return; }
+    if (aprovacao?.id === id) return;
+    apiClient.get<AprovacaoResponse>(`/orcamento-aprovacoes/${id}`)
+      .then((r) => setAprovacao(r.data))
+      .catch(() => { /* noop */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [venda?.aprovacaoId]);
 
   // Merged equipments: ERP + Custom (AppKv 'equipments_custom') + synthetic entries from kit items
   const mergedEquipments = useMemo<Equipment[]>(() => {
@@ -376,6 +393,14 @@ export function VendaPage() {
       mensalidadeComodato,
       prazo,
       modalidade: venda.modalidade ?? 'ambos',
+      aprovacao: aprovacao ? {
+        id: aprovacao.id,
+        clienteNome: aprovacao.clienteNome,
+        clienteCpf: aprovacao.clienteCpf,
+        assinaturaBase64: aprovacao.assinaturaBase64,
+        assinaturaHash: aprovacao.assinaturaHash,
+        createdAt: aprovacao.createdAt,
+      } : undefined,
     });
 
     if (venda.status !== 'proposta_gerada' && venda.status !== 'cliente_aprovou') {
@@ -384,11 +409,40 @@ export function VendaPage() {
     }
   }
 
-  async function handleClienteAprovou() {
+  // Valor total exibido no modal de assinatura — reflete a modalidade da proposta.
+  const valorAprovacao = useMemo(() => {
+    if (!venda || !solucao) return 0;
+    const itens = solucao.blocos.flatMap((b) => b.itens.map((it) => {
+      const eq = mergedEquipments.find((e) => e.id === it.equipmentId);
+      return { preco: eq?.price ?? 0, qtd: it.quantidade };
+    }));
+    const subtotalEquip = itens.reduce((s, i) => s + i.preco * i.qtd, 0);
+    const taxaInstalacao = calcTaxaInstalacao(subtotalEquip, instalacaoConfig);
+    const prazo = venda.prazoComodato ?? 36;
+    const monit = venda.modalidade === 'imagem' ? 32 : (venda.monitoramentoMensal ?? 0);
+    if (venda.modalidade === 'comodato') {
+      const mensalidade = (subtotalEquip * 0.6 / prazo) + monit;
+      return taxaInstalacao + mensalidade * prazo;
+    }
+    if (venda.modalidade === 'imagem') return 32 * prazo;
+    return subtotalEquip + taxaInstalacao;
+  }, [venda, solucao, mergedEquipments, instalacaoConfig]);
+
+  function handleClienteAprovou() {
     if (!venda) return;
-    await updateVenda({ status: 'cliente_aprovou', clienteAprovado: true });
-    addLog('solucao_aprovada', 'Cliente aprovou a proposta');
-    showToast('Cliente aprovou! Faça a 1ª visita ao local.', 'success');
+    if (venda.clienteAprovado) {
+      showToast('Venda já aprovada pelo cliente.', 'warning');
+      return;
+    }
+    setShowAprovarModal(true);
+  }
+
+  async function handleAprovacaoSalva(ap: AprovacaoResponse) {
+    setAprovacao(ap);
+    setShowAprovarModal(false);
+    await updateVenda({ status: 'cliente_aprovou', clienteAprovado: true, aprovacaoId: ap.id });
+    addLog('solucao_aprovada', `Cliente aprovou com assinatura (código ${ap.assinaturaHash.slice(-12).toUpperCase()})`);
+    showToast('Assinatura registrada. Faça a 1ª visita.', 'success');
     setActiveStep('1ª Visita');
   }
 
@@ -831,6 +885,17 @@ export function VendaPage() {
           ordem={ordem}
           equipments={mergedEquipments}
           logs={vendaLogs}
+        />
+      )}
+
+      {showAprovarModal && venda && (
+        <AprovarComAssinaturaModal
+          clienteNome={venda.clienteNome}
+          valorTotal={valorAprovacao}
+          modalidade={venda.modalidade ?? 'ambos'}
+          vendaId={venda.id}
+          onClose={() => setShowAprovarModal(false)}
+          onAprovado={handleAprovacaoSalva}
         />
       )}
     </AppShell>
@@ -1550,12 +1615,17 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
       {/* ──── Ações ──── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
         <button onClick={handleSaveAndGenerate} style={{ ...btnGold, padding: '14px 20px', fontSize: 15, fontWeight: 700, borderRadius: 12, width: '100%', textAlign: 'center' as const }}>
-          Gerar PDF da Proposta
+          {approved ? 'Gerar PDF (assinado)' : 'Gerar PDF da Proposta'}
         </button>
         {!approved && canEdit && (
           <button onClick={handleApprove} style={{ ...btnGold, background: theme.success, padding: '14px 20px', fontSize: 15, fontWeight: 700, borderRadius: 12, width: '100%', textAlign: 'center' as const }}>
-            Cliente Aprovou
+            ✓ Cliente Aprovou (com assinatura)
           </button>
+        )}
+        {approved && (
+          <div style={{ background: theme.success + '15', border: `1px solid ${theme.success}44`, borderRadius: 10, padding: '12px 14px', fontSize: 12, color: theme.success, fontWeight: 600 }}>
+            ✓ Proposta pré-aprovada pelo cliente com assinatura registrada.
+          </div>
         )}
       </div>
     </div>

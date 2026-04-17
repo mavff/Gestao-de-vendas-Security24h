@@ -21,6 +21,7 @@ import {
   SolucaoTecnica, User,
 } from '../../types';
 import { openPropostaPDF } from '../../components/proposal/PropostaPDF';
+import { AprovarComAssinaturaModal, AprovacaoResponse } from '../../components/proposal/AprovarComAssinaturaModal';
 
 /* ---- Monitoramento Config ---- */
 
@@ -711,6 +712,10 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
   // Existing lead selection
   const [useExistingLead, setUseExistingLead] = useState(false);
 
+  // Aprovação com assinatura
+  const [showAprovar, setShowAprovar] = useState(false);
+  const [aprovacao, setAprovacao] = useState<AprovacaoResponse | null>(null);
+
   function fillFromLead(leadId: string) {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead) return;
@@ -1384,38 +1389,76 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
             {draft.id ? 'Salvar Alterações' : 'Criar Proposta'}
           </button>
         )}
-        {draft.itens.length > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              const faixa0 = monitConfig.faixas[faixaIdx] ?? monitConfig.faixas[0];
-              openPropostaPDF({
-                clienteNome: draft.clienteNome || '(sem nome)',
-                clienteTel: draft.clienteTel,
-                clienteEndereco: draft.clienteEndereco,
-                tipoLocal: draft.tipoLocal,
-                marca: draft.marca,
-                itens: draft.itens.map((i) => {
-                  const eq = equipments.find((e) => e.id === i.equipmentId);
-                  return { nome: eq?.name ?? i.equipmentId, quantidade: i.quantidade, precoUnitario: eq?.price ?? 0, bloco: eq?.bloco ?? 'acessorio' };
-                }),
-                observacoes: draft.observacoes,
-                vendedorNome: '',
-                subtotalEquipamentos: subtotalVenda,
-                taxaInstalacao,
-                valorCrea,
-                totalVenda,
-                monitoramentoMensal: monitValor,
-                mensalidadeComodato,
-                prazo,
-                modalidade: modalidade === 'comodato' ? 'ambos' : 'venda',
-              });
-            }}
-            style={{ ...btnSoft, borderColor: '#5B9BD5', color: '#5B9BD5' }}
-          >
-            Gerar PDF
-          </button>
-        )}
+        {draft.itens.length > 0 && (() => {
+          const modalidadeLabel = modalidade === 'comodato' ? 'Comodato' : 'Compra';
+          const valorAprovacao = modalidade === 'comodato' ? custoTotalComodato : totalVenda;
+          const buildPdfData = (ap: AprovacaoResponse | null) => ({
+            clienteNome: draft.clienteNome || '(sem nome)',
+            clienteTel: draft.clienteTel,
+            clienteEndereco: draft.clienteEndereco,
+            tipoLocal: draft.tipoLocal,
+            marca: draft.marca,
+            itens: draft.itens.map((i) => {
+              const eq = equipments.find((e) => e.id === i.equipmentId);
+              return { nome: eq?.name ?? i.equipmentId, quantidade: i.quantidade, precoUnitario: eq?.price ?? 0, bloco: eq?.bloco ?? 'acessorio' };
+            }),
+            observacoes: draft.observacoes,
+            vendedorNome: '',
+            subtotalEquipamentos: subtotalVenda,
+            taxaInstalacao,
+            valorCrea,
+            totalVenda,
+            monitoramentoMensal: monitValor,
+            mensalidadeComodato,
+            prazo,
+            modalidade: (modalidade === 'comodato' ? 'ambos' : 'venda') as 'ambos' | 'venda',
+            aprovacao: ap ? {
+              id: ap.id,
+              clienteNome: ap.clienteNome,
+              clienteCpf: ap.clienteCpf,
+              assinaturaBase64: ap.assinaturaBase64,
+              assinaturaHash: ap.assinaturaHash,
+              createdAt: ap.createdAt,
+            } : undefined,
+          });
+          return (
+            <>
+              <button
+                type="button"
+                onClick={() => openPropostaPDF(buildPdfData(aprovacao))}
+                style={{ ...btnSoft, borderColor: '#5B9BD5', color: '#5B9BD5' }}
+              >
+                Gerar PDF{aprovacao ? ' (assinado)' : ''}
+              </button>
+              {!aprovacao && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!draft.clienteNome.trim()) { showToast('Preencha o nome do cliente.', 'warning'); return; }
+                    setShowAprovar(true);
+                  }}
+                  style={{ ...btnGold, background: theme.success, color: '#fff' }}
+                >
+                  ✓ Aprovar com assinatura
+                </button>
+              )}
+              {showAprovar && (
+                <AprovarComAssinaturaModal
+                  clienteNome={draft.clienteNome}
+                  valorTotal={valorAprovacao}
+                  modalidade={modalidadeLabel}
+                  propostaId={draft.id || undefined}
+                  onClose={() => setShowAprovar(false)}
+                  onAprovado={(ap) => {
+                    setAprovacao(ap);
+                    setShowAprovar(false);
+                    openPropostaPDF(buildPdfData(ap));
+                  }}
+                />
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );

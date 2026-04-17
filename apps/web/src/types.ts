@@ -338,6 +338,8 @@ export type VendaLocal = {
   instalacaoAgendadaEm?: string;
   /** ISO timestamp da conclusão da instalação */
   instalacaoConcluidaEm?: string;
+  /** ID do registro de aprovação com assinatura (OrcamentoAprovacao no backend) */
+  aprovacaoId?: string;
 };
 
 export type ActivityLogType =

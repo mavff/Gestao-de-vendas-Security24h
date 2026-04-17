@@ -24,6 +24,15 @@ type PropostaPDFData = {
   mensalidadeComodato: number;
   prazo: number;
   modalidade: 'venda' | 'comodato' | 'ambos' | 'imagem';
+  /** Selo de pré-aprovação (opcional) — presente quando o cliente assinou via modal. */
+  aprovacao?: {
+    id: string;
+    clienteNome: string;
+    clienteCpf: string;
+    assinaturaBase64: string;
+    assinaturaHash: string;
+    createdAt: string;
+  };
 };
 
 export function openPropostaPDF(data: PropostaPDFData) {
@@ -250,6 +259,41 @@ export function openPropostaPDF(data: PropostaPDFData) {
         <div class="section-label">Observações</div>
         <div style="font-size:12px;color:#999;white-space:pre-wrap;line-height:1.6">${data.observacoes}</div>
       </div>` : ''}
+
+      ${data.aprovacao ? (() => {
+        const ap = data.aprovacao;
+        const dt = new Date(ap.createdAt);
+        const dtFmt = `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+        const cpfFmt = ap.clienteCpf ? ap.clienteCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '';
+        const codigoCurto = ap.assinaturaHash.slice(-12).toUpperCase();
+        return `
+      ${waveDivider}
+      <div class="section-label">Pré-aprovação do Cliente</div>
+      <div class="glass-card" style="border:2px solid #43C17B55;background:linear-gradient(135deg,#14141499,#0d1a12)">
+        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+          <div style="flex:1;min-width:200px">
+            <div style="display:inline-flex;align-items:center;gap:6px;background:#43C17B15;border:1px solid #43C17B55;border-radius:20px;padding:4px 12px;margin-bottom:10px">
+              <span style="width:8px;height:8px;border-radius:50%;background:#43C17B;display:inline-block"></span>
+              <span style="font-size:10px;font-weight:700;color:#43C17B;text-transform:uppercase;letter-spacing:1px">Assinatura registrada</span>
+            </div>
+            <div style="font-size:14px;color:#F2F2F2;font-weight:700;margin-bottom:4px">${ap.clienteNome}</div>
+            ${cpfFmt ? `<div style="font-size:11px;color:#999">CPF: ${cpfFmt}</div>` : ''}
+            <div style="font-size:11px;color:#999;margin-top:4px">Assinado em ${dtFmt}</div>
+            <div style="margin-top:10px;padding:6px 10px;background:#0B0B0B;border:1px dashed #43C17B44;border-radius:8px;display:inline-block">
+              <span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:1px">Código de verificação</span>
+              <div style="font-family:'Courier New',monospace;font-size:13px;color:#43C17B;font-weight:700;letter-spacing:2px">${codigoCurto}</div>
+            </div>
+          </div>
+          <div style="flex:0 0 auto;background:#FFFFFF;padding:8px;border-radius:10px;border:1px solid #43C17B33">
+            <img src="${ap.assinaturaBase64}" alt="Assinatura" style="display:block;max-width:220px;max-height:100px;height:auto;width:auto" />
+          </div>
+        </div>
+        <div style="font-size:10px;color:#666;margin-top:12px;line-height:1.5;padding-top:10px;border-top:1px solid #ffffff10">
+          Pré-aprovação comercial. Assinatura manuscrita capturada em dispositivo do vendedor e arquivada no sistema Security 24H com hash SHA-256 para verificação de integridade. Este documento não substitui contrato assinado.
+        </div>
+      </div>
+      `;
+      })() : ''}
     </div>
 
     <!-- Footer wave + content -->
