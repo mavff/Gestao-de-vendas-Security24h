@@ -17,16 +17,13 @@ type PropostaPDFData = {
   observacoes: string;
   vendedorNome: string;
   subtotalEquipamentos: number;
-  maoDeObra: number;
-  acrescimoInstalacao: number;
+  taxaInstalacao: number;
   valorCrea: number;
   totalVenda: number;
   monitoramentoMensal: number;
   mensalidadeComodato: number;
-  taxaAdesao: number;
   prazo: number;
-  custoTotalComodato: number;
-  modalidade: 'venda' | 'comodato' | 'ambos';
+  modalidade: 'venda' | 'comodato' | 'ambos' | 'imagem';
 };
 
 export function openPropostaPDF(data: PropostaPDFData) {
@@ -92,8 +89,7 @@ export function openPropostaPDF(data: PropostaPDFData) {
         <div style="position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle at top right,#C8A95115,transparent 70%);border-radius:0 16px 0 0"></div>
         <div style="font-size:12px;font-weight:700;color:#C8A951;margin-bottom:14px;text-transform:uppercase;letter-spacing:1.5px">Compra</div>
         ${pricingRow('Equipamentos', `R$ ${fmt(data.subtotalEquipamentos)}`)}
-        ${pricingRow('Mão de Obra', `R$ ${fmt(data.maoDeObra)}`)}
-        ${data.acrescimoInstalacao > 0 ? pricingRow('Acréscimo Instalação', `R$ ${fmt(data.acrescimoInstalacao)}`) : ''}
+        ${pricingRow('Taxa de Instalação', `R$ ${fmt(data.taxaInstalacao)}`)}
         ${data.valorCrea > 0 ? pricingRow('CREA', `R$ ${fmt(data.valorCrea)}`) : ''}
         <div style="border-top:1px solid #ffffff15;margin:10px 0"></div>
         ${pricingRow('Investimento Total', `R$ ${fmt(data.totalVenda)}`, true)}
@@ -114,11 +110,22 @@ export function openPropostaPDF(data: PropostaPDFData) {
         </div>
         <div style="border-top:1px solid #ffffff15;margin:10px 0"></div>
         <div style="padding:8px 12px;background:#C8A95110;border-radius:10px;margin-bottom:8px">
-          ${pricingRow('Taxa de Adesão', `R$ ${fmt(data.taxaAdesao)}`, false)}
+          ${pricingRow('Taxa de Instalação', `R$ ${fmt(data.taxaInstalacao)}`, false)}
         </div>
-        ${pricingRow(`Demais (${data.prazo - 1}×)`, `R$ ${fmt(data.mensalidadeComodato)}/mês`, false, true)}
-        <div style="border-top:1px solid #ffffff15;margin:10px 0"></div>
-        ${pricingRow(`Total em ${data.prazo} meses`, `R$ ${fmt(data.custoTotalComodato)}`, false, true)}
+        <div style="font-size:10px;color:#888;padding:2px 0 6px;line-height:1.5">Paga na assinatura do contrato · ${data.prazo} mensalidades de R$ ${fmt(data.mensalidadeComodato)} para monitoramento</div>
+      </div>`;
+  }
+
+  if (data.modalidade === 'imagem') {
+    pricingHTML += `
+      <div style="flex:1;min-width:260px;background:#1a1a1a;border:1px solid #43C17B55;border-radius:16px;padding:20px;position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle at top right,#43C17B20,transparent 70%);border-radius:0 16px 0 0"></div>
+        <div style="font-size:12px;font-weight:700;color:#43C17B;margin-bottom:14px;text-transform:uppercase;letter-spacing:1.5px">Monitoramento de Imagem</div>
+        <div style="font-size:11px;color:#999;margin-bottom:12px;line-height:1.5">Para clientes que já possuem equipamentos próprios. Apenas serviço de monitoramento.</div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0">
+          <span style="font-size:14px;color:#F2F2F2;font-weight:700">Mensalidade</span>
+          <span style="font-size:22px;color:#43C17B;font-weight:700">R$ ${fmt(data.monitoramentoMensal)}<span style="font-size:12px;font-weight:400">/mês</span></span>
+        </div>
       </div>`;
   }
 
@@ -129,13 +136,16 @@ export function openPropostaPDF(data: PropostaPDFData) {
   <title>Proposta Security24h — ${data.clienteNome}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', -apple-system, sans-serif; color: #F2F2F2; background: #0B0B0B; }
+    body { font-family: 'Segoe UI', -apple-system, sans-serif; color: #F2F2F2; background: #0B0B0B; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     @media print {
-      body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      html, body { background: #0B0B0B !important; margin: 0 !important; padding: 0 !important; }
       .no-print { display: none !important; }
-      @page { margin: 10mm; size: A4; }
+      .page { box-shadow: none !important; max-width: 100% !important; width: 100% !important; }
+      .glass-card, .hero, .content, .footer-section { page-break-inside: avoid; break-inside: avoid; }
+      @page { margin: 8mm; size: A4; }
     }
-    .page { max-width: 800px; margin: 0 auto; min-height: 100vh; position: relative; }
+    .page { max-width: 760px; margin: 0 auto; position: relative; }
 
     .hero { position: relative; padding: 40px 40px 20px; }
     .hero-bg { position: absolute; inset: 0; background: linear-gradient(135deg, #111 0%, #0B0B0B 50%, #1a1508 100%); z-index: 0; }
@@ -201,6 +211,7 @@ export function openPropostaPDF(data: PropostaPDFData) {
         </div>
       </div>
 
+      ${data.modalidade !== 'imagem' ? `
       ${waveDivider}
 
       <!-- Equipment table -->
@@ -224,6 +235,7 @@ export function openPropostaPDF(data: PropostaPDFData) {
           </tfoot>
         </table>
       </div>
+      ` : ''}
 
       ${waveDivider}
 

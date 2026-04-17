@@ -14,6 +14,8 @@ import { prospectToLead } from '../../lib/dataSource/adapters/prospectAdapter';
 import { mockEquipments, mockKits, mockLeads, mockOrdens, mockSolucoes, mockUsers } from '../../mocks/data';
 import { loadLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
+import { INSTALACAO_KEY, DEFAULT_INSTALACAO_CONFIG, calcTaxaInstalacao } from '../venda/shared/configs';
+import type { InstalacaoConfig } from '../venda/shared/configs';
 import {
   BlocoCategoria, Equipment, Kit, Lead, Marca, OrdemDeServico,
   SolucaoTecnica, User,
@@ -166,6 +168,7 @@ export function SolucoesPage() {
   const [propostas, setPropostas] = useState<PropostaLocal[]>([]);
   const [ordens, setOrdens] = useState<OrdemDeServico[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [equipmentsCustom, setEquipmentsCustom] = useState<Equipment[]>([]);
   const [kits, setKits] = useState<Kit[]>([]);
   const [modelos, setModelos] = useState<PreOrcamentoApiDto[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -173,6 +176,7 @@ export function SolucoesPage() {
   const [precosCusto, setPrecosCusto] = useState<Record<string, number>>({});
   const [monitConfig, setMonitConfig] = useState<MonitoramentoConfig>(DEFAULT_MONIT_CONFIG);
   const [comissaoConfig, setComissaoConfig] = useState<ComissaoConfig>(DEFAULT_COMISSAO_CONFIG);
+  const [instalacaoConfig, setInstalacaoConfig] = useState<InstalacaoConfig>(DEFAULT_INSTALACAO_CONFIG);
   const [showMonitModal, setShowMonitModal] = useState(false);
   const [autoFillDone, setAutoFillDone] = useState(false);
 
@@ -239,6 +243,8 @@ export function SolucoesPage() {
     loadState<Record<string, number>>('config:precos_custo', {}).then(setPrecosCusto);
     loadState<MonitoramentoConfig>(MONIT_KEY, DEFAULT_MONIT_CONFIG).then(setMonitConfig);
     loadState<ComissaoConfig>('config:comissoes', DEFAULT_COMISSAO_CONFIG).then(setComissaoConfig);
+    loadState<InstalacaoConfig>(INSTALACAO_KEY, DEFAULT_INSTALACAO_CONFIG).then(setInstalacaoConfig);
+    loadState<Equipment[]>('equipments_custom', []).then(setEquipmentsCustom);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -297,10 +303,12 @@ export function SolucoesPage() {
     return [...fromModelos, ...fromKits];
   }, [modelos, kits, equipments]);
 
-  // Merged equipment list: includes synthetic entries for kit products not in the main list
+  // Merged equipment list: ERP + custom (AppKv) + synthetic entries for kit products not in the main list
   // This fixes the issue where kit products with empty grupoOrcamento are filtered out by /products
+  // Also includes custom products cadastrated via /equipamentos (AppKv 'equipments_custom')
   const mergedEquipments = useMemo<Equipment[]>(() => {
-    const existingIds = new Set(equipments.map((e) => e.id));
+    const base = [...equipments, ...equipmentsCustom];
+    const existingIds = new Set(base.map((e) => e.id));
     const synthetics: Equipment[] = [];
     for (const opt of kitOptions) {
       for (const item of opt.items) {
@@ -320,8 +328,8 @@ export function SolucoesPage() {
         }
       }
     }
-    return synthetics.length > 0 ? [...equipments, ...synthetics] : equipments;
-  }, [equipments, kitOptions]);
+    return synthetics.length > 0 ? [...base, ...synthetics] : base;
+  }, [equipments, equipmentsCustom, kitOptions]);
 
   function userName(id: string) { return users.find((u) => u.id === id)?.name ?? id; }
 
@@ -370,7 +378,6 @@ export function SolucoesPage() {
 
   function handleGerarPDF(p: PropostaLocal) {
     const faixa0 = monitConfig.faixas[0] ?? DEFAULT_MONIT_CONFIG.faixas[0];
-    const maoDeObraVal = monitConfig.maoDeObra[faixa0.nome] ?? 250;
     const sub = p.itens.reduce((s, i) => {
       const eq = mergedEquipments.find((e) => e.id === i.equipmentId);
       return s + (eq?.price ?? 0) * i.quantidade;
@@ -380,16 +387,12 @@ export function SolucoesPage() {
       const custo = precosCusto[i.equipmentId] ?? eq?.price ?? 0;
       return s + custo * i.quantidade;
     }, 0);
-    const acrescInst = p.itens.reduce((s, i) => {
-      const eq = mergedEquipments.find((e) => e.id === i.equipmentId);
-      return s + (eq?.acrescimoInstalacao ?? 0) * i.quantidade;
-    }, 0);
+    const taxaInstalacao = calcTaxaInstalacao(sub, instalacaoConfig);
     const kitOpt = kitOptions.find((k) => k.id === p.kitBaseId);
     const valorCrea = kitOpt?.valorCrea ?? 0;
-    const totalV = sub + maoDeObraVal + acrescInst + valorCrea;
+    const totalV = sub + taxaInstalacao + valorCrea;
     const monitValor = kitOpt?.valorMensalVenda ?? faixa0.base;
     const monitComodato = kitOpt?.valorMensalComodato ?? (subCusto / 36 + monitValor);
-    const taxaAdesao = monitComodato * comissaoConfig.multiplicadorAdesao;
 
     openPropostaPDF({
       clienteNome: p.clienteNome,
@@ -404,15 +407,12 @@ export function SolucoesPage() {
       observacoes: p.observacoes,
       vendedorNome: userName(p.criadoPor),
       subtotalEquipamentos: sub,
-      maoDeObra: maoDeObraVal,
-      acrescimoInstalacao: acrescInst,
+      taxaInstalacao,
       valorCrea,
       totalVenda: totalV,
       monitoramentoMensal: monitValor,
       mensalidadeComodato: monitComodato,
-      taxaAdesao,
       prazo: 36,
-      custoTotalComodato: taxaAdesao + monitComodato * 35,
       modalidade: 'ambos',
     });
   }
@@ -480,6 +480,7 @@ export function SolucoesPage() {
           precosCusto={precosCusto}
           monitConfig={monitConfig}
           comissaoConfig={comissaoConfig}
+          instalacaoConfig={instalacaoConfig}
           onSave={handleSave}
           onCancel={() => setView('list')}
         />
@@ -680,7 +681,7 @@ export function SolucoesPage() {
    Proposta Editor — Single-page flow
    ============================================================ */
 
-function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precosCusto, monitConfig, comissaoConfig, onSave, onCancel }: {
+function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precosCusto, monitConfig, comissaoConfig, instalacaoConfig, onSave, onCancel }: {
   draft: PropostaLocal;
   setDraft: (d: PropostaLocal) => void;
   equipments: Equipment[];
@@ -689,6 +690,7 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
   precosCusto: Record<string, number>;
   monitConfig: MonitoramentoConfig;
   comissaoConfig: ComissaoConfig;
+  instalacaoConfig: InstalacaoConfig;
   onSave: (p: PropostaLocal) => void;
   onCancel: () => void;
 }) {
@@ -799,12 +801,6 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
     return total;
   }, [draft.itens, activeKit, equipments]);
 
-  // ── Acréscimo de instalação ──
-  const acrescimoInstalacaoTotal = draft.itens.reduce((s, i) => {
-    const eq = equipments.find((e) => e.id === i.equipmentId);
-    return s + (eq?.acrescimoInstalacao ?? 0) * i.quantidade;
-  }, 0);
-
   // ── Monitoramento: BD ou fallback manual ──
   const hasDbPricing = activeKit?.source === 'db' && (
     (modalidade === 'venda' && (activeKit.valorMensalVenda ?? 0) > 0) ||
@@ -821,11 +817,13 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
     : faixa.base;
   const monitMin = hasDbPricing ? Math.floor(monitBaseFromDb * 0.85) : faixa.minimo;
   const monitValor = monitAjuste != null ? Math.max(monitMin, Math.min(monitAjuste, monitBase)) : monitBase;
-  const maoDeObra = monitConfig.maoDeObra[faixa.nome] ?? 250;
+
+  // ── Taxa de instalação (padronizada: % × subtotal, com mínimo) ──
+  const taxaInstalacao = calcTaxaInstalacao(subtotalVenda, instalacaoConfig);
 
   // ── Venda ──
   const valorCrea = activeKit?.valorCrea ?? 0;
-  const totalVenda = subtotalVenda + maoDeObra + acrescimoInstalacaoTotal + valorCrea;
+  const totalVenda = subtotalVenda + taxaInstalacao + valorCrea;
 
   // ── Comodato ──
   const parcelaEquip = prazo > 0 && subtotalCusto > 0 ? subtotalCusto / prazo : 0;
@@ -833,12 +831,9 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
     ? monitValor  // BD: valorMensalComodato já inclui amortização
     : parcelaEquip + monitValor;  // fallback: custo/prazo + monitoramento
 
-  // ── Taxa de Adesão (1ª mensalidade majorada) ──
-  const taxaAdesao = mensalidadeComodato * comissaoConfig.multiplicadorAdesao;
-
   // Total cost comparison over term
   const custoTotalVenda = totalVenda + (monitValor * prazo);
-  const custoTotalComodato = taxaAdesao + (mensalidadeComodato * (prazo - 1));
+  const custoTotalComodato = taxaInstalacao + (mensalidadeComodato * prazo);
 
   const margem = subtotalVenda > 0 ? ((subtotalVenda - subtotalCusto) / subtotalVenda * 100) : 0;
 
@@ -1286,10 +1281,8 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
                 Compra (à vista)
               </div>
               <Row label="Equipamentos" value={subtotalVenda} color={theme.text} />
-              <Row label={`Mão de Obra (${faixa.nome})`} value={maoDeObra} color={theme.text} />
-              {acrescimoInstalacaoTotal > 0 && (
-                <Row label="Acréscimo Instalação" value={acrescimoInstalacaoTotal} color={theme.text} />
-              )}
+              <Row label="Taxa de Instalação" value={taxaInstalacao} color={theme.text}
+                detail={`${(instalacaoConfig.percentual * 100).toFixed(0)}% sobre equipamentos (mín R$ ${instalacaoConfig.minimo})`} />
               {valorCrea > 0 && (
                 <Row label="CREA" value={valorCrea} color={theme.text} />
               )}
@@ -1334,8 +1327,9 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
                 <Divider />
                 <Row label="Mensalidade Total" value={mensalidadeComodato} color="#5B9BD5" bold suffix="/mês" />
                 <div style={{ height: 8 }} />
-                <Row label={`Taxa de Adesão (1ª mensalidade × ${comissaoConfig.multiplicadorAdesao})`} value={taxaAdesao} color={theme.gold} bold />
-                <Row label={`Demais mensalidades (${prazo - 1}×)`} value={mensalidadeComodato} color={theme.muted} suffix="/mês" />
+                <Row label="Taxa de Instalação (na assinatura)" value={taxaInstalacao} color={theme.gold} bold
+                  detail={`${(instalacaoConfig.percentual * 100).toFixed(0)}% equipamentos · mín R$ ${instalacaoConfig.minimo}`} />
+                <Row label={`Mensalidades (${prazo}× após 30 dias)`} value={mensalidadeComodato} color={theme.muted} suffix="/mês" />
                 <Divider />
                 <Row label={`Custo total em ${prazo} meses`} value={custoTotalComodato} color={theme.warning} bold />
 
@@ -1408,15 +1402,12 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
                 observacoes: draft.observacoes,
                 vendedorNome: '',
                 subtotalEquipamentos: subtotalVenda,
-                maoDeObra,
-                acrescimoInstalacao: acrescimoInstalacaoTotal,
+                taxaInstalacao,
                 valorCrea,
                 totalVenda,
                 monitoramentoMensal: monitValor,
                 mensalidadeComodato,
-                taxaAdesao,
                 prazo,
-                custoTotalComodato,
                 modalidade: modalidade === 'comodato' ? 'ambos' : 'venda',
               });
             }}

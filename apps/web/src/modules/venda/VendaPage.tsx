@@ -28,9 +28,10 @@ import {
 import type { StepName, WizardStep } from './shared/constants';
 import {
   MONIT_KEY, DEFAULT_MONIT_CONFIG, faixaIdxFromTipoLocal,
-  MAO_DE_OBRA_KEY, DEFAULT_MAO_DE_OBRA_CONFIG, calcMaoDeObra,
+  INSTALACAO_KEY, DEFAULT_INSTALACAO_CONFIG, calcTaxaInstalacao,
+  ATRIBUICAO_TECNICO_KEY, DEFAULT_ATRIBUICAO_TECNICO_CONFIG, escolherTecnicoRoundRobin,
 } from './shared/configs';
-import type { MonitoramentoConfig, FaixaMonitoramento, MaoDeObraConfig } from './shared/configs';
+import type { MonitoramentoConfig, InstalacaoConfig, AtribuicaoTecnicoConfig } from './shared/configs';
 import { inputStyle, labelStyle, btnGold, btnSoft, qtyBtnStyle } from './shared/styles';
 import { PhotoAnnotator } from './shared/PhotoAnnotator';
 
@@ -64,13 +65,14 @@ export function VendaPage() {
   const logsRef = useRef<ActivityLog[]>([]);
   useEffect(() => { logsRef.current = logs; }, [logs]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [equipmentsCustom, setEquipmentsCustom] = useState<Equipment[]>([]);
   const [kits, setKits] = useState<Kit[]>([]);
   const [activeStep, setActiveStep] = useState<StepName>('Cliente');
   const [solDraft, setSolDraft] = useState<SolucaoTecnica | null>(null);
   const [wizStep, setWizStep] = useState(0);
   const [monitConfig, setMonitConfig] = useState<MonitoramentoConfig>(DEFAULT_MONIT_CONFIG);
   const [comissaoConfig, setComissaoConfig] = useState<ComissaoConfig>(DEFAULT_COMISSAO_CONFIG);
-  const [maoDeObraConfig, setMaoDeObraConfig] = useState<MaoDeObraConfig>(DEFAULT_MAO_DE_OBRA_CONFIG);
+  const [instalacaoConfig, setInstalacaoConfig] = useState<InstalacaoConfig>(DEFAULT_INSTALACAO_CONFIG);
   // Guards contra corrida entre load inicial async e escritas locais do usuário.
   // Se o usuário clicar/editar antes do loadState resolver, não sobrescrevemos.
   const localEditsRef = useRef({ venda: false, solucao: false, vistoria: false, ordem: false });
@@ -115,7 +117,8 @@ export function VendaPage() {
     loadState<ActivityLog[]>('vendedor_logs', []).then(setLogs);
     loadState<MonitoramentoConfig>(MONIT_KEY, DEFAULT_MONIT_CONFIG).then(setMonitConfig);
     loadState<ComissaoConfig>('config:comissoes', DEFAULT_COMISSAO_CONFIG).then(setComissaoConfig);
-    loadState<MaoDeObraConfig>(MAO_DE_OBRA_KEY, DEFAULT_MAO_DE_OBRA_CONFIG).then(setMaoDeObraConfig);
+    loadState<InstalacaoConfig>(INSTALACAO_KEY, DEFAULT_INSTALACAO_CONFIG).then(setInstalacaoConfig);
+    loadState<Equipment[]>('equipments_custom', []).then(setEquipmentsCustom);
 
     loadRefDataFromBackend();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,9 +141,10 @@ export function VendaPage() {
   useRefreshOnFocus(() => { loadRefDataFromBackend(); });
   usePollingRefresh(() => { loadRefDataFromBackend(); }, 120_000);
 
-  // Merged equipments: include synthetic entries from kit items
+  // Merged equipments: ERP + Custom (AppKv 'equipments_custom') + synthetic entries from kit items
   const mergedEquipments = useMemo<Equipment[]>(() => {
-    const existingIds = new Set(equipments.map((e) => e.id));
+    const base = [...equipments, ...equipmentsCustom];
+    const existingIds = new Set(base.map((e) => e.id));
     const synthetics: Equipment[] = [];
     for (const kit of kits) {
       for (const item of kit.items) {
@@ -154,8 +158,8 @@ export function VendaPage() {
         }
       }
     }
-    return synthetics.length > 0 ? [...equipments, ...synthetics] : equipments;
-  }, [equipments, kits]);
+    return synthetics.length > 0 ? [...base, ...synthetics] : base;
+  }, [equipments, equipmentsCustom, kits]);
 
   /* --- logging helper --- */
   const addLog = useCallback((tipo: ActivityLogType, descricao: string, meta?: Record<string, string | number>) => {
@@ -348,14 +352,12 @@ export function VendaPage() {
       }),
     );
     const subtotalEquip = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
-    const maoDeObra = venda.maoDeObra ?? 0;
-    const totalVenda = subtotalEquip + maoDeObra;
-    const monitoramento = venda.monitoramentoMensal ?? 0;
+    const taxaInstalacao = calcTaxaInstalacao(subtotalEquip, instalacaoConfig);
+    const totalVenda = subtotalEquip + taxaInstalacao;
+    const monitoramento = venda.modalidade === 'imagem' ? 32 : (venda.monitoramentoMensal ?? 0);
     const prazo = venda.prazoComodato ?? 36;
     const subtotalCusto = subtotalEquip * 0.6;
     const mensalidadeComodato = (subtotalCusto / prazo) + monitoramento;
-    const taxaAdesao = maoDeObra; // Taxa de adesão = mão de obra (paga na assinatura)
-    const custoTotal = taxaAdesao + mensalidadeComodato * prazo;
 
     openPropostaPDF({
       clienteNome: venda.clienteNome,
@@ -363,19 +365,16 @@ export function VendaPage() {
       clienteEndereco: venda.clienteEndereco,
       tipoLocal: venda.tipoLocal,
       marca: solucao.marca,
-      itens,
+      itens: venda.modalidade === 'imagem' ? [] : itens,
       observacoes: solucao.observacaoGeral || venda.observacoes,
       vendedorNome: user?.name ?? username,
-      subtotalEquipamentos: subtotalEquip,
-      maoDeObra,
-      acrescimoInstalacao: 0,
+      subtotalEquipamentos: venda.modalidade === 'imagem' ? 0 : subtotalEquip,
+      taxaInstalacao: venda.modalidade === 'imagem' ? 0 : taxaInstalacao,
       valorCrea: 0,
-      totalVenda,
+      totalVenda: venda.modalidade === 'imagem' ? 0 : totalVenda,
       monitoramentoMensal: monitoramento,
       mensalidadeComodato,
-      taxaAdesao,
       prazo,
-      custoTotalComodato: custoTotal,
       modalidade: venda.modalidade ?? 'ambos',
     });
 
@@ -451,7 +450,7 @@ export function VendaPage() {
     await updateVistoria(concluida);
     addLog('vistoria_concluida', `Vistoria concluída com ${vistoria.ambientes.length} ambientes`);
 
-    // Auto-create OS
+    // Auto-create OS + atribuir técnico (manual ou round-robin)
     let ordemIdFinal: string | undefined;
     if (solucao && !ordem) {
       const allPontos: InstallationPoint[] = vistoria.ambientes.flatMap((a) => a.pontos);
@@ -462,14 +461,22 @@ export function VendaPage() {
           return { id: 'CK' + Date.now() + (ckIdx++), text: `Instalar ${item.quantidade}x ${eq?.name ?? item.equipmentId}`, done: false };
         }),
       );
+      const atribCfg = await loadState<AtribuicaoTecnicoConfig>(ATRIBUICAO_TECNICO_KEY, DEFAULT_ATRIBUICAO_TECNICO_CONFIG);
+      let tecnicoId = '';
+      if (atribCfg.modo === 'auto_round_robin') {
+        const todasOrdens = await loadState<OrdemDeServico[]>('ordens_servico', []);
+        tecnicoId = escolherTecnicoRoundRobin(atribCfg.tecnicosAtivos, todasOrdens);
+      }
       const newOS: OrdemDeServico = {
         id: 'OS' + Date.now(), vistoriaId: vistoria.id, leadId: vendaId,
-        cliente: venda?.clienteNome ?? '', dataAgendada: '', tecnicoId: '',
+        cliente: venda?.clienteNome ?? '', dataAgendada: '', tecnicoId,
         checklist, pontos: allPontos, observacoes: '', status: 'pendente', createdAt: now,
       };
       await updateOrdem(newOS);
       ordemIdFinal = newOS.id;
-      addLog('os_criada', 'Ordem de serviço criada automaticamente');
+      addLog('os_criada', tecnicoId
+        ? `OS criada e atribuída automaticamente a ${tecnicoId}`
+        : 'OS criada (aguardando atribuição manual de técnico)');
     }
 
     await updateVenda({
@@ -634,6 +641,20 @@ export function VendaPage() {
     );
   }
 
+  /* Multi-tenant guard: VENDEDOR só acessa suas próprias vendas. */
+  const canViewOthers = role === 'ADMIN' || role === 'GESTOR';
+  if (!canViewOthers && venda.criadoPor && venda.criadoPor !== username) {
+    return (
+      <AppShell title="Venda">
+        <div style={{ textAlign: 'center', padding: 40, color: theme.muted }}>
+          Esta venda pertence a outro vendedor.
+          <br />
+          <button onClick={() => router.push('/vendas')} style={{ ...btnGold, marginTop: 16 }}>Voltar para Minhas Vendas</button>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell title={`Venda — ${venda.clienteNome}`}>
       {/* Gestor banner */}
@@ -763,11 +784,11 @@ export function VendaPage() {
           equipments={mergedEquipments}
           monitConfig={monitConfig}
           comissaoConfig={comissaoConfig}
-          maoDeObraConfig={maoDeObraConfig}
+          instalacaoConfig={instalacaoConfig}
           onUpdateVenda={updateVenda}
           onGerarPDF={handleGerarPDF}
           onClienteAprovou={handleClienteAprovou}
-          onMaoDeObraConfigChange={setMaoDeObraConfig}
+          onInstalacaoConfigChange={setInstalacaoConfig}
           canEdit={canEdit}
         />
       )}
@@ -1166,23 +1187,23 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
    Step 3: Proposta / PDF
    ================================================================ */
 
-function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig, maoDeObraConfig, onUpdateVenda, onGerarPDF, onClienteAprovou, onMaoDeObraConfigChange, canEdit }: {
+function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig, instalacaoConfig, onUpdateVenda, onGerarPDF, onClienteAprovou, onInstalacaoConfigChange, canEdit }: {
   venda: VendaLocal;
   solucao: SolucaoTecnica | null;
   equipments: Equipment[];
   monitConfig: MonitoramentoConfig;
   comissaoConfig: ComissaoConfig;
-  maoDeObraConfig: MaoDeObraConfig;
+  instalacaoConfig: InstalacaoConfig;
   onUpdateVenda: (patch: Partial<VendaLocal>) => Promise<void>;
   onGerarPDF: () => void;
   onClienteAprovou: () => void;
-  onMaoDeObraConfigChange: (cfg: MaoDeObraConfig) => void;
+  onInstalacaoConfigChange: (cfg: InstalacaoConfig) => void;
   canEdit: boolean;
 }) {
   const { role } = useAuth();
   const isAdmin = role === 'ADMIN' || role === 'GESTOR';
 
-  const [modalidade, setModalidade] = useState<'venda' | 'comodato' | 'ambos'>(venda.modalidade ?? 'ambos');
+  const [modalidade, setModalidade] = useState<'venda' | 'comodato' | 'ambos' | 'imagem'>(venda.modalidade ?? 'ambos');
   const [faixaIdx, setFaixaIdx] = useState(() => faixaIdxFromTipoLocal(venda.tipoLocal, monitConfig.faixas));
   const faixa = monitConfig.faixas[faixaIdx] ?? monitConfig.faixas[0] ?? DEFAULT_MONIT_CONFIG.faixas[0];
   const monitBase = faixa.base;
@@ -1190,11 +1211,10 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   const [monitAjuste, setMonitAjuste] = useState<number | null>(
     venda.monitoramentoMensal != null && venda.monitoramentoMensal !== faixa.base ? venda.monitoramentoMensal : null,
   );
-  const monitValor = monitAjuste ?? monitBase;
+  const monitValor = modalidade === 'imagem' ? 32 : (monitAjuste ?? monitBase);
   const [prazo, setPrazo] = useState<24 | 36 | 48>(venda.prazoComodato ?? 36);
   const [showEquipDetail, setShowEquipDetail] = useState(false);
-  const [showMaoDeObraDetail, setShowMaoDeObraDetail] = useState(false);
-  const [showMaoDeObraConfigModal, setShowMaoDeObraConfigModal] = useState(false);
+  const [showInstalacaoConfigModal, setShowInstalacaoConfigModal] = useState(false);
 
   const approved = venda.clienteAprovado === true;
 
@@ -1213,32 +1233,16 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
     }),
   );
 
-  // Aggregate quantities per bloco for mão de obra calc
-  const blocoQtds = solucao.blocos.map((b) => ({
-    categoria: b.categoria,
-    quantidade: b.itens.reduce((s, it) => s + it.quantidade, 0),
-  }));
-  const baseFaixa = monitConfig.maoDeObra[faixa.nome] ?? 250;
-  const maoCalc = calcMaoDeObra(baseFaixa, faixa.nome, blocoQtds, maoDeObraConfig);
-  const autoMaoDeObra = maoCalc.total;
-  const [maoDeObraOverride, setMaoDeObraOverride] = useState<number | null>(
-    venda.maoDeObra != null ? venda.maoDeObra : null,
-  );
-  const maoDeObra = maoDeObraOverride ?? autoMaoDeObra;
-  const maoIsOverridden = maoDeObraOverride !== null && maoDeObraOverride !== autoMaoDeObra;
-
   const subtotalEquip = flatItems.reduce((s, i) => s + i.preco * i.quantidade, 0);
-  const totalVenda = subtotalEquip + maoDeObra;
+  const taxaInstalacao = calcTaxaInstalacao(subtotalEquip, instalacaoConfig);
+  const totalVenda = subtotalEquip + taxaInstalacao;
   const subtotalCusto = subtotalEquip * 0.6;
   const parcelaEquip = subtotalCusto / prazo;
   const mensalidadeComodato = parcelaEquip + monitValor;
-  // Taxa de adesão = 1ª mensalidade paga na assinatura do contrato (para pagar o técnico)
-  // Após 30 dias, cliente paga mensalidade normal
-  const taxaAdesao = maoDeObra;
-  const custoTotalComodato = taxaAdesao + mensalidadeComodato * prazo;
+  const custoTotalComodato = taxaInstalacao + mensalidadeComodato * prazo;
   const custoTotalVenda = totalVenda + monitValor * prazo;
   const totalItens = flatItems.reduce((s, i) => s + i.quantidade, 0);
-  const desconto = monitAjuste !== null && monitAjuste < monitBase ? ((1 - monitAjuste / monitBase) * 100) : 0;
+  const desconto = monitAjuste !== null && monitAjuste < monitBase && modalidade !== 'imagem' ? ((1 - monitAjuste / monitBase) * 100) : 0;
 
   // Auto-save: sempre que o usuário mexe em modalidade/monitoramento/prazo/mão-de-obra,
   // persiste na venda (evita perda se fechar sem clicar Gerar PDF/Aprovar).
@@ -1250,21 +1254,21 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
     onUpdateVenda({
       modalidade,
       monitoramentoMensal: monitValor,
-      maoDeObra,
+      maoDeObra: taxaInstalacao,
       prazoComodato: prazo,
       acrescimoInstalacao: 0,
       valorCrea: 0,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalidade, monitValor, maoDeObra, prazo]);
+  }, [modalidade, monitValor, taxaInstalacao, prazo]);
 
   async function handleSaveAndGenerate() {
-    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
+    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra: taxaInstalacao, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
     onGerarPDF();
   }
 
   async function handleApprove() {
-    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
+    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra: taxaInstalacao, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
     onClienteAprovou();
   }
 
@@ -1290,17 +1294,16 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
     <div>
       <h3 style={{ margin: '0 0 16px', color: theme.gold, fontSize: 18 }}>Valor da Proposta</h3>
 
-      {/* Modal config mão de obra (ADMIN/GESTOR) */}
-      {showMaoDeObraConfigModal && (
-        <MaoDeObraConfigModal
-          config={maoDeObraConfig}
-          faixas={monitConfig.faixas}
+      {/* Modal config taxa de instalação (ADMIN/GESTOR) */}
+      {showInstalacaoConfigModal && (
+        <InstalacaoConfigModal
+          config={instalacaoConfig}
           onSave={async (cfg) => {
-            onMaoDeObraConfigChange(cfg);
-            await saveState(MAO_DE_OBRA_KEY, cfg);
-            setShowMaoDeObraConfigModal(false);
+            onInstalacaoConfigChange(cfg);
+            await saveState(INSTALACAO_KEY, cfg);
+            setShowInstalacaoConfigModal(false);
           }}
-          onClose={() => setShowMaoDeObraConfigModal(false)}
+          onClose={() => setShowInstalacaoConfigModal(false)}
         />
       )}
 
@@ -1352,6 +1355,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
                 { key: 'venda' as const, label: 'Compra', color: theme.gold },
                 { key: 'comodato' as const, label: 'Comodato', color: '#5B9BD5' },
                 { key: 'ambos' as const, label: 'Comparativo', color: '#C077DB' },
+                { key: 'imagem' as const, label: 'Monit. Imagem', color: '#43C17B' },
               ]).map(({ key, label, color }) => (
                 <button key={key} onClick={() => setModalidade(key)} style={{
                   padding: '10px 20px', borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600,
@@ -1366,7 +1370,15 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
             </div>
           </div>
 
+          {modalidade === 'imagem' && (
+            <div style={{ background: '#43C17B15', border: `1px solid #43C17B55`, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 13, color: theme.text }}>
+              <div style={{ fontWeight: 700, color: '#43C17B', marginBottom: 4 }}>Monitoramento de Imagem</div>
+              Para clientes que já possuem câmeras próprias. Valor fixo de <strong>R$ 32/mês</strong> — sem equipamentos e sem taxa de instalação.
+            </div>
+          )}
+
           {/* Monitoramento slider + faixas — stacked for mobile */}
+          {modalidade !== 'imagem' && (
           <div style={{ background: theme.soft, borderRadius: 10, padding: 14, marginBottom: 14, border: `1px solid ${theme.border}`, display: 'flex', flexDirection: 'column', gap: 14 }}>
             {/* Faixa de preço */}
             <div>
@@ -1428,81 +1440,32 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
               </div>
             )}
           </div>
+          )}
 
-          {/* ──── Mão de Obra (calculada automaticamente + breakdown) ──── */}
+          {/* ──── Taxa de Instalação (fórmula fixa: 10% subtotal, mín R$200) ──── */}
+          {modalidade !== 'imagem' && (
           <div style={{ background: theme.soft, borderRadius: 10, padding: 14, marginBottom: 14, border: `1px solid ${theme.border}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 12, color: theme.muted, fontWeight: 600 }}>Mão de Obra (Instalação)</div>
+                <div style={{ fontSize: 12, color: theme.muted, fontWeight: 600 }}>Taxa de Instalação</div>
                 {isAdmin && (
-                  <button onClick={() => setShowMaoDeObraConfigModal(true)}
+                  <button onClick={() => setShowInstalacaoConfigModal(true)}
                     style={{ background: 'none', border: `1px solid ${theme.border}`, borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 11, color: theme.gold }}>
                     Configurar
                   </button>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 22, fontWeight: 700, color: maoIsOverridden ? theme.warning : theme.gold }}>
-                  R$ {maoDeObra.toLocaleString('pt-BR')}
-                </span>
-                {maoIsOverridden && (
-                  <button onClick={() => setMaoDeObraOverride(null)}
-                    style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 6, cursor: 'pointer', fontSize: 12, color: theme.muted, padding: '4px 8px' }}>
-                    Restaurar
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Breakdown visual — colapsável */}
-            <div
-              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0' }}
-              onClick={() => setShowMaoDeObraDetail(!showMaoDeObraDetail)}
-            >
-              <span style={{ fontSize: 12, color: theme.muted }}>
-                Base: R$ {baseFaixa}
-                {maoCalc.acrescimo > 0 && <> + Acréscimo: R$ {maoCalc.acrescimo}</>}
-                {maoCalc.markup > 0 && <> + Equip.: R$ {maoCalc.markup}</>}
+              <span style={{ fontSize: 22, fontWeight: 700, color: theme.gold }}>
+                R$ {taxaInstalacao.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
               </span>
-              <span style={{ color: theme.muted, fontSize: 14, transition: 'transform 0.2s', transform: showMaoDeObraDetail ? 'rotate(180deg)' : 'none' }}>▾</span>
             </div>
-
-            {showMaoDeObraDetail && (
-              <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', color: theme.muted }}>
-                  <span>Base ({faixa.nome})</span>
-                  <span style={{ color: theme.text }}>R$ {baseFaixa}</span>
-                </div>
-                {maoCalc.acrescimo > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', color: theme.muted }}>
-                    <span>Acréscimo instalação</span>
-                    <span style={{ color: theme.text }}>+ R$ {maoCalc.acrescimo}</span>
-                  </div>
-                )}
-                {maoCalc.detalhes.map((d) => (
-                  <div key={d.bloco} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', color: theme.muted }}>
-                    <span>{blocoLabels[d.bloco as BlocoCategoria] ?? d.bloco} ({d.qtd}x R${maoDeObraConfig.markupPorBloco[d.bloco] ?? 0})</span>
-                    <span style={{ color: theme.text }}>+ R$ {d.valor}</span>
-                  </div>
-                ))}
-                <div style={{ borderTop: `1px solid ${theme.border}`, marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
-                  <span style={{ color: theme.gold }}>Total calculado</span>
-                  <span style={{ color: theme.gold }}>R$ {autoMaoDeObra}</span>
-                </div>
-
-                {/* Manual override input */}
-                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 13, color: theme.muted }}>Ajustar:</span>
-                  <input
-                    type="number"
-                    value={maoDeObra}
-                    onChange={(e) => setMaoDeObraOverride(Number(e.target.value))}
-                    style={{ ...inputStyle, width: 130, marginBottom: 0, textAlign: 'right' as const, fontSize: 15, padding: '10px 12px' }}
-                  />
-                </div>
-              </div>
-            )}
+            <div style={{ fontSize: 11, color: theme.muted, marginTop: 6 }}>
+              {subtotalEquip * instalacaoConfig.percentual < instalacaoConfig.minimo
+                ? `Mínimo R$ ${instalacaoConfig.minimo} (abaixo de ${(instalacaoConfig.percentual * 100).toFixed(0)}% do subtotal)`
+                : `${(instalacaoConfig.percentual * 100).toFixed(0)}% de R$ ${subtotalEquip.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+            </div>
           </div>
+          )}
         </div>
       )}
 
@@ -1518,8 +1481,8 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
               Compra (à vista)
             </div>
             <PRow label="Equipamentos" value={subtotalEquip} color={theme.text} />
-            <PRow label={`Mão de Obra (${faixa.nome})`} value={maoDeObra} color={theme.text} />
-            {maoCalc.acrescimo > 0 && <PRow label="Acréscimo Instalação" value={maoCalc.acrescimo} color={theme.text} detail="Incluso na mão de obra" />}
+            <PRow label="Taxa de Instalação" value={taxaInstalacao} color={theme.text}
+              detail={`${(instalacaoConfig.percentual * 100).toFixed(0)}% sobre equipamentos (mín R$ ${instalacaoConfig.minimo})`} />
             <PDivider />
             <PRow label="Investimento Total" value={totalVenda} color={theme.gold} bold />
             <div style={{ height: 8 }} />
@@ -1548,8 +1511,8 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
             <PDivider />
             <PRow label="Mensalidade Total" value={mensalidadeComodato} color="#5B9BD5" bold suffix="/mês" />
             <div style={{ height: 8 }} />
-            <PRow label="Taxa de Adesão (na assinatura)" value={taxaAdesao} color={theme.gold} bold
-              detail="Paga no início — cobre instalação do técnico" />
+            <PRow label="Taxa de Instalação (na assinatura)" value={taxaInstalacao} color={theme.gold} bold
+              detail={`${(instalacaoConfig.percentual * 100).toFixed(0)}% equipamentos (mín R$ ${instalacaoConfig.minimo}) · cobre o técnico`} />
             <PRow label={`Mensalidades (${prazo}× após 30 dias)`} value={mensalidadeComodato} color={theme.muted} suffix="/mês" />
             <PDivider />
             <PRow label={`Custo total em ${prazo} meses`} value={custoTotalComodato} color={theme.warning} bold />
@@ -1564,6 +1527,22 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
                 R$ {(custoTotalComodato - custoTotalVenda).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} a mais que Compra
               </div>
             ) : null}
+          </div>
+        )}
+
+        {/* Panel: MONITORAMENTO DE IMAGEM */}
+        {modalidade === 'imagem' && (
+          <div style={{
+            background: theme.soft, borderRadius: 12, padding: 16,
+            border: `2px solid #43C17B`,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#43C17B', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Monitoramento de Imagem
+            </div>
+            <div style={{ fontSize: 13, color: theme.muted, marginBottom: 12 }}>
+              Cliente já possui câmeras. Security24h faz apenas o monitoramento remoto — sem equipamentos, sem taxa de instalação.
+            </div>
+            <PRow label="Mensalidade" value={32} color="#43C17B" bold suffix="/mês" />
           </div>
         )}
       </div>
@@ -1584,73 +1563,65 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
 }
 
 /* ================================================================
-   Modal: Configuração de Mão de Obra (ADMIN/GESTOR)
+   Modal: Configuração de Taxa de Instalação (ADMIN/GESTOR)
    ================================================================ */
 
-function MaoDeObraConfigModal({ config, faixas, onSave, onClose }: {
-  config: MaoDeObraConfig;
-  faixas: FaixaMonitoramento[];
-  onSave: (cfg: MaoDeObraConfig) => void | Promise<void>;
+function InstalacaoConfigModal({ config, onSave, onClose }: {
+  config: InstalacaoConfig;
+  onSave: (cfg: InstalacaoConfig) => void | Promise<void>;
   onClose: () => void;
 }) {
-  const [markups, setMarkups] = useState<Record<string, number>>(() => ({ ...config.markupPorBloco }));
-  const [acrescimos, setAcrescimos] = useState<Record<string, number>>(() => ({ ...config.acrescimoPorFaixa }));
+  const [percentualPct, setPercentualPct] = useState<number>(Math.round(config.percentual * 100));
+  const [minimo, setMinimo] = useState<number>(config.minimo);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 24, maxWidth: 520, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+      <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 24, maxWidth: 460, width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Configurar Mão de Obra</h3>
+          <h3 style={{ margin: 0, color: theme.gold, fontSize: 16 }}>Configurar Taxa de Instalação</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: theme.muted, cursor: 'pointer', fontSize: 18 }}>✕</button>
         </div>
 
         <p style={{ fontSize: 12, color: theme.muted, marginBottom: 16, lineHeight: 1.5 }}>
-          O total da mão de obra é calculado: <strong style={{ color: theme.text }}>Base do porte + Acréscimo do porte + Markup por equipamento</strong>.
+          Fórmula: <strong style={{ color: theme.text }}>max(subtotal dos equipamentos × percentual, mínimo)</strong>.
+          Aplica em venda e comodato. Mais sensores → valor maior, automaticamente.
         </p>
 
-        {/* Acréscimo fixo por porte */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: theme.gold, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Acréscimo de Instalação por Porte</div>
-          <div style={{ display: 'grid', gap: 6 }}>
-            {faixas.map((f) => (
-              <div key={f.nome} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-                <span style={{ fontSize: 13, color: theme.text }}>{f.nome}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: theme.muted }}>R$</span>
-                  <input
-                    type="number"
-                    value={acrescimos[f.nome] ?? 0}
-                    onChange={(e) => setAcrescimos((prev) => ({ ...prev, [f.nome]: Number(e.target.value) }))}
-                    style={{ ...inputStyle, width: 90, marginBottom: 0, textAlign: 'right' as const }}
-                    min={0}
-                  />
-                </div>
-              </div>
-            ))}
+        <div style={{ display: 'grid', gap: 14, marginBottom: 20 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: theme.gold, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
+              Percentual sobre equipamentos
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="number"
+                value={percentualPct}
+                onChange={(e) => setPercentualPct(Number(e.target.value))}
+                style={{ ...inputStyle, width: 100, marginBottom: 0, textAlign: 'right' as const }}
+                min={0}
+                max={100}
+                step={1}
+              />
+              <span style={{ fontSize: 13, color: theme.muted }}>%</span>
+            </div>
           </div>
-        </div>
 
-        {/* Markup por tipo de equipamento */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: theme.gold, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Markup por Equipamento (R$/unidade)</div>
-          <div style={{ display: 'grid', gap: 6 }}>
-            {allBlocos.map((bloco) => (
-              <div key={bloco} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: `1px solid ${theme.border}` }}>
-                <span style={{ fontSize: 13, color: theme.text }}>{blocoLabels[bloco]}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: theme.muted }}>R$</span>
-                  <input
-                    type="number"
-                    value={markups[bloco] ?? 0}
-                    onChange={(e) => setMarkups((prev) => ({ ...prev, [bloco]: Number(e.target.value) }))}
-                    style={{ ...inputStyle, width: 80, marginBottom: 0, textAlign: 'right' as const }}
-                    min={0}
-                  />
-                  <span style={{ fontSize: 11, color: theme.muted }}>/un.</span>
-                </div>
-              </div>
-            ))}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: theme.gold, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
+              Valor mínimo
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 13, color: theme.muted }}>R$</span>
+              <input
+                type="number"
+                value={minimo}
+                onChange={(e) => setMinimo(Number(e.target.value))}
+                style={{ ...inputStyle, width: 140, marginBottom: 0, textAlign: 'right' as const }}
+                min={0}
+                step={10}
+              />
+            </div>
           </div>
         </div>
 
@@ -1658,7 +1629,7 @@ function MaoDeObraConfigModal({ config, faixas, onSave, onClose }: {
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${theme.border}`, background: 'transparent', color: theme.muted, cursor: 'pointer', fontSize: 13 }}>
             Cancelar
           </button>
-          <button onClick={() => onSave({ markupPorBloco: markups, acrescimoPorFaixa: acrescimos })} style={btnGold}>
+          <button onClick={() => onSave({ percentual: Math.max(0, percentualPct) / 100, minimo: Math.max(0, minimo) })} style={btnGold}>
             Salvar Configuração
           </button>
         </div>
@@ -2305,6 +2276,7 @@ function StepEntrega({ venda, vistoria, entregaVistoria, ordem, onIniciarInstala
   const entregaConcluida = venda.visita2Concluida === true;
 
   const [expandedAmbId, setExpandedAmbId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; label: string; accent: string } | null>(null);
 
   // Estrutura (ambientes/pontos) vem SEMPRE da vistoria (1ª visita).
   // Fotos de conferência ficam no entregaVistoria espelho.
@@ -2460,7 +2432,8 @@ function StepEntrega({ venda, vistoria, entregaVistoria, ordem, onIniciarInstala
                               )}
                               {vPonto.photos.map((photo, pi) => (
                                 <img key={pi} src={photoSrc(photo)} width={100} height={75} alt={`Marcação ${pi + 1}`}
-                                  style={{ borderRadius: 6, objectFit: 'cover', border: '1px solid #C077DB66' }} />
+                                  onClick={() => setLightbox({ src: photo, label: `1ª Visita — ${vAmb.nome} — ${vPonto.type || 'Ponto'}`, accent: '#C077DB' })}
+                                  style={{ borderRadius: 6, objectFit: 'cover', border: '1px solid #C077DB66', cursor: 'pointer' }} />
                               ))}
                             </div>
                           </div>
@@ -2472,7 +2445,8 @@ function StepEntrega({ venda, vistoria, entregaVistoria, ordem, onIniciarInstala
                               {entregaPhotos.map((photo, pi) => (
                                 <div key={pi} style={{ position: 'relative' }}>
                                   <img src={photoSrc(photo)} width={100} height={75} alt={`Conferência ${pi + 1}`}
-                                    style={{ borderRadius: 6, objectFit: 'cover', border: '1px solid #43C17B66' }} />
+                                    onClick={() => setLightbox({ src: photo, label: `2ª Visita — ${vAmb.nome} — ${vPonto.type || 'Ponto'}`, accent: '#43C17B' })}
+                                    style={{ borderRadius: 6, objectFit: 'cover', border: '1px solid #43C17B66', cursor: 'pointer' }} />
                                   {canEdit && !entregaConcluida && (
                                     <button onClick={() => handleRemovePhoto(vAmb.id, vPonto.id, pi)}
                                       style={{
@@ -2527,6 +2501,8 @@ function StepEntrega({ venda, vistoria, entregaVistoria, ordem, onIniciarInstala
           </span>
         </div>
       )}
+
+      <PhotoLightbox photo={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }
@@ -2553,6 +2529,7 @@ function StepResumoFinal({ venda, solucao, vistoria, entregaVistoria, ordem, equ
   const [showAllPhotos, setShowAllPhotos] = useState(false);
   const [showEntregaPhotos, setShowEntregaPhotos] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [lightbox, setLightbox] = useState<{ src: string; label: string; accent: string } | null>(null);
 
   // Collect all vistoria photos
   const allPhotos = useMemo(() => {
@@ -2659,7 +2636,8 @@ function StepResumoFinal({ venda, solucao, vistoria, entregaVistoria, ordem, equ
               {allPhotos.map((photo, i) => (
                 <div key={i} style={{ textAlign: 'center' }}>
                   <img src={photoSrc(photo.src)} width={100} height={75} alt={`1ª Visita ${i + 1}`}
-                    style={{ borderRadius: 6, objectFit: 'cover', border: '2px solid #C077DB44' }} />
+                    onClick={() => setLightbox({ src: photo.src, label: `1ª Visita — ${photo.ambiente} — ${photo.ponto}`, accent: '#C077DB' })}
+                    style={{ borderRadius: 6, objectFit: 'cover', border: '2px solid #C077DB44', cursor: 'pointer' }} />
                   <div style={{ fontSize: 9, color: theme.muted, marginTop: 2 }}>{photo.ambiente}</div>
                 </div>
               ))}
@@ -2702,7 +2680,8 @@ function StepResumoFinal({ venda, solucao, vistoria, entregaVistoria, ordem, equ
               {allEntregaPhotos.map((photo, i) => (
                 <div key={i} style={{ textAlign: 'center' }}>
                   <img src={photoSrc(photo.src)} width={100} height={75} alt={`2ª Visita ${i + 1}`}
-                    style={{ borderRadius: 6, objectFit: 'cover', border: '2px solid #43C17B44' }} />
+                    onClick={() => setLightbox({ src: photo.src, label: `2ª Visita — ${photo.ambiente} — ${photo.ponto}`, accent: '#43C17B' })}
+                    style={{ borderRadius: 6, objectFit: 'cover', border: '2px solid #43C17B44', cursor: 'pointer' }} />
                   <div style={{ fontSize: 9, color: theme.muted, marginTop: 2 }}>{photo.ambiente}</div>
                 </div>
               ))}
@@ -2748,6 +2727,8 @@ function StepResumoFinal({ venda, solucao, vistoria, entregaVistoria, ordem, equ
           </div>
         )}
       </div>
+
+      <PhotoLightbox photo={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }
@@ -2949,6 +2930,30 @@ function StatusBadge({ value }: { value: string }) {
   };
   const color = colorMap[value] ?? theme.muted;
   return <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, padding: '3px 10px', borderRadius: 999, background: color + '22', color, border: `1px solid ${color}44` }}>{value.replace('_', ' ')}</span>;
+}
+
+export function PhotoLightbox({ photo, onClose }: {
+  photo: { src: string; label?: string; accent?: string } | null;
+  onClose: () => void;
+}) {
+  if (!photo) return null;
+  const accent = photo.accent ?? theme.gold;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 9999,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: 16, cursor: 'pointer',
+      }}
+    >
+      {photo.label && (
+        <div style={{ fontSize: 13, color: accent, marginBottom: 8, fontWeight: 600 }}>{photo.label}</div>
+      )}
+      <img src={photoSrc(photo.src)} alt="Foto ampliada" style={{ maxWidth: '95vw', maxHeight: '80vh', borderRadius: 8, objectFit: 'contain' }} />
+      <div style={{ fontSize: 12, color: theme.muted, marginTop: 10 }}>Toque para fechar</div>
+    </div>
+  );
 }
 
 /* Styles: see ./shared/styles */

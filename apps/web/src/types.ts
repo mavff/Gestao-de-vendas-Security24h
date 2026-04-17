@@ -151,7 +151,7 @@ export type Proposta = {
 
 // --- Ordem de Serviço ---
 
-export type OSStatus = 'bloqueada' | 'pendente' | 'agendada' | 'em_andamento' | 'concluida';
+export type OSStatus = 'bloqueada' | 'pendente' | 'agendada' | 'em_andamento' | 'semi_concluida' | 'concluida';
 
 export type OrdemDeServico = {
   id: string;
@@ -166,6 +166,16 @@ export type OrdemDeServico = {
   observacoes: string;
   status: OSStatus;
   createdAt: string;
+  /** Foto de comprovação anexada pelo técnico ao marcar semi-concluída (base64 ou token photo:) */
+  fotoComprovante?: string;
+  /** Observações que o técnico deixa ao finalizar a instalação */
+  observacoesTecnico?: string;
+  /** ISO timestamp quando técnico marcou semi-concluída */
+  semiConcluidaEm?: string;
+  /** ISO timestamp quando vendedor/gestor validou e marcou concluída */
+  concluidaEm?: string;
+  /** Username do vendedor/gestor/admin que validou a conclusão */
+  validadoPor?: string;
 };
 
 // --- Orçamento ---
@@ -235,7 +245,7 @@ export type Orcamento = {
   observacoes: string;
   status: OrcamentoStatus;
   createdAt: string;
-  modalidade: 'venda' | 'comodato';
+  modalidade: 'venda' | 'comodato' | 'imagem';
   comodato?: ComodatoConfig;
 };
 
@@ -303,7 +313,7 @@ export type VendaLocal = {
   /** Pipeline lead linkage (optional) */
   leadId?: string;
   /** Proposta — modalidade escolhida */
-  modalidade?: 'venda' | 'comodato' | 'ambos';
+  modalidade?: 'venda' | 'comodato' | 'ambos' | 'imagem';
   /** Proposta — monitoramento mensal ajustado */
   monitoramentoMensal?: number;
   /** Proposta — mão de obra */

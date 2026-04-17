@@ -35,7 +35,9 @@ type FiltroStatus = 'todas' | 'em_andamento' | 'vistoria' | 'concluidas';
 export function VendasListPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
+  const username = user?.username ?? '';
+  const seesAllVendas = role === 'ADMIN' || role === 'GESTOR';
   const [vendas, setVendas] = useState<VendaLocal[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [filtro, setFiltro] = useState<FiltroStatus>('todas');
@@ -94,9 +96,15 @@ export function VendasListPage() {
     }
   }, [searchParams, handleAutoCreate]);
 
+  /* --- multi-tenant visibility: VENDEDOR só vê as próprias vendas --- */
+  const vendasVisiveis = useMemo(() => {
+    if (seesAllVendas) return vendas;
+    return vendas.filter((v) => v.criadoPor === username);
+  }, [vendas, seesAllVendas, username]);
+
   /* --- filters --- */
   const filtered = useMemo(() => {
-    let list = vendas;
+    let list = vendasVisiveis;
 
     if (filtro === 'em_andamento') {
       list = list.filter((v) => ['rascunho', 'solucao_pronta', 'proposta_gerada', 'cliente_aprovou'].includes(v.status));
@@ -116,14 +124,14 @@ export function VendasListPage() {
     }
 
     return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [vendas, filtro, search]);
+  }, [vendasVisiveis, filtro, search]);
 
   const counts = useMemo(() => ({
-    todas: vendas.length,
-    em_andamento: vendas.filter((v) => ['rascunho', 'solucao_pronta', 'proposta_gerada', 'cliente_aprovou'].includes(v.status)).length,
-    vistoria: vendas.filter((v) => ['vistoria', 'em_instalacao', 'entrega'].includes(v.status)).length,
-    concluidas: vendas.filter((v) => v.status === 'concluida').length,
-  }), [vendas]);
+    todas: vendasVisiveis.length,
+    em_andamento: vendasVisiveis.filter((v) => ['rascunho', 'solucao_pronta', 'proposta_gerada', 'cliente_aprovou'].includes(v.status)).length,
+    vistoria: vendasVisiveis.filter((v) => ['vistoria', 'em_instalacao', 'entrega'].includes(v.status)).length,
+    concluidas: vendasVisiveis.filter((v) => v.status === 'concluida').length,
+  }), [vendasVisiveis]);
 
   /* --- last activity per venda --- */
   const lastActivity = useMemo(() => {
@@ -210,8 +218,33 @@ export function VendasListPage() {
     return logs.filter((l) => l.tipo === 'foto_adicionada').length;
   }, [logs]);
 
+  /* --- Ranking compartilhado (todos os vendedores, para competição saudável) --- */
+  const ranking = useMemo(() => {
+    type Row = { username: string; total: number; concluidas: number; emAndamento: number };
+    const byUser = new Map<string, Row>();
+    for (const v of vendas) {
+      const u = v.criadoPor || '(sem dono)';
+      if (!byUser.has(u)) byUser.set(u, { username: u, total: 0, concluidas: 0, emAndamento: 0 });
+      const row = byUser.get(u)!;
+      row.total += 1;
+      if (v.status === 'concluida') row.concluidas += 1;
+      else if (v.status !== 'perdida') row.emAndamento += 1;
+    }
+    return Array.from(byUser.values()).sort((a, b) => b.concluidas - a.concluidas || b.total - a.total);
+  }, [vendas]);
+
+  const myRankIndex = useMemo(() => {
+    if (seesAllVendas) return -1;
+    return ranking.findIndex((r) => r.username === username);
+  }, [ranking, username, seesAllVendas]);
+
   return (
     <AppShell title="Minhas Vendas">
+      {/* Ranking compartilhado */}
+      {ranking.length > 1 && (
+        <RankingPanel ranking={ranking} myUsername={username} myRankIndex={myRankIndex} />
+      )}
+
       {/* KPI cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 16 }}>
         {([
@@ -489,6 +522,91 @@ function NovaVendaModal({ onClose, onCriar }: {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   Ranking compartilhado — todos os vendedores
+   ================================================================ */
+
+type RankingRow = { username: string; total: number; concluidas: number; emAndamento: number };
+
+function RankingPanel({ ranking, myUsername, myRankIndex }: { ranking: RankingRow[]; myUsername: string; myRankIndex: number }) {
+  const [open, setOpen] = useState(false);
+  const podium = ranking.slice(0, 3);
+  const medals = ['🥇', '🥈', '🥉'];
+  const podiumColors = [theme.gold, '#C0C0C0', '#CD7F32'];
+
+  return (
+    <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 18 }}>🏆</span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: theme.gold }}>Ranking de vendas</div>
+            <div style={{ fontSize: 11, color: theme.muted }}>
+              {podium.map((p, i) => `${medals[i]} ${p.username} (${p.concluidas})`).join(' · ')}
+              {myRankIndex >= 0 && ` · você: #${myRankIndex + 1}`}
+            </div>
+          </div>
+        </div>
+        <span style={{ color: theme.muted, fontSize: 14 }}>{open ? '▲' : '▼'}</span>
+      </div>
+
+      {open && (
+        <div style={{ padding: '4px 16px 16px', borderTop: `1px solid ${theme.border}` }}>
+          <div style={{ fontSize: 11, color: theme.muted, padding: '8px 0' }}>
+            Vendas concluídas lideram. Empate → total de vendas abertas.
+          </div>
+
+          {podium.length >= 2 && (
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${podium.length}, 1fr)`, gap: 8, marginBottom: 12 }}>
+              {podium.map((p, i) => (
+                <div key={p.username} style={{
+                  background: podiumColors[i] + '15',
+                  border: `1px solid ${podiumColors[i]}44`,
+                  borderRadius: 10, padding: '10px 8px', textAlign: 'center',
+                  outline: p.username === myUsername ? `2px solid ${theme.gold}` : 'none',
+                }}>
+                  <div style={{ fontSize: 20 }}>{medals[i]}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: theme.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.username}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: podiumColors[i] }}>{p.concluidas}</div>
+                  <div style={{ fontSize: 10, color: theme.muted }}>concluídas · {p.total} total</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {ranking.map((r, i) => {
+              const isMe = r.username === myUsername;
+              return (
+                <div key={r.username} style={{
+                  display: 'grid', gridTemplateColumns: '32px 1fr auto auto auto', gap: 10, alignItems: 'center',
+                  padding: '8px 10px', borderRadius: 8,
+                  background: isMe ? theme.gold + '15' : theme.soft,
+                  border: `1px solid ${isMe ? theme.gold + '55' : theme.border}`,
+                  fontSize: 12,
+                }}>
+                  <span style={{ fontWeight: 700, color: i < 3 ? podiumColors[i] : theme.muted, textAlign: 'center' }}>
+                    {i < 3 ? medals[i] : `#${i + 1}`}
+                  </span>
+                  <span style={{ color: theme.text, fontWeight: isMe ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.username}{isMe && ' (você)'}
+                  </span>
+                  <span style={{ color: theme.success, fontWeight: 700 }}>{r.concluidas}<span style={{ color: theme.muted, fontWeight: 400, fontSize: 10 }}> ✓</span></span>
+                  <span style={{ color: '#5B9BD5' }}>{r.emAndamento}<span style={{ color: theme.muted, fontSize: 10 }}> ↻</span></span>
+                  <span style={{ color: theme.muted }}>{r.total} total</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

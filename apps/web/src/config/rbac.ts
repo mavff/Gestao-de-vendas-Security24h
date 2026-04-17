@@ -18,11 +18,11 @@ const publicPaths = ['/login'];
 
 /*
   Sidebar order per role (chronological sales funnel):
-  ADMIN:     Dashboard → SDR → Pipeline → Propostas → Orçamentos → Comissões → Kits → Equipamentos → Usuários
-  GESTOR:    Dashboard → Pipeline → Propostas → Orçamentos → Comissões → Kits → SDR
+  ADMIN:     Dashboard → SDR → Pipeline → Propostas → Orçamentos → Instalações → Comissões → Kits → Equipamentos → Usuários
+  GESTOR:    Dashboard → Pipeline → Propostas → Orçamentos → Instalações → Comissões → Kits → SDR
   VENDEDOR:  Pipeline → Kits → Minhas Vendas
   SDR:       SDR → Pipeline
-  TECNICO:   Propostas → Equipamentos
+  TECNICO:   Instalações → Equipamentos
 */
 const routes: RouteConfig[] = [
   { path: '/', roles: allRoles },
@@ -36,6 +36,7 @@ const routes: RouteConfig[] = [
   { path: '/orcamentos', roles: ['ADMIN', 'GESTOR'], label: 'Orçamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR'] },
   { path: '/kits', roles: ['ADMIN', 'GESTOR', 'VENDEDOR', 'SDR'], label: 'Kits & Modelos', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'VENDEDOR'] },
   { path: '/modelos', roles: ['ADMIN', 'GESTOR', 'SDR', 'VENDEDOR'] },
+  { path: '/instalacoes', roles: ['ADMIN', 'GESTOR', 'TECNICO'], label: 'Instalações', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR', 'TECNICO'] },
   { path: '/comissoes', roles: ['ADMIN', 'GESTOR'], label: 'Comissoes', showInSidebar: true, sidebarRoles: ['ADMIN', 'GESTOR'] },
   { path: '/equipamentos', roles: ['ADMIN', 'TECNICO'], label: 'Equipamentos', showInSidebar: true, sidebarRoles: ['ADMIN', 'TECNICO'] },
   { path: '/usuarios', roles: ['ADMIN'], label: 'Usuários', showInSidebar: true },

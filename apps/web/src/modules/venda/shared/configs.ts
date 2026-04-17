@@ -61,6 +61,61 @@ export const DEFAULT_MAO_DE_OBRA_CONFIG: MaoDeObraConfig = {
   },
 };
 
+/* ---- Taxa de Instalação config ---- */
+export type InstalacaoConfig = {
+  percentual: number;
+  minimo: number;
+};
+
+export const INSTALACAO_KEY = 'config:instalacao';
+
+export const DEFAULT_INSTALACAO_CONFIG: InstalacaoConfig = {
+  percentual: 0.10,
+  minimo: 200,
+};
+
+/** Taxa de instalação = max(subtotalEquipamentos × percentual, minimo). Aplica em venda e comodato. */
+export function calcTaxaInstalacao(subtotalEquipamentos: number, config: InstalacaoConfig): number {
+  const calculada = subtotalEquipamentos * config.percentual;
+  return Math.max(calculada, config.minimo);
+}
+
+/* ---- Atribuição de Técnico config ---- */
+export type AtribuicaoTecnicoModo = 'manual' | 'auto_round_robin';
+export type AtribuicaoTecnicoConfig = {
+  modo: AtribuicaoTecnicoModo;
+  tecnicosAtivos: string[];
+};
+
+export const ATRIBUICAO_TECNICO_KEY = 'config:atribuicao_tecnico';
+
+export const DEFAULT_ATRIBUICAO_TECNICO_CONFIG: AtribuicaoTecnicoConfig = {
+  modo: 'manual',
+  tecnicosAtivos: [],
+};
+
+/** Round-robin: escolhe técnico com menos OS ativas (pendente/agendada/em_andamento/semi_concluida). Empate → alfabético. */
+export function escolherTecnicoRoundRobin(
+  tecnicosAtivos: string[],
+  ordensExistentes: { tecnicoId: string; status: string }[],
+): string {
+  if (tecnicosAtivos.length === 0) return '';
+  const ativos = new Set(['pendente', 'agendada', 'em_andamento', 'semi_concluida']);
+  const cargaPorTecnico = new Map<string, number>(tecnicosAtivos.map((t) => [t, 0]));
+  for (const os of ordensExistentes) {
+    if (os.tecnicoId && ativos.has(os.status) && cargaPorTecnico.has(os.tecnicoId)) {
+      cargaPorTecnico.set(os.tecnicoId, (cargaPorTecnico.get(os.tecnicoId) ?? 0) + 1);
+    }
+  }
+  const ordenado = [...tecnicosAtivos].sort((a, b) => {
+    const ca = cargaPorTecnico.get(a) ?? 0;
+    const cb = cargaPorTecnico.get(b) ?? 0;
+    if (ca !== cb) return ca - cb;
+    return a.localeCompare(b);
+  });
+  return ordenado[0] ?? '';
+}
+
 /** Calculate mão de obra = base (faixa) + acréscimo (faixa) + sum of markup × qty per bloco */
 export function calcMaoDeObra(
   baseFaixa: number,

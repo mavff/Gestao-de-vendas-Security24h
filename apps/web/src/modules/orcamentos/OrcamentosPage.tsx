@@ -1082,7 +1082,7 @@ function OrcamentoDetail({ orcamento, onSave, onGerarProposta, onBack, precosCus
   const [zonas, setZonas] = useState(orcamento.zonas);
   const [desconto, setDesconto] = useState(orcamento.desconto);
   const [observacoes, setObservacoes] = useState(orcamento.observacoes);
-  const [modalidade, setModalidade] = useState<'venda' | 'comodato'>(orcamento.modalidade ?? 'venda');
+  const [modalidade, setModalidade] = useState<'venda' | 'comodato' | 'imagem'>(orcamento.modalidade ?? 'venda');
   const [prazo, setPrazo] = useState<24 | 36 | 48>(orcamento.comodato?.prazo ?? 36);
   const [numCameras, setNumCameras] = useState(orcamento.comodato?.numCameras ?? 0);
   const [tipoCentral, setTipoCentral] = useState<TipoCentral>(orcamento.comodato?.tipoCentral ?? 'pequena');
