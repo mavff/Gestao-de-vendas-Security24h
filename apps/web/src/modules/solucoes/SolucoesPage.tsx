@@ -836,8 +836,6 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
     ? monitValor  // BD: valorMensalComodato já inclui amortização
     : parcelaEquip + monitValor;  // fallback: custo/prazo + monitoramento
 
-  // Total cost comparison over term
-  const custoTotalVenda = totalVenda + (monitValor * prazo);
   const custoTotalComodato = taxaInstalacao + (mensalidadeComodato * prazo);
 
   const margem = subtotalVenda > 0 ? ((subtotalVenda - subtotalCusto) / subtotalVenda * 100) : 0;
@@ -1295,12 +1293,6 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
               <Row label="Investimento Total" value={totalVenda} color={theme.gold} bold />
               <div style={{ height: 8 }} />
               <Row label="Monitoramento" value={monitValor} color={theme.muted} suffix="/mês" />
-              {modalidade === 'comodato' && (
-                <>
-                  <Divider />
-                  <Row label={`Custo total em ${prazo} meses`} value={custoTotalVenda} color={theme.warning} bold />
-                </>
-              )}
             </div>
 
             {/* Panel: COMODATO */}
@@ -1335,18 +1327,6 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
                 <Row label="Taxa de Instalação (na assinatura)" value={taxaInstalacao} color={theme.gold} bold
                   detail={`${(instalacaoConfig.percentual * 100).toFixed(0)}% equipamentos · mín R$ ${instalacaoConfig.minimo}`} />
                 <Row label={`Mensalidades (${prazo}× após 30 dias)`} value={mensalidadeComodato} color={theme.muted} suffix="/mês" />
-                <Divider />
-                <Row label={`Custo total em ${prazo} meses`} value={custoTotalComodato} color={theme.warning} bold />
-
-                {custoTotalVenda > custoTotalComodato ? (
-                  <div style={{ marginTop: 8, padding: '6px 10px', background: theme.success + '15', borderRadius: 6, fontSize: 12, color: theme.success, textAlign: 'center', fontWeight: 600 }}>
-                    Economia de R$ {(custoTotalVenda - custoTotalComodato).toLocaleString('pt-BR')} vs Compra
-                  </div>
-                ) : custoTotalComodato > custoTotalVenda ? (
-                  <div style={{ marginTop: 8, padding: '6px 10px', background: theme.danger + '15', borderRadius: 6, fontSize: 12, color: theme.danger, textAlign: 'center', fontWeight: 600 }}>
-                    R$ {(custoTotalComodato - custoTotalVenda).toLocaleString('pt-BR')} a mais que Compra
-                  </div>
-                ) : null}
               </div>
             )}
           </div>

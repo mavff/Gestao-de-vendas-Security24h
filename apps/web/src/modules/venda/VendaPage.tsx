@@ -360,7 +360,7 @@ export function VendaPage() {
      Actions — Step 3: Proposta / PDF
      ============================================= */
 
-  function handleGerarPDF() {
+  function handleGerarPDF(overrides?: { monitoramentoMensal?: number; prazo?: number; modalidade?: VendaLocal['modalidade'] }) {
     if (!venda || !solucao) return;
     const itens = solucao.blocos.flatMap((b) =>
       b.itens.map((item) => {
@@ -371,8 +371,11 @@ export function VendaPage() {
     const subtotalEquip = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
     const taxaInstalacao = calcTaxaInstalacao(subtotalEquip, instalacaoConfig);
     const totalVenda = subtotalEquip + taxaInstalacao;
-    const monitoramento = venda.modalidade === 'imagem' ? 32 : (venda.monitoramentoMensal ?? 0);
-    const prazo = venda.prazoComodato ?? 36;
+    const modalidade = overrides?.modalidade ?? venda.modalidade ?? 'ambos';
+    const prazo = overrides?.prazo ?? venda.prazoComodato ?? 36;
+    const monitoramento = modalidade === 'imagem'
+      ? 32
+      : (overrides?.monitoramentoMensal ?? venda.monitoramentoMensal ?? 0);
     const mensalidadeComodato = (subtotalEquip / prazo) + monitoramento;
 
     openPropostaPDF({
@@ -381,17 +384,17 @@ export function VendaPage() {
       clienteEndereco: venda.clienteEndereco,
       tipoLocal: venda.tipoLocal,
       marca: solucao.marca,
-      itens: venda.modalidade === 'imagem' ? [] : itens,
+      itens: modalidade === 'imagem' ? [] : itens,
       observacoes: solucao.observacaoGeral || venda.observacoes,
       vendedorNome: user?.name ?? username,
-      subtotalEquipamentos: venda.modalidade === 'imagem' ? 0 : subtotalEquip,
-      taxaInstalacao: venda.modalidade === 'imagem' ? 0 : taxaInstalacao,
+      subtotalEquipamentos: modalidade === 'imagem' ? 0 : subtotalEquip,
+      taxaInstalacao: modalidade === 'imagem' ? 0 : taxaInstalacao,
       valorCrea: 0,
-      totalVenda: venda.modalidade === 'imagem' ? 0 : totalVenda,
+      totalVenda: modalidade === 'imagem' ? 0 : totalVenda,
       monitoramentoMensal: monitoramento,
       mensalidadeComodato,
       prazo,
-      modalidade: venda.modalidade ?? 'ambos',
+      modalidade,
       aprovacao: aprovacao ? {
         id: aprovacao.id,
         clienteNome: aprovacao.clienteNome,
@@ -1259,7 +1262,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   comissaoConfig: ComissaoConfig;
   instalacaoConfig: InstalacaoConfig;
   onUpdateVenda: (patch: Partial<VendaLocal>) => Promise<void>;
-  onGerarPDF: () => void;
+  onGerarPDF: (overrides?: { monitoramentoMensal?: number; prazo?: number; modalidade?: VendaLocal['modalidade'] }) => void;
   onClienteAprovou: () => void;
   onInstalacaoConfigChange: (cfg: InstalacaoConfig) => void;
   canEdit: boolean;
@@ -1302,8 +1305,6 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   const totalVenda = subtotalEquip + taxaInstalacao;
   const parcelaEquip = subtotalEquip / prazo;
   const mensalidadeComodato = parcelaEquip + monitValor;
-  const custoTotalComodato = taxaInstalacao + mensalidadeComodato * prazo;
-  const custoTotalVenda = totalVenda + monitValor * prazo;
   const totalItens = flatItems.reduce((s, i) => s + i.quantidade, 0);
   const desconto = monitAjuste !== null && monitAjuste < monitBase && modalidade !== 'imagem' ? ((1 - monitAjuste / monitBase) * 100) : 0;
 
@@ -1327,7 +1328,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
 
   async function handleSaveAndGenerate() {
     await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra: taxaInstalacao, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
-    onGerarPDF();
+    onGerarPDF({ monitoramentoMensal: monitValor, prazo, modalidade });
   }
 
   async function handleApprove() {
@@ -1550,12 +1551,6 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
             <PRow label="Investimento Total" value={totalVenda} color={theme.gold} bold />
             <div style={{ height: 8 }} />
             <PRow label="Monitoramento" value={monitValor} color={theme.muted} suffix="/mês" />
-            {modalidade === 'ambos' && (
-              <>
-                <PDivider />
-                <PRow label={`Custo total em ${prazo} meses`} value={custoTotalVenda} color={theme.warning} bold />
-              </>
-            )}
           </div>
         )}
 
@@ -1577,19 +1572,6 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
             <PRow label="Taxa de Instalação (na assinatura)" value={taxaInstalacao} color={theme.gold} bold
               detail={`${(instalacaoConfig.percentual * 100).toFixed(0)}% equipamentos (mín R$ ${instalacaoConfig.minimo}) · cobre o técnico`} />
             <PRow label={`Mensalidades (${prazo}× após 30 dias)`} value={mensalidadeComodato} color={theme.muted} suffix="/mês" />
-            <PDivider />
-            <PRow label={`Custo total em ${prazo} meses`} value={custoTotalComodato} color={theme.warning} bold />
-
-            {/* Economia badge */}
-            {modalidade === 'ambos' && custoTotalVenda > custoTotalComodato ? (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: theme.success + '15', borderRadius: 8, fontSize: 12, color: theme.success, textAlign: 'center', fontWeight: 600 }}>
-                Economia de R$ {(custoTotalVenda - custoTotalComodato).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} vs Compra
-              </div>
-            ) : modalidade === 'ambos' && custoTotalComodato > custoTotalVenda ? (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: theme.danger + '15', borderRadius: 8, fontSize: 12, color: theme.danger, textAlign: 'center', fontWeight: 600 }}>
-                R$ {(custoTotalComodato - custoTotalVenda).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} a mais que Compra
-              </div>
-            ) : null}
           </div>
         )}
 
