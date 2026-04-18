@@ -39,24 +39,25 @@ export function isRelationalKey(key: string): boolean {
   return USE_RELATIONAL && key in KEY_TO_ENTITY;
 }
 
-type PaginatedResponse<T> = { data: T[]; meta: { totalPages: number; page: number } };
-
 export async function loadRelational<T extends { id: string }>(key: string): Promise<T[]> {
-  const meta = KEY_TO_ENTITY[key];
-  if (!meta) throw new Error(`Não é chave relacional: ${key}`);
+  const entity = KEY_TO_ENTITY[key];
+  if (!entity) throw new Error(`Não é chave relacional: ${key}`);
   const results: T[] = [];
   let page = 1;
   while (true) {
     const params = new URLSearchParams({
       page: String(page),
       pageSize: '200',
-      ...(meta.extraFilter ?? {}),
+      ...(entity.extraFilter ?? {}),
     });
-    const { data } = await apiClient.get<PaginatedResponse<T>>(
-      `${meta.endpoint}?${params.toString()}`,
+    // apiClient já desembrulha { data, meta } do backend — `data` aqui é o array direto.
+    const { data, meta: pageMeta } = await apiClient.get<T[]>(
+      `${entity.endpoint}?${params.toString()}`,
     );
-    results.push(...data.data);
-    if (page >= data.meta.totalPages || data.data.length === 0) break;
+    const rows = Array.isArray(data) ? data : [];
+    results.push(...rows);
+    const totalPages = pageMeta?.totalPages ?? 1;
+    if (page >= totalPages || rows.length === 0) break;
     page++;
   }
   return results;
