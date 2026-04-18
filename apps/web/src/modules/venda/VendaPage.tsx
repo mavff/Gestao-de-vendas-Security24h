@@ -373,8 +373,7 @@ export function VendaPage() {
     const totalVenda = subtotalEquip + taxaInstalacao;
     const monitoramento = venda.modalidade === 'imagem' ? 32 : (venda.monitoramentoMensal ?? 0);
     const prazo = venda.prazoComodato ?? 36;
-    const subtotalCusto = subtotalEquip * 0.6;
-    const mensalidadeComodato = (subtotalCusto / prazo) + monitoramento;
+    const mensalidadeComodato = (subtotalEquip / prazo) + monitoramento;
 
     openPropostaPDF({
       clienteNome: venda.clienteNome,
@@ -421,7 +420,7 @@ export function VendaPage() {
     const prazo = venda.prazoComodato ?? 36;
     const monit = venda.modalidade === 'imagem' ? 32 : (venda.monitoramentoMensal ?? 0);
     if (venda.modalidade === 'comodato') {
-      const mensalidade = (subtotalEquip * 0.6 / prazo) + monit;
+      const mensalidade = (subtotalEquip / prazo) + monit;
       return taxaInstalacao + mensalidade * prazo;
     }
     if (venda.modalidade === 'imagem') return 32 * prazo;
@@ -1301,8 +1300,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   const subtotalEquip = flatItems.reduce((s, i) => s + i.preco * i.quantidade, 0);
   const taxaInstalacao = calcTaxaInstalacao(subtotalEquip, instalacaoConfig);
   const totalVenda = subtotalEquip + taxaInstalacao;
-  const subtotalCusto = subtotalEquip * 0.6;
-  const parcelaEquip = subtotalCusto / prazo;
+  const parcelaEquip = subtotalEquip / prazo;
   const mensalidadeComodato = parcelaEquip + monitValor;
   const custoTotalComodato = taxaInstalacao + mensalidadeComodato * prazo;
   const custoTotalVenda = totalVenda + monitValor * prazo;
@@ -1571,7 +1569,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
               Comodato ({prazo} meses)
             </div>
             <PRow label="Parcela Equipamento" value={parcelaEquip} color={theme.text} suffix="/mês"
-              detail={`R$ ${subtotalCusto.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} ÷ ${prazo}`} />
+              detail={`R$ ${subtotalEquip.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} ÷ ${prazo}`} />
             <PRow label="Monitoramento" value={monitValor} color={theme.text} suffix="/mês" />
             <PDivider />
             <PRow label="Mensalidade Total" value={mensalidadeComodato} color="#5B9BD5" bold suffix="/mês" />
