@@ -2,8 +2,14 @@
 
 import { apiClient } from '../lib/apiClient';
 
+function parseFlag(v: string | undefined): boolean {
+  if (!v) return false;
+  const normalized = v.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 export const USE_RELATIONAL =
-  typeof window !== 'undefined' && process.env.NEXT_PUBLIC_USE_RELATIONAL === '1';
+  typeof window !== 'undefined' && parseFlag(process.env.NEXT_PUBLIC_USE_RELATIONAL);
 
 type EntityMeta = {
   endpoint: string;
