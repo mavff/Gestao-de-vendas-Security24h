@@ -16,7 +16,6 @@ export class ProductsController {
     @Query('cancelado') cancelado?: string,
     @Query('grupoOrcamento') grupoOrcamento?: string,
     @Query('apenasOrcamento') apenasOrcamento?: string,
-    @Query('codEstoque') codEstoque?: string,
   ) {
     return this.productsRepo.findAll({
       page,
@@ -28,7 +27,6 @@ export class ProductsController {
       cancelado: cancelado !== undefined ? cancelado === 'true' : undefined,
       grupoOrcamento: grupoOrcamento || undefined,
       apenasOrcamento: apenasOrcamento !== undefined ? apenasOrcamento !== 'false' : undefined,
-      codEstoque: codEstoque ? Number(codEstoque) : undefined,
     });
   }
 

@@ -12,7 +12,6 @@ import { PreOrcamentoApiDto, PreOrcamentoProdutoApiDto } from '../../lib/dataSou
 import { mockEquipments, mockKits } from '../../mocks/data';
 import { loadLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
-import { loadTiposEstoque, TipoEstoque } from '../../services/tiposEstoque';
 import { Equipment, Kit, KitCategoria, Marca } from '../../types';
 
 /* ---- Constants ---- */
@@ -76,7 +75,6 @@ export function KitsPage() {
 
   const [lastRefresh, setLastRefresh] = useState<number>(0);
   const [refreshing, setRefreshing] = useState(false);
-  const [tiposEstoque, setTiposEstoque] = useState<TipoEstoque[]>([]);
 
   /* ---- Reload do BD (chamado no mount, no foco e no botão Atualizar) ---- */
   const reloadFromBackend = useCallback(async () => {
@@ -112,7 +110,6 @@ export function KitsPage() {
     });
     // Carrega kits custom do AppKv (SQLite) — compartilhado entre usuários
     loadState<Kit[]>('kits_custom', []).then(setKitsCustom);
-    loadTiposEstoque().then(setTiposEstoque);
   }, [reloadFromBackend]);
 
   /* ---- Refetch ao voltar pra aba (preços do ERP podem ter mudado) ---- */
@@ -507,7 +504,6 @@ export function KitsPage() {
             <KitFormModal
               existing={editId ? kits.find((k) => k.id === editId) ?? null : null}
               equipments={equipments}
-              tiposEstoque={tiposEstoque}
               onSave={handleSaveKit}
               onCancel={() => { setModalOpen(false); setEditId(null); }}
             />
@@ -892,10 +888,9 @@ function KitDetailModal({ kit, localQtds, setLocalQtds, itemName, itemUnitPrice,
    Kit Form Modal (ADMIN — cria/edita kits locais)
    ============================================================ */
 
-function KitFormModal({ existing, equipments, tiposEstoque, onSave, onCancel }: {
+function KitFormModal({ existing, equipments, onSave, onCancel }: {
   existing: Kit | null;
   equipments: Equipment[];
-  tiposEstoque: TipoEstoque[];
   onSave: (kit: Kit) => void;
   onCancel: () => void;
 }) {
@@ -905,36 +900,33 @@ function KitFormModal({ existing, equipments, tiposEstoque, onSave, onCancel }: 
   const [descricao, setDescricao] = useState(existing?.descricao ?? '');
   const [items, setItems] = useState(existing?.items ?? []);
 
-  // Busca de equipamentos: texto + categoria + toggle "só da marca selecionada" + tipo de estoque
+  // Busca de equipamentos: texto + categoria + toggle "só da marca selecionada"
   const [equipSearch, setEquipSearch] = useState('');
   const [equipCategory, setEquipCategory] = useState<'Todas' | 'Câmera' | 'Sensor' | 'Central' | 'Acessório'>('Todas');
   const [onlySelectedBrand, setOnlySelectedBrand] = useState(true);
-  const [codEstoqueFilter, setCodEstoqueFilter] = useState<number | 'Todos'>('Todos');
-
-  const tiposAtivos = useMemo(() => tiposEstoque.filter((t) => !t.inativo), [tiposEstoque]);
-  const mostrarFiltroEstoque = tiposAtivos.length >= 2;
-
-  const matchEquip = (e: Equipment): boolean => {
-    if (onlySelectedBrand && e.marca !== marca && e.marca !== 'Genérico') return false;
-    if (equipCategory !== 'Todas' && e.category !== equipCategory) return false;
-    if (codEstoqueFilter !== 'Todos' && e.estoquePadrao !== codEstoqueFilter) return false;
-    const q = equipSearch.trim().toLowerCase();
-    if (q && !`${e.name} ${e.sku ?? ''} ${e.descricao ?? ''}`.toLowerCase().includes(q)) return false;
-    return true;
-  };
 
   const filteredEq = useMemo(() => {
+    const q = equipSearch.trim().toLowerCase();
     return equipments
-      .filter(matchEquip)
+      .filter((e) => {
+        if (onlySelectedBrand && e.marca !== marca && e.marca !== 'Genérico') return false;
+        if (equipCategory !== 'Todas' && e.category !== equipCategory) return false;
+        if (q && !`${e.name} ${e.sku ?? ''} ${e.descricao ?? ''}`.toLowerCase().includes(q)) return false;
+        return true;
+      })
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
       .slice(0, 50);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [equipments, equipSearch, equipCategory, onlySelectedBrand, marca, codEstoqueFilter]);
+  }, [equipments, equipSearch, equipCategory, onlySelectedBrand, marca]);
 
-  const totalFilteredPool = useMemo(() => equipments.filter(matchEquip).length,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [equipments, equipSearch, equipCategory, onlySelectedBrand, marca, codEstoqueFilter],
-  );
+  const totalFilteredPool = useMemo(() => {
+    return equipments.filter((e) => {
+      if (onlySelectedBrand && e.marca !== marca && e.marca !== 'Genérico') return false;
+      if (equipCategory !== 'Todas' && e.category !== equipCategory) return false;
+      const q = equipSearch.trim().toLowerCase();
+      if (q && !`${e.name} ${e.sku ?? ''} ${e.descricao ?? ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    }).length;
+  }, [equipments, equipSearch, equipCategory, onlySelectedBrand, marca]);
 
   const total = useMemo(() => items.reduce((s, i) => { const eq = equipments.find((e) => e.id === i.equipmentId); return s + (eq?.price ?? i.unitPrice ?? 0) * i.quantity; }, 0), [items, equipments]);
 
@@ -1006,41 +998,6 @@ function KitFormModal({ existing, equipments, tiposEstoque, onSave, onCancel }: 
             >{c}</button>
           ))}
         </div>
-
-        {/* Tipo de Estoque */}
-        {mostrarFiltroEstoque && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
-            <span style={{ fontSize: 11, color: theme.muted, marginRight: 4 }}>Estoque:</span>
-            <button
-              type="button"
-              onClick={() => setCodEstoqueFilter('Todos')}
-              style={{
-                padding: '3px 8px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
-                background: codEstoqueFilter === 'Todos' ? 'rgba(200,169,81,0.12)' : theme.soft,
-                border: `1px solid ${codEstoqueFilter === 'Todos' ? theme.gold : theme.border}`,
-                color: codEstoqueFilter === 'Todos' ? theme.gold : theme.text,
-                fontWeight: codEstoqueFilter === 'Todos' ? 700 : 400,
-              }}
-            >Todos</button>
-            {tiposAtivos.map((t) => {
-              const active = codEstoqueFilter === t.codEstoque;
-              return (
-                <button
-                  key={t.codEstoque}
-                  type="button"
-                  onClick={() => setCodEstoqueFilter(t.codEstoque)}
-                  style={{
-                    padding: '3px 8px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
-                    background: active ? 'rgba(200,169,81,0.12)' : theme.soft,
-                    border: `1px solid ${active ? theme.gold : theme.border}`,
-                    color: active ? theme.gold : theme.text,
-                    fontWeight: active ? 700 : 400,
-                  }}
-                >{t.tipoEstoque}</button>
-              );
-            })}
-          </div>
-        )}
 
         {/* Toggle marca + contador */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, fontSize: 12 }}>

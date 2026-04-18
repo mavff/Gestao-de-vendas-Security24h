@@ -25,14 +25,6 @@ export type EquipmentQuery = ListQuery & {
   cancelado?: boolean;
   /** Se false, retorna catálogo ERP completo (padrão backend: true = só com GrupoOrçamento). */
   apenasOrcamento?: boolean;
-  /** Filtrar pelo TiposEstoque.CodEstoque do produto (ex.: vendas, comodato, insumos). */
-  codEstoque?: number;
-};
-
-export type TipoEstoqueApiDto = {
-  codEstoque: number;
-  tipoEstoque: string;
-  inativo: boolean;
 };
 
 export type KitsQuery = ListQuery & {
@@ -68,7 +60,6 @@ export type ProductApiDto = {
   ncm?: string | null;
   acrescimoMensal?: number | string | null;
   acrescimoInstalacao?: number | string | null;
-  estoquePadrao?: number | null;
 };
 
 export type ProductKitItemApiDto = {

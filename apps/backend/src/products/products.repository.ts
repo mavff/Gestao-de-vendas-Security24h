@@ -11,8 +11,6 @@ export interface ProductFilters extends PaginationQuery {
   /** Filtrar apenas produtos com GrupoOrçamento preenchido (padrão: false — ERP atual tem só 4 com esse campo) */
   apenasOrcamento?: boolean;
   grupoOrcamento?: string;
-  /** Tipo de estoque padrão do produto (TiposEstoque.CodEstoque) */
-  codEstoque?: number;
 }
 
 @Injectable()
@@ -41,9 +39,6 @@ export class ProductsRepository {
       where.cancelado = filters.cancelado;
     } else {
       where.cancelado = false;
-    }
-    if (filters.codEstoque !== undefined) {
-      where.estoquePadrao = filters.codEstoque;
     }
 
     // Default: retorna catálogo completo (ERP atual só tem 4 produtos com grupoOrcamento preenchido).

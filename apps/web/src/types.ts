@@ -107,7 +107,6 @@ export type Equipment = {
   pontos?: number;
   acrescimoMensal?: number;
   acrescimoInstalacao?: number;
-  estoquePadrao?: number;
 };
 
 export type Kit = {
