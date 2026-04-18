@@ -44,6 +44,8 @@ export function EquipmentPage() {
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<Equipment>(emptyDraft);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   // ERP equipments têm ID numérico (codProduto). Custom usam prefixo "E" + timestamp.
   const isCustomId = (id: string) => id.startsWith('E');
@@ -87,6 +89,16 @@ export function EquipmentPage() {
       return byCat && byMarca && bySearch;
     }),
   [equipments, category, marcaFilter, search]);
+
+  // Reset página quando filtros/busca mudam
+  useEffect(() => { setPage(1); }, [category, marcaFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paginated = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage],
+  );
 
   function openNew() {
     setDraft(emptyDraft);
@@ -156,6 +168,7 @@ export function EquipmentPage() {
         {filtered.length} equipamento(s)
         {category !== 'Todas' && ` na categoria "${category}"`}
         {marcaFilter !== 'Todas' && ` · marca "${marcaFilter}"`}
+        {filtered.length > PAGE_SIZE && ` · página ${currentPage} de ${totalPages}`}
       </div>
 
       {/* Table */}
@@ -174,7 +187,7 @@ export function EquipmentPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((eq) => (
+              {paginated.map((eq) => (
                 <tr key={eq.id}>
                   <td style={tdStyle}><span style={{ fontFamily: 'monospace', fontSize: 12, color: theme.muted }}>{eq.sku}</span></td>
                   <td style={tdStyle}><strong>{eq.name}</strong></td>
@@ -200,6 +213,11 @@ export function EquipmentPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Paginação */}
+      {filtered.length > PAGE_SIZE && (
+        <Pagination currentPage={currentPage} totalPages={totalPages} onChange={setPage} />
       )}
 
       {/* Modal */}
@@ -286,6 +304,41 @@ function MarcaBadge({ marca }: { marca: Marca }) {
     }}>
       {marca}
     </span>
+  );
+}
+
+function Pagination({ currentPage, totalPages, onChange }: { currentPage: number; totalPages: number; onChange: (p: number) => void }) {
+  // Gera lista de páginas com elipse: 1 … k-1 k k+1 … N
+  const pages = useMemo<Array<number | '...'>>(() => {
+    const out: Array<number | '...'> = [];
+    const add = (p: number | '...') => { if (out[out.length - 1] !== p) out.push(p); };
+    const push = (p: number) => { if (p >= 1 && p <= totalPages) add(p); };
+    push(1);
+    if (currentPage - 2 > 2) add('...');
+    for (let p = Math.max(2, currentPage - 1); p <= Math.min(totalPages - 1, currentPage + 1); p++) push(p);
+    if (currentPage + 2 < totalPages - 1) add('...');
+    if (totalPages > 1) push(totalPages);
+    return out;
+  }, [currentPage, totalPages]);
+
+  const btn = (active: boolean): React.CSSProperties => ({
+    background: active ? 'rgba(200,169,81,0.12)' : theme.soft,
+    border: `1px solid ${active ? theme.gold : theme.border}`,
+    color: active ? theme.gold : theme.text,
+    borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12,
+    fontWeight: active ? 700 : 400, minWidth: 30,
+  });
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 4, marginTop: 14, flexWrap: 'wrap' }}>
+      <button type="button" onClick={() => onChange(currentPage - 1)} disabled={currentPage <= 1} style={{ ...btn(false), opacity: currentPage <= 1 ? 0.4 : 1 }}>‹</button>
+      {pages.map((p, i) =>
+        p === '...'
+          ? <span key={`e${i}`} style={{ color: theme.muted, padding: '0 4px' }}>…</span>
+          : <button key={p} type="button" onClick={() => onChange(p)} style={btn(p === currentPage)}>{p}</button>,
+      )}
+      <button type="button" onClick={() => onChange(currentPage + 1)} disabled={currentPage >= totalPages} style={{ ...btn(false), opacity: currentPage >= totalPages ? 0.4 : 1 }}>›</button>
+    </div>
   );
 }
 

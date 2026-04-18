@@ -83,7 +83,7 @@ export function KitsPage() {
     const [modelosRes, kitsRes, eqRes] = await Promise.allSettled([
       ds.preOrcamentos.list({ pageSize: 200 }),
       ds.kits.list({ pageSize: 500 }),
-      ds.equipment.list({ pageSize: 500 }),
+      ds.equipment.list({ pageSize: 2000, apenasOrcamento: false }),
     ]);
 
     if (modelosRes.status === 'fulfilled') {
@@ -899,18 +899,48 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
   const [categoria, setCategoria] = useState<KitCategoria>(existing?.categoria ?? 'alarme_residencial');
   const [descricao, setDescricao] = useState(existing?.descricao ?? '');
   const [items, setItems] = useState(existing?.items ?? []);
-  const [selEquip, setSelEquip] = useState('');
-  const [selQtd, setSelQtd] = useState(1);
 
-  const filteredEq = useMemo(() => equipments.filter((e) => e.marca === marca || e.marca === 'Genérico'), [equipments, marca]);
+  // Busca de equipamentos: texto + categoria + toggle "só da marca selecionada"
+  const [equipSearch, setEquipSearch] = useState('');
+  const [equipCategory, setEquipCategory] = useState<'Todas' | 'Câmera' | 'Sensor' | 'Central' | 'Acessório'>('Todas');
+  const [onlySelectedBrand, setOnlySelectedBrand] = useState(true);
+
+  const filteredEq = useMemo(() => {
+    const q = equipSearch.trim().toLowerCase();
+    return equipments
+      .filter((e) => {
+        if (onlySelectedBrand && e.marca !== marca && e.marca !== 'Genérico') return false;
+        if (equipCategory !== 'Todas' && e.category !== equipCategory) return false;
+        if (q && !`${e.name} ${e.sku ?? ''} ${e.descricao ?? ''}`.toLowerCase().includes(q)) return false;
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+      .slice(0, 50);
+  }, [equipments, equipSearch, equipCategory, onlySelectedBrand, marca]);
+
+  const totalFilteredPool = useMemo(() => {
+    return equipments.filter((e) => {
+      if (onlySelectedBrand && e.marca !== marca && e.marca !== 'Genérico') return false;
+      if (equipCategory !== 'Todas' && e.category !== equipCategory) return false;
+      const q = equipSearch.trim().toLowerCase();
+      if (q && !`${e.name} ${e.sku ?? ''} ${e.descricao ?? ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    }).length;
+  }, [equipments, equipSearch, equipCategory, onlySelectedBrand, marca]);
+
   const total = useMemo(() => items.reduce((s, i) => { const eq = equipments.find((e) => e.id === i.equipmentId); return s + (eq?.price ?? i.unitPrice ?? 0) * i.quantity; }, 0), [items, equipments]);
 
-  function addItem() {
-    if (!selEquip || selQtd < 1) return;
-    const exists = items.find((i) => i.equipmentId === selEquip);
-    if (exists) { setItems((cur) => cur.map((i) => i.equipmentId === selEquip ? { ...i, quantity: i.quantity + selQtd } : i)); }
-    else { setItems((cur) => [...cur, { equipmentId: selEquip, quantity: selQtd }]); }
-    setSelQtd(1);
+  function addEquipment(eqId: string) {
+    const exists = items.find((i) => i.equipmentId === eqId);
+    if (exists) { setItems((cur) => cur.map((i) => i.equipmentId === eqId ? { ...i, quantity: i.quantity + 1 } : i)); }
+    else { setItems((cur) => [...cur, { equipmentId: eqId, quantity: 1 }]); }
+  }
+
+  function changeQty(eqId: string, delta: number) {
+    setItems((cur) => cur
+      .map((i) => i.equipmentId === eqId ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i)
+      .filter((i) => i.quantity > 0),
+    );
   }
 
   function handleSave() {
@@ -942,13 +972,75 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
         <textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Breve descrição do kit..." />
 
         <h4 style={{ color: theme.gold, margin: '12px 0 8px', fontSize: 14 }}>Itens</h4>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <select value={selEquip} onChange={(e) => setSelEquip(e.target.value)} style={{ ...inputStyle, flex: 1, marginBottom: 0 }}>
-            <option value="">Selecionar equipamento...</option>
-            {filteredEq.map((eq) => <option key={eq.id} value={eq.id}>{eq.name} — R$ {eq.price}</option>)}
-          </select>
-          <input type="number" min={1} value={selQtd} onChange={(e) => setSelQtd(Number(e.target.value))} style={{ ...inputStyle, width: 60, marginBottom: 0 }} />
-          <button type="button" onClick={addItem} disabled={!selEquip} style={{ ...btnGold, opacity: selEquip ? 1 : 0.4 }}>+</button>
+
+        {/* Busca */}
+        <input
+          value={equipSearch}
+          onChange={(e) => setEquipSearch(e.target.value)}
+          placeholder="Buscar por nome, SKU ou descrição…"
+          style={inputStyle}
+        />
+
+        {/* Categoria */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+          {(['Todas', 'Câmera', 'Sensor', 'Central', 'Acessório'] as const).map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setEquipCategory(c)}
+              style={{
+                padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                background: equipCategory === c ? 'rgba(200,169,81,0.12)' : theme.soft,
+                border: `1px solid ${equipCategory === c ? theme.gold : theme.border}`,
+                color: equipCategory === c ? theme.gold : theme.text,
+                fontWeight: equipCategory === c ? 700 : 400,
+              }}
+            >{c}</button>
+          ))}
+        </div>
+
+        {/* Toggle marca + contador */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, fontSize: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: theme.muted, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={onlySelectedBrand}
+              onChange={(e) => setOnlySelectedBrand(e.target.checked)}
+            />
+            Só da marca {marca}
+          </label>
+          <span style={{ color: theme.muted }}>
+            {totalFilteredPool === 0 ? 'Nenhum produto' :
+              totalFilteredPool > filteredEq.length ? `Exibindo ${filteredEq.length} de ${totalFilteredPool} — refine a busca` :
+              `${filteredEq.length} produto${filteredEq.length === 1 ? '' : 's'}`}
+          </span>
+        </div>
+
+        {/* Lista de resultados */}
+        <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${theme.border}`, borderRadius: 8, marginBottom: 10 }}>
+          {filteredEq.length === 0
+            ? <div style={{ padding: 12, textAlign: 'center', color: theme.muted, fontSize: 12 }}>Nenhum equipamento encontrado.</div>
+            : filteredEq.map((eq) => (
+              <div
+                key={eq.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 8px', borderBottom: `1px solid ${theme.border}`, fontSize: 12,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: theme.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{eq.name}</div>
+                  <div style={{ color: theme.muted, fontSize: 11 }}>
+                    {eq.sku} · {eq.marca} · {eq.category} · R$ {eq.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addEquipment(eq.id)}
+                  style={{ ...btnGold, padding: '4px 10px', fontSize: 12 }}
+                >+</button>
+              </div>
+            ))}
         </div>
 
         {items.length === 0
@@ -963,7 +1055,13 @@ function KitFormModal({ existing, equipments, onSave, onCancel }: {
                   return (
                     <tr key={item.equipmentId}>
                       <td style={tdStyle}>{eq?.name ?? item.itemName ?? item.equipmentId}</td>
-                      <td style={tdStyle}>{item.quantity}</td>
+                      <td style={tdStyle}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <button type="button" onClick={() => changeQty(item.equipmentId, -1)} style={qtyBtnSmall}>−</button>
+                          <span style={{ minWidth: 22, textAlign: 'center' }}>{item.quantity}</span>
+                          <button type="button" onClick={() => changeQty(item.equipmentId, +1)} style={qtyBtnSmall}>+</button>
+                        </div>
+                      </td>
                       <td style={tdStyle}>R$ {(price * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                       <td style={tdStyle}><button onClick={() => setItems((cur) => cur.filter((i) => i.equipmentId !== item.equipmentId))} style={{ background: 'transparent', border: `1px solid ${theme.danger}`, borderRadius: 6, color: theme.danger, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}>x</button></td>
                     </tr>
@@ -997,4 +1095,5 @@ const thStyle: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', bo
 const tdStyle: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${theme.border}`, fontSize: 13, verticalAlign: 'middle' };
 const filterBtnStyle: React.CSSProperties = { padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, background: theme.soft, border: `1px solid ${theme.border}`, color: theme.text };
 const filterBtnActive: React.CSSProperties = { background: 'rgba(200,169,81,0.12)', borderColor: theme.gold, color: theme.gold, fontWeight: 700 };
+const qtyBtnSmall: React.CSSProperties = { background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 4, color: theme.text, width: 22, height: 22, cursor: 'pointer', fontSize: 12, lineHeight: 1 };
 const qtyBtn: React.CSSProperties = { background: theme.soft, border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, width: 28, height: 28, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 };
