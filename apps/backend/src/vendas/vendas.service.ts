@@ -2,6 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { buildPaginatedResponse, parsePagination, PaginatedResponse } from '../shared/pagination';
+import {
+  assertCanMutate,
+  isAdminRole,
+  resolveOwnerListFilter,
+  stampOwnerOnCreate,
+} from '../shared/ownership';
+import type { AuthedRequest } from '../auth/authed-request';
 import { PhotosService } from '../photos/photos.service';
 import { Venda } from './venda.entity';
 
@@ -21,31 +28,12 @@ export class VendasService {
     private readonly photos: PhotosService,
   ) {}
 
-  async anexarContrato(
-    id: string,
-    buffer: Buffer,
-    mimeType: string,
-    userId: number | null,
-  ): Promise<Venda> {
-    const venda = await this.findOne(id);
-    const saved = await this.photos.upload(buffer, {
-      entityType: 'contrato',
-      entityId: id,
-      mimeType,
-      createdBy: userId,
-    });
-    venda.contratoUrl = `photo:${saved.id}`;
-    venda.contratoAssinadoEm = new Date().toISOString();
-    venda.updatedAt = new Date().toISOString();
-    await this.repo.save(venda);
-    return venda;
-  }
-
-  async list(filters: ListVendasFilters): Promise<PaginatedResponse<Venda>> {
+  async list(req: AuthedRequest, filters: ListVendasFilters): Promise<PaginatedResponse<Venda>> {
     const { skip, take, page, pageSize } = parsePagination(filters);
+    const ownerFilter = resolveOwnerListFilter(req, filters.criadoPor);
     const qb = this.repo.createQueryBuilder('v');
     if (filters.status) qb.andWhere('v.status = :status', { status: filters.status });
-    if (filters.criadoPor) qb.andWhere('v.criadoPor = :u', { u: filters.criadoPor });
+    if (ownerFilter) qb.andWhere('v.criadoPor = :u', { u: ownerFilter });
     if (filters.search) {
       qb.andWhere(
         '(LOWER(v.clienteNome) LIKE :q OR LOWER(v.clienteEmpresa) LIKE :q OR LOWER(v.clienteTelefone) LIKE :q)',
@@ -57,19 +45,58 @@ export class VendasService {
     return buildPaginatedResponse(data, total, page, pageSize);
   }
 
-  async findOne(id: string): Promise<Venda> {
+  /** Busca interna sem checagem de ownership (uso do próprio service). */
+  private async findOneRaw(id: string): Promise<Venda> {
     const v = await this.repo.findOne({ where: { id } });
     if (!v) throw new NotFoundException(`Venda ${id} não encontrada`);
     return v;
   }
 
-  async upsert(id: string, data: Partial<Venda>): Promise<Venda> {
-    const payload: Partial<Venda> = { ...data, id };
-    await this.repo.save(payload as Venda);
-    return this.findOne(id);
+  /** GET /:id — bloqueia se usuário não pode acessar esse registro. */
+  async findOneScoped(req: AuthedRequest, id: string): Promise<Venda> {
+    const v = await this.findOneRaw(id);
+    if (!isAdminRole(req.user?.role)) {
+      assertCanMutate(req, v.criadoPor);
+    }
+    return v;
   }
 
-  async remove(id: string): Promise<void> {
+  async upsert(req: AuthedRequest, id: string, data: Partial<Venda>): Promise<Venda> {
+    // Se registro existe, valida ownership antes de permitir update
+    const existing = await this.repo.findOne({ where: { id } });
+    if (existing) {
+      assertCanMutate(req, existing.criadoPor);
+    }
+    const stamped = stampOwnerOnCreate(req, data);
+    const payload: Partial<Venda> = { ...stamped, id };
+    await this.repo.save(payload as Venda);
+    return this.findOneRaw(id);
+  }
+
+  async remove(req: AuthedRequest, id: string): Promise<void> {
+    const existing = await this.repo.findOne({ where: { id } });
+    if (!existing) return;
+    assertCanMutate(req, existing.criadoPor);
     await this.repo.delete(id);
+  }
+
+  async anexarContrato(
+    req: AuthedRequest,
+    id: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<Venda> {
+    const venda = await this.findOneScoped(req, id);
+    const saved = await this.photos.upload(buffer, {
+      entityType: 'contrato',
+      entityId: id,
+      mimeType,
+      createdBy: req.user?.sub ?? null,
+    });
+    venda.contratoUrl = `photo:${saved.id}`;
+    venda.contratoAssinadoEm = new Date().toISOString();
+    venda.updatedAt = new Date().toISOString();
+    await this.repo.save(venda);
+    return venda;
   }
 }

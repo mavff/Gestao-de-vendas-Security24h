@@ -2,6 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { buildPaginatedResponse, parsePagination, PaginatedResponse } from '../shared/pagination';
+import {
+  assertCanMutate,
+  isAdminRole,
+  resolveOwnerListFilter,
+  stampOwnerOnCreate,
+} from '../shared/ownership';
+import type { AuthedRequest } from '../auth/authed-request';
 import { PropostaLocal } from './proposta-local.entity';
 
 export interface ListPropostasFilters {
@@ -20,11 +27,12 @@ export class PropostasLocalService {
     private readonly repo: Repository<PropostaLocal>,
   ) {}
 
-  async list(filters: ListPropostasFilters): Promise<PaginatedResponse<PropostaLocal>> {
+  async list(req: AuthedRequest, filters: ListPropostasFilters): Promise<PaginatedResponse<PropostaLocal>> {
     const { skip, take, page, pageSize } = parsePagination(filters);
+    const ownerFilter = resolveOwnerListFilter(req, filters.criadoPor);
     const qb = this.repo.createQueryBuilder('p');
     if (filters.status) qb.andWhere('p.status = :s', { s: filters.status });
-    if (filters.criadoPor) qb.andWhere('p.criadoPor = :u', { u: filters.criadoPor });
+    if (ownerFilter) qb.andWhere('p.criadoPor = :u', { u: ownerFilter });
     if (filters.leadId) qb.andWhere('p.leadId = :l', { l: filters.leadId });
     if (filters.search) qb.andWhere('LOWER(p.clienteNome) LIKE :q', { q: `%${filters.search.toLowerCase()}%` });
     qb.orderBy('p.updatedAt', 'DESC').skip(skip).take(take);
@@ -32,18 +40,32 @@ export class PropostasLocalService {
     return buildPaginatedResponse(data, total, page, pageSize);
   }
 
-  async findOne(id: string): Promise<PropostaLocal> {
+  private async findOneRaw(id: string): Promise<PropostaLocal> {
     const p = await this.repo.findOne({ where: { id } });
     if (!p) throw new NotFoundException(`Proposta ${id} não encontrada`);
     return p;
   }
 
-  async upsert(id: string, data: Partial<PropostaLocal>): Promise<PropostaLocal> {
-    await this.repo.save({ ...data, id } as PropostaLocal);
-    return this.findOne(id);
+  async findOneScoped(req: AuthedRequest, id: string): Promise<PropostaLocal> {
+    const p = await this.findOneRaw(id);
+    if (!isAdminRole(req.user?.role)) {
+      assertCanMutate(req, p.criadoPor);
+    }
+    return p;
   }
 
-  async remove(id: string): Promise<void> {
+  async upsert(req: AuthedRequest, id: string, data: Partial<PropostaLocal>): Promise<PropostaLocal> {
+    const existing = await this.repo.findOne({ where: { id } });
+    if (existing) assertCanMutate(req, existing.criadoPor);
+    const stamped = stampOwnerOnCreate(req, data);
+    await this.repo.save({ ...stamped, id } as PropostaLocal);
+    return this.findOneRaw(id);
+  }
+
+  async remove(req: AuthedRequest, id: string): Promise<void> {
+    const existing = await this.repo.findOne({ where: { id } });
+    if (!existing) return;
+    assertCanMutate(req, existing.criadoPor);
     await this.repo.delete(id);
   }
 }

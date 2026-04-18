@@ -10,10 +10,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 import { ListOrcamentosFilters, OrcamentosLocalService } from './orcamentos-local.service';
 
 @Controller('orcamentos-local')
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard, RolesGuard)
+@Roles('ADMIN', 'GESTOR')
 export class OrcamentosLocalController {
   constructor(private readonly svc: OrcamentosLocalService) {}
 

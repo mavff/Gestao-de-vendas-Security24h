@@ -7,19 +7,24 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
+import type { AuthedRequest } from '../auth/authed-request';
 import { ListOrdensFilters, OrdensService } from './ordens.service';
 
 @Controller('ordens-servico')
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard, RolesGuard)
+@Roles('ADMIN', 'GESTOR', 'TECNICO', 'VENDEDOR')
 export class OrdensController {
   constructor(private readonly svc: OrdensService) {}
 
   @Get()
-  list(@Query() query: ListOrdensFilters) {
-    return this.svc.list(query);
+  list(@Req() req: AuthedRequest, @Query() query: ListOrdensFilters) {
+    return this.svc.list(req, query);
   }
 
   @Get(':id')

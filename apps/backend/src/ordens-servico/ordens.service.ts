@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { buildPaginatedResponse, parsePagination, PaginatedResponse } from '../shared/pagination';
+import type { AuthedRequest } from '../auth/authed-request';
 import { OrdemServico } from './ordem.entity';
 
 export interface ListOrdensFilters {
@@ -19,11 +20,20 @@ export class OrdensService {
     private readonly repo: Repository<OrdemServico>,
   ) {}
 
-  async list(filters: ListOrdensFilters): Promise<PaginatedResponse<OrdemServico>> {
+  async list(req: AuthedRequest, filters: ListOrdensFilters): Promise<PaginatedResponse<OrdemServico>> {
     const { skip, take, page, pageSize } = parsePagination(filters);
     const qb = this.repo.createQueryBuilder('o');
+
+    // TÉCNICO só enxerga as próprias OS (por tecnicoId = username).
+    // ADMIN/GESTOR/VENDEDOR enxergam todas (sem campo criadoPor na entity ainda).
+    const role = req.user?.role;
+    if (role === 'TECNICO') {
+      qb.andWhere('o.tecnicoId = :me', { me: req.user?.username ?? '' });
+    } else if (filters.tecnicoId) {
+      qb.andWhere('o.tecnicoId = :t', { t: filters.tecnicoId });
+    }
+
     if (filters.leadId) qb.andWhere('o.leadId = :l', { l: filters.leadId });
-    if (filters.tecnicoId) qb.andWhere('o.tecnicoId = :t', { t: filters.tecnicoId });
     if (filters.status) qb.andWhere('o.status = :s', { s: filters.status });
     qb.orderBy('o.createdAt', 'DESC').skip(skip).take(take);
     const [data, total] = await qb.getManyAndCount();

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import type { AuthedRequest } from '../auth/authed-request';
 import { AppKvService } from '../app-users/app-kv.service';
 import { VendasService } from '../vendas/vendas.service';
 import { SolucoesService } from '../solucoes-tecnicas/solucoes.service';
@@ -8,6 +9,12 @@ import { PropostasLocalService } from '../propostas-local/propostas-local.servic
 import { OrcamentosLocalService } from '../orcamentos-local/orcamentos-local.service';
 
 const MIGRATION_KEY = 'migration:relational_v1';
+
+// Request sintético ADMIN para a migração de boot (sem contexto HTTP).
+// Preserva `criadoPor` dos registros legados via regra admin em stampOwnerOnCreate.
+const MIGRATION_REQ = {
+  user: { username: '__migration__', role: 'ADMIN', source: 'app' as const },
+} as unknown as AuthedRequest;
 
 type Upserter = (id: string, data: Record<string, unknown>) => Promise<unknown>;
 
@@ -43,23 +50,23 @@ export class RelationalMigrationService implements OnModuleInit {
         {
           kvKey: 'vendedor_vendas',
           label: 'vendas',
-          upsert: (id, d) => this.vendas.upsert(id, d as never),
+          upsert: (id, d) => this.vendas.upsert(MIGRATION_REQ, id, d as never),
         },
         {
           kvKey: 'solucoes',
           label: 'soluções',
-          upsert: (id, d) => this.solucoes.upsert(id, d as never),
+          upsert: (id, d) => this.solucoes.upsert(MIGRATION_REQ, id, d as never),
         },
         {
           kvKey: 'vistorias',
           label: 'vistorias (1ª visita)',
-          upsert: (id, d) => this.vistorias.upsert(id, d as never),
+          upsert: (id, d) => this.vistorias.upsert(MIGRATION_REQ, id, d as never),
           transform: (item) => ({ ...item, tipoVistoria: 'vistoria' }),
         },
         {
           kvKey: 'entregas',
           label: 'vistorias (2ª visita / entrega)',
-          upsert: (id, d) => this.vistorias.upsert(id, d as never),
+          upsert: (id, d) => this.vistorias.upsert(MIGRATION_REQ, id, d as never),
           transform: (item) => ({ ...item, tipoVistoria: 'entrega' }),
         },
         {
@@ -70,7 +77,7 @@ export class RelationalMigrationService implements OnModuleInit {
         {
           kvKey: 'propostas',
           label: 'propostas',
-          upsert: (id, d) => this.propostas.upsert(id, d as never),
+          upsert: (id, d) => this.propostas.upsert(MIGRATION_REQ, id, d as never),
         },
         {
           kvKey: 'orcamentos_local',

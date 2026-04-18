@@ -2,6 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { buildPaginatedResponse, parsePagination, PaginatedResponse } from '../shared/pagination';
+import {
+  assertCanMutate,
+  isAdminRole,
+  resolveOwnerListFilter,
+  stampOwnerOnCreate,
+} from '../shared/ownership';
+import type { AuthedRequest } from '../auth/authed-request';
 import { Solucao } from './solucao.entity';
 
 export interface ListSolucoesFilters {
@@ -20,11 +27,12 @@ export class SolucoesService {
     private readonly repo: Repository<Solucao>,
   ) {}
 
-  async list(filters: ListSolucoesFilters): Promise<PaginatedResponse<Solucao>> {
+  async list(req: AuthedRequest, filters: ListSolucoesFilters): Promise<PaginatedResponse<Solucao>> {
     const { skip, take, page, pageSize } = parsePagination(filters);
+    const ownerFilter = resolveOwnerListFilter(req, filters.criadoPor);
     const qb = this.repo.createQueryBuilder('s');
     if (filters.status) qb.andWhere('s.status = :status', { status: filters.status });
-    if (filters.criadoPor) qb.andWhere('s.criadoPor = :u', { u: filters.criadoPor });
+    if (ownerFilter) qb.andWhere('s.criadoPor = :u', { u: ownerFilter });
     if (filters.leadId) qb.andWhere('s.leadId = :l', { l: filters.leadId });
     if (filters.search) {
       qb.andWhere('(LOWER(s.clienteNome) LIKE :q OR LOWER(s.marca) LIKE :q)', { q: `%${filters.search.toLowerCase()}%` });
@@ -34,18 +42,32 @@ export class SolucoesService {
     return buildPaginatedResponse(data, total, page, pageSize);
   }
 
-  async findOne(id: string): Promise<Solucao> {
+  private async findOneRaw(id: string): Promise<Solucao> {
     const s = await this.repo.findOne({ where: { id } });
     if (!s) throw new NotFoundException(`Solução ${id} não encontrada`);
     return s;
   }
 
-  async upsert(id: string, data: Partial<Solucao>): Promise<Solucao> {
-    await this.repo.save({ ...data, id } as Solucao);
-    return this.findOne(id);
+  async findOneScoped(req: AuthedRequest, id: string): Promise<Solucao> {
+    const s = await this.findOneRaw(id);
+    if (!isAdminRole(req.user?.role)) {
+      assertCanMutate(req, s.criadoPor);
+    }
+    return s;
   }
 
-  async remove(id: string): Promise<void> {
+  async upsert(req: AuthedRequest, id: string, data: Partial<Solucao>): Promise<Solucao> {
+    const existing = await this.repo.findOne({ where: { id } });
+    if (existing) assertCanMutate(req, existing.criadoPor);
+    const stamped = stampOwnerOnCreate(req, data);
+    await this.repo.save({ ...stamped, id } as Solucao);
+    return this.findOneRaw(id);
+  }
+
+  async remove(req: AuthedRequest, id: string): Promise<void> {
+    const existing = await this.repo.findOne({ where: { id } });
+    if (!existing) return;
+    assertCanMutate(req, existing.criadoPor);
     await this.repo.delete(id);
   }
 }
