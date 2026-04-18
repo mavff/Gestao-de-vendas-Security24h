@@ -11,6 +11,7 @@ import { createDataSource } from '../../lib/dataSource/factory';
 import { mockEquipments } from '../../mocks/data';
 import { loadLocalCache } from '../../services/localCache';
 import { loadState, saveState } from '../../services/appState';
+import { loadTiposEstoque, TipoEstoque } from '../../services/tiposEstoque';
 import { BlocoCategoria, Equipment, EquipmentCategory, Marca } from '../../types';
 
 const categories: EquipmentCategory[] = ['Câmera', 'Sensor', 'Central', 'Acessório'];
@@ -42,6 +43,8 @@ export function EquipmentPage() {
   const [category, setCategory] = useState('Todas');
   const [marcaFilter, setMarcaFilter] = useState('Todas');
   const [search, setSearch] = useState('');
+  const [tiposEstoque, setTiposEstoque] = useState<TipoEstoque[]>([]);
+  const [codEstoqueFilter, setCodEstoqueFilter] = useState<number | 'Todos'>('Todos');
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<Equipment>(emptyDraft);
   const [page, setPage] = useState(1);
@@ -76,22 +79,27 @@ export function EquipmentPage() {
     loadErpEquipments();
     // Carrega equipamentos custom do AppKv (SQLite) — compartilhado entre usuários
     loadState<Equipment[]>('equipments_custom', []).then(setEquipmentsCustom);
+    loadTiposEstoque().then(setTiposEstoque);
   }, [loadErpEquipments]);
 
   useRefreshOnFocus(() => { loadErpEquipments(); });
   usePollingRefresh(() => { loadErpEquipments(); }, 120_000);
+
+  const tiposAtivos = useMemo(() => tiposEstoque.filter((t) => !t.inativo), [tiposEstoque]);
+  const mostrarFiltroEstoque = tiposAtivos.length >= 2;
 
   const filtered = useMemo(() =>
     equipments.filter((eq) => {
       const byCat = category === 'Todas' || eq.category === category;
       const byMarca = marcaFilter === 'Todas' || eq.marca === marcaFilter;
       const bySearch = `${eq.name} ${eq.sku} ${eq.descricao}`.toLowerCase().includes(search.toLowerCase());
-      return byCat && byMarca && bySearch;
+      const byEstoque = codEstoqueFilter === 'Todos' || eq.estoquePadrao === codEstoqueFilter;
+      return byCat && byMarca && bySearch && byEstoque;
     }),
-  [equipments, category, marcaFilter, search]);
+  [equipments, category, marcaFilter, search, codEstoqueFilter]);
 
   // Reset página quando filtros/busca mudam
-  useEffect(() => { setPage(1); }, [category, marcaFilter, search]);
+  useEffect(() => { setPage(1); }, [category, marcaFilter, search, codEstoqueFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -158,6 +166,19 @@ export function EquipmentPage() {
           <option>Todas</option>
           {allMarcas.map((m) => <option key={m}>{m}</option>)}
         </select>
+        {mostrarFiltroEstoque && (
+          <select
+            value={codEstoqueFilter === 'Todos' ? 'Todos' : String(codEstoqueFilter)}
+            onChange={(e) => setCodEstoqueFilter(e.target.value === 'Todos' ? 'Todos' : Number(e.target.value))}
+            style={{ ...inputStyle, marginBottom: 0, width: 'auto' }}
+            title="Tipo de Estoque (vendas, comodato, insumos…)"
+          >
+            <option value="Todos">Estoque: Todos</option>
+            {tiposAtivos.map((t) => (
+              <option key={t.codEstoque} value={t.codEstoque}>{t.tipoEstoque}</option>
+            ))}
+          </select>
+        )}
         {canWrite && (
           <button onClick={openNew} style={btnGold}>+ Novo</button>
         )}

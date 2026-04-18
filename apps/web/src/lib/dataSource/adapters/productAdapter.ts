@@ -121,6 +121,7 @@ export function mapProductToEquipment(product: ProductApiDto): Equipment {
     pontos: toNumber(product.pontos) || undefined,
     acrescimoMensal: toNumber(product.acrescimoMensal) || undefined,
     acrescimoInstalacao: toNumber(product.acrescimoInstalacao) || undefined,
+    estoquePadrao: typeof product.estoquePadrao === 'number' ? product.estoquePadrao : undefined,
   };
 }
 

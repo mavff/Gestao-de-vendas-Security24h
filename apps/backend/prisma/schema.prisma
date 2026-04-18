@@ -36,6 +36,7 @@ model Produto {
   dataCadastro       DateTime? @map("DataCadastro") @db.DateTime
   modeloFabricante   String?  @map("ModeloFabricante") @db.NVarChar(100)
   codUnidade         Int?     @map("CodUnidade")
+  estoquePadrao      Int?     @map("EstoquePadrão")
 
   // Relations
   kitItens           ProdutoKit[] @relation("KitMaster")
@@ -43,6 +44,19 @@ model Produto {
   preOrcamentosItens PreOrcamentoProduto[]
 
   @@map("Produtos")
+}
+
+// ============================================================
+// TiposEstoque (vendas, comodato, insumos, técnico etc.)
+// ============================================================
+
+model TipoEstoque {
+  codEstoque   Int      @id @map("CodEstoque")
+  tipoEstoque  String?  @map("TipoEstoque") @db.NVarChar(100)
+  inativo      Boolean? @default(false) @map("Inativo")
+  unidade      Int?     @map("Unidade")
+
+  @@map("TiposEstoque")
 }
 
 // ============================================================

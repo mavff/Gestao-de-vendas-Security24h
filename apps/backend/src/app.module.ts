@@ -18,6 +18,7 @@ import { LookupsModule } from './lookups/lookups.module';
 import { OrcamentosModule } from './orcamentos/orcamentos.module';
 import { PreOrcamentosModule } from './pre-orcamentos/pre-orcamentos.module';
 import { ProductsModule } from './products/products.module';
+import { TiposEstoqueModule } from './tipos-estoque/tipos-estoque.module';
 import { ProspectsModule } from './prospects/prospects.module';
 import { SenhaUser } from './database/senha-user.entity';
 import { PhotosModule } from './photos/photos.module';
@@ -164,6 +165,7 @@ function buildAppDbModule(): DynamicModule[] {
     AprovacoesModule,
     RelationalMigrationModule,
     ProductsModule,
+    TiposEstoqueModule,
     KitsModule,
     LookupsModule,
     ProspectsModule,
