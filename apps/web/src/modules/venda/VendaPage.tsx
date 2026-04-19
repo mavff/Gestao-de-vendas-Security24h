@@ -360,7 +360,7 @@ export function VendaPage() {
      Actions — Step 3: Proposta / PDF
      ============================================= */
 
-  function handleGerarPDF(overrides?: { monitoramentoMensal?: number; prazo?: number; modalidade?: VendaLocal['modalidade'] }) {
+  function handleGerarPDF(overrides?: { monitoramentoMensal?: number; prazo?: number; modalidade?: VendaLocal['modalidade']; addonImagemAtivo?: boolean }) {
     if (!venda || !solucao) return;
     const itens = solucao.blocos.flatMap((b) =>
       b.itens.map((item) => {
@@ -374,9 +374,12 @@ export function VendaPage() {
     const modalidade = overrides?.modalidade ?? venda.modalidade ?? 'ambos';
     const prazo = overrides?.prazo ?? venda.prazoComodato ?? 36;
     const monitoramento = modalidade === 'imagem'
-      ? 32
+      ? (monitConfig.addonImagemValor ?? 32)
       : (overrides?.monitoramentoMensal ?? venda.monitoramentoMensal ?? 0);
     const mensalidadeComodato = (subtotalEquip / prazo) + monitoramento;
+    // Add-on só faz sentido fora da modalidade "imagem" pura (já é monitoramento de imagem standalone)
+    const addonAtivo = (overrides?.addonImagemAtivo ?? venda.addonImagemAtivo ?? false) && modalidade !== 'imagem';
+    const addonImagemValor = addonAtivo ? (monitConfig.addonImagemValor ?? 32) : 0;
 
     openPropostaPDF({
       clienteNome: venda.clienteNome,
@@ -395,6 +398,7 @@ export function VendaPage() {
       mensalidadeComodato,
       prazo,
       modalidade,
+      addonImagemValor,
       aprovacao: aprovacao ? {
         id: aprovacao.id,
         clienteNome: aprovacao.clienteNome,
@@ -421,14 +425,16 @@ export function VendaPage() {
     const subtotalEquip = itens.reduce((s, i) => s + i.preco * i.qtd, 0);
     const taxaInstalacao = calcTaxaInstalacao(subtotalEquip, instalacaoConfig);
     const prazo = venda.prazoComodato ?? 36;
-    const monit = venda.modalidade === 'imagem' ? 32 : (venda.monitoramentoMensal ?? 0);
+    const addonValor = monitConfig.addonImagemValor ?? 32;
+    const monit = venda.modalidade === 'imagem' ? addonValor : (venda.monitoramentoMensal ?? 0);
+    const addon = venda.modalidade !== 'imagem' && venda.addonImagemAtivo ? addonValor : 0;
     if (venda.modalidade === 'comodato') {
-      const mensalidade = (subtotalEquip / prazo) + monit;
+      const mensalidade = (subtotalEquip / prazo) + monit + addon;
       return taxaInstalacao + mensalidade * prazo;
     }
-    if (venda.modalidade === 'imagem') return 32 * prazo;
+    if (venda.modalidade === 'imagem') return addonValor * prazo;
     return subtotalEquip + taxaInstalacao;
-  }, [venda, solucao, mergedEquipments, instalacaoConfig]);
+  }, [venda, solucao, mergedEquipments, instalacaoConfig, monitConfig.addonImagemValor]);
 
   function handleClienteAprovou() {
     if (!venda) return;
@@ -1262,7 +1268,7 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   comissaoConfig: ComissaoConfig;
   instalacaoConfig: InstalacaoConfig;
   onUpdateVenda: (patch: Partial<VendaLocal>) => Promise<void>;
-  onGerarPDF: (overrides?: { monitoramentoMensal?: number; prazo?: number; modalidade?: VendaLocal['modalidade'] }) => void;
+  onGerarPDF: (overrides?: { monitoramentoMensal?: number; prazo?: number; modalidade?: VendaLocal['modalidade']; addonImagemAtivo?: boolean }) => void;
   onClienteAprovou: () => void;
   onInstalacaoConfigChange: (cfg: InstalacaoConfig) => void;
   canEdit: boolean;
@@ -1275,11 +1281,15 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   const faixa = monitConfig.faixas[faixaIdx] ?? monitConfig.faixas[0] ?? DEFAULT_MONIT_CONFIG.faixas[0];
   const monitBase = faixa.base;
   const monitMin = faixa.minimo;
+  const addonValor = monitConfig.addonImagemValor ?? 32;
   const [monitAjuste, setMonitAjuste] = useState<number | null>(
     venda.monitoramentoMensal != null && venda.monitoramentoMensal !== faixa.base ? venda.monitoramentoMensal : null,
   );
-  const monitValor = modalidade === 'imagem' ? 32 : (monitAjuste ?? monitBase);
+  const monitValor = modalidade === 'imagem' ? addonValor : (monitAjuste ?? monitBase);
   const [prazo, setPrazo] = useState<24 | 36 | 48>(venda.prazoComodato ?? 36);
+  const [addonImagemAtivo, setAddonImagemAtivo] = useState<boolean>(venda.addonImagemAtivo === true);
+  const addonImagemEfetivo = modalidade !== 'imagem' && addonImagemAtivo;
+  const addonExtra = addonImagemEfetivo ? addonValor : 0;
   const [showEquipDetail, setShowEquipDetail] = useState(false);
   const [showInstalacaoConfigModal, setShowInstalacaoConfigModal] = useState(false);
 
@@ -1304,7 +1314,8 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
   const taxaInstalacao = calcTaxaInstalacao(subtotalEquip, instalacaoConfig);
   const totalVenda = subtotalEquip + taxaInstalacao;
   const parcelaEquip = subtotalEquip / prazo;
-  const mensalidadeComodato = parcelaEquip + monitValor;
+  const mensalidadeComodatoBase = parcelaEquip + monitValor;
+  const mensalidadeComodato = mensalidadeComodatoBase + addonExtra;
   const totalItens = flatItems.reduce((s, i) => s + i.quantidade, 0);
   const desconto = monitAjuste !== null && monitAjuste < monitBase && modalidade !== 'imagem' ? ((1 - monitAjuste / monitBase) * 100) : 0;
 
@@ -1322,17 +1333,18 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
       prazoComodato: prazo,
       acrescimoInstalacao: 0,
       valorCrea: 0,
+      addonImagemAtivo,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalidade, monitValor, taxaInstalacao, prazo]);
+  }, [modalidade, monitValor, taxaInstalacao, prazo, addonImagemAtivo]);
 
   async function handleSaveAndGenerate() {
-    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra: taxaInstalacao, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
-    onGerarPDF({ monitoramentoMensal: monitValor, prazo, modalidade });
+    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra: taxaInstalacao, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0, addonImagemAtivo });
+    onGerarPDF({ monitoramentoMensal: monitValor, prazo, modalidade, addonImagemAtivo });
   }
 
   async function handleApprove() {
-    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra: taxaInstalacao, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0 });
+    await onUpdateVenda({ modalidade, monitoramentoMensal: monitValor, maoDeObra: taxaInstalacao, prazoComodato: prazo, acrescimoInstalacao: 0, valorCrea: 0, addonImagemAtivo });
     onClienteAprovou();
   }
 
@@ -1437,7 +1449,44 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
           {modalidade === 'imagem' && (
             <div style={{ background: '#43C17B15', border: `1px solid #43C17B55`, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 13, color: theme.text }}>
               <div style={{ fontWeight: 700, color: '#43C17B', marginBottom: 4 }}>Monitoramento de Imagem</div>
-              Para clientes que já possuem câmeras próprias. Valor fixo de <strong>R$ 32/mês</strong> — sem equipamentos e sem taxa de instalação.
+              Para clientes que já possuem sistema de alarme integrado com câmeras. Valor fixo de <strong>R$ {addonValor}/mês</strong> — sem equipamentos e sem taxa de instalação.
+            </div>
+          )}
+
+          {/* Add-on: + Monitoramento de Imagem (só fora da modalidade 'imagem' standalone) */}
+          {modalidade !== 'imagem' && (
+            <div
+              onClick={() => setAddonImagemAtivo((v) => !v)}
+              style={{
+                background: addonImagemAtivo ? '#43C17B15' : theme.soft,
+                border: `2px solid ${addonImagemAtivo ? '#43C17B' : theme.border}`,
+                borderRadius: 10, padding: 14, marginBottom: 14, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 12,
+              }}
+            >
+              <div
+                style={{
+                  width: 44, height: 26, borderRadius: 13, flexShrink: 0,
+                  background: addonImagemAtivo ? '#43C17B' : theme.border,
+                  position: 'relative', transition: 'background 0.15s',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute', top: 3, left: addonImagemAtivo ? 21 : 3,
+                    width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                    transition: 'left 0.15s',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: addonImagemAtivo ? '#43C17B' : theme.text }}>
+                  + Monitoramento de Imagem
+                </div>
+                <div style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>
+                  Adiciona <strong style={{ color: '#43C17B' }}>R$ {addonValor}/mês</strong> à mensalidade de monitoramento.
+                </div>
+              </div>
             </div>
           )}
 
@@ -1551,6 +1600,12 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
             <PRow label="Investimento Total" value={totalVenda} color={theme.gold} bold />
             <div style={{ height: 8 }} />
             <PRow label="Monitoramento" value={monitValor} color={theme.muted} suffix="/mês" />
+            {addonImagemEfetivo && (
+              <>
+                <PRow label="+ Monit. de Imagem" value={addonValor} color="#43C17B" suffix="/mês" />
+                <PRow label="Mensalidade Total" value={monitValor + addonValor} color={theme.gold} bold suffix="/mês" />
+              </>
+            )}
           </div>
         )}
 
@@ -1566,6 +1621,9 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
             <PRow label="Parcela Equipamento" value={parcelaEquip} color={theme.text} suffix="/mês"
               detail={`R$ ${subtotalEquip.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} ÷ ${prazo}`} />
             <PRow label="Monitoramento" value={monitValor} color={theme.text} suffix="/mês" />
+            {addonImagemEfetivo && (
+              <PRow label="+ Monit. de Imagem" value={addonValor} color="#43C17B" suffix="/mês" />
+            )}
             <PDivider />
             <PRow label="Mensalidade Total" value={mensalidadeComodato} color="#5B9BD5" bold suffix="/mês" />
             <div style={{ height: 8 }} />
@@ -1585,9 +1643,9 @@ function StepProposta({ venda, solucao, equipments, monitConfig, comissaoConfig,
               Monitoramento de Imagem
             </div>
             <div style={{ fontSize: 13, color: theme.muted, marginBottom: 12 }}>
-              Cliente já possui câmeras. Security24h faz apenas o monitoramento remoto — sem equipamentos, sem taxa de instalação.
+              Cliente já possui sistema de alarme integrado com câmeras. Security24h faz apenas o monitoramento remoto — sem equipamentos, sem taxa de instalação.
             </div>
-            <PRow label="Mensalidade" value={32} color="#43C17B" bold suffix="/mês" />
+            <PRow label="Mensalidade" value={addonValor} color="#43C17B" bold suffix="/mês" />
           </div>
         )}
       </div>

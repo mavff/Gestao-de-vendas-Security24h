@@ -34,6 +34,8 @@ type FaixaMonitoramento = {
 type MonitoramentoConfig = {
   faixas: FaixaMonitoramento[];
   maoDeObra: Record<string, number>;
+  /** Valor mensal do add-on "+ Monitoramento de Imagem" */
+  addonImagemValor: number;
 };
 
 const MONIT_KEY = 'config:monitoramento';
@@ -53,6 +55,7 @@ const DEFAULT_MONIT_CONFIG: MonitoramentoConfig = {
     'Comercial Grande': 900,
     'Condomínio / Industrial': 1500,
   },
+  addonImagemValor: 32,
 };
 
 /* ---- Constants ---- */
@@ -703,6 +706,9 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
   const [prazo, setPrazo] = useState<24 | 36 | 48>(36);
   const [faixaIdx, setFaixaIdx] = useState(0);
   const [monitAjuste, setMonitAjuste] = useState<number | null>(null); // vendedor override
+  const [addonImagemAtivo, setAddonImagemAtivo] = useState<boolean>(false);
+  const addonValor = monitConfig.addonImagemValor ?? 32;
+  const addonExtra = addonImagemAtivo ? addonValor : 0;
 
   // Equipment add state
   const [addEquipId, setAddEquipId] = useState('');
@@ -832,9 +838,10 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
 
   // ── Comodato ──
   const parcelaEquip = prazo > 0 && subtotalCusto > 0 ? subtotalCusto / prazo : 0;
-  const mensalidadeComodato = hasDbPricing
+  const mensalidadeComodatoBase = hasDbPricing
     ? monitValor  // BD: valorMensalComodato já inclui amortização
     : parcelaEquip + monitValor;  // fallback: custo/prazo + monitoramento
+  const mensalidadeComodato = mensalidadeComodatoBase + addonExtra;
 
   const custoTotalComodato = taxaInstalacao + (mensalidadeComodato * prazo);
 
@@ -1187,6 +1194,42 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
               }}>Comodato (aluguel)</button>
           </div>
 
+          {/* Add-on: + Monitoramento de Imagem */}
+          <div
+            onClick={() => !readOnly && setAddonImagemAtivo((v) => !v)}
+            style={{
+              background: addonImagemAtivo ? '#43C17B15' : theme.soft,
+              border: `2px solid ${addonImagemAtivo ? '#43C17B' : theme.border}`,
+              borderRadius: 8, padding: 10, marginBottom: 12,
+              cursor: readOnly ? 'not-allowed' : 'pointer', opacity: readOnly ? 0.6 : 1,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}
+          >
+            <div
+              style={{
+                width: 36, height: 22, borderRadius: 11, flexShrink: 0,
+                background: addonImagemAtivo ? '#43C17B' : theme.border,
+                position: 'relative', transition: 'background 0.15s',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute', top: 3, left: addonImagemAtivo ? 17 : 3,
+                  width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                  transition: 'left 0.15s',
+                }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: addonImagemAtivo ? '#43C17B' : theme.text }}>
+                + Monitoramento de Imagem
+              </div>
+              <div style={{ fontSize: 11, color: theme.muted, marginTop: 2 }}>
+                Adiciona <strong style={{ color: '#43C17B' }}>R$ {addonValor}/mês</strong> à mensalidade.
+              </div>
+            </div>
+          </div>
+
           {/* Badge: origem do preço */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             {hasDbPricing ? (
@@ -1293,6 +1336,12 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
               <Row label="Investimento Total" value={totalVenda} color={theme.gold} bold />
               <div style={{ height: 8 }} />
               <Row label="Monitoramento" value={monitValor} color={theme.muted} suffix="/mês" />
+              {addonImagemAtivo && (
+                <>
+                  <Row label="+ Monit. de Imagem" value={addonValor} color="#43C17B" suffix="/mês" />
+                  <Row label="Mensalidade Total" value={monitValor + addonValor} color={theme.gold} bold suffix="/mês" />
+                </>
+              )}
             </div>
 
             {/* Panel: COMODATO */}
@@ -1320,6 +1369,9 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
                       detail={`R$ ${subtotalCusto.toLocaleString('pt-BR')} ÷ ${prazo}`} />
                     <Row label="Monitoramento" value={monitValor} color={theme.text} suffix="/mês" />
                   </>
+                )}
+                {addonImagemAtivo && (
+                  <Row label="+ Monit. de Imagem" value={addonValor} color="#43C17B" suffix="/mês" />
                 )}
                 <Divider />
                 <Row label="Mensalidade Total" value={mensalidadeComodato} color="#5B9BD5" bold suffix="/mês" />
@@ -1392,6 +1444,7 @@ function PropostaEditor({ draft, setDraft, equipments, kitOptions, leads, precos
             mensalidadeComodato,
             prazo,
             modalidade: (modalidade === 'comodato' ? 'ambos' : 'venda') as 'ambos' | 'venda',
+            addonImagemValor: addonImagemAtivo ? addonValor : 0,
             aprovacao: ap ? {
               id: ap.id,
               clienteNome: ap.clienteNome,
@@ -1552,6 +1605,9 @@ function MonitoramentoConfigModal({ config, onSave, onClose }: {
 }) {
   const [faixas, setFaixas] = useState<FaixaMonitoramento[]>(() => config.faixas.map((f) => ({ ...f })));
   const [maoDeObra, setMaoDeObra] = useState<Record<string, number>>(() => ({ ...config.maoDeObra }));
+  const [addonImagemValor, setAddonImagemValor] = useState<number>(
+    config.addonImagemValor ?? 32,
+  );
   const [novaFaixa, setNovaFaixa] = useState('');
 
   const updateFaixa = (idx: number, field: 'base' | 'minimo', val: number) => {
@@ -1573,7 +1629,7 @@ function MonitoramentoConfigModal({ config, onSave, onClose }: {
   };
 
   const handleSave = () => {
-    onSave({ faixas, maoDeObra });
+    onSave({ faixas, maoDeObra, addonImagemValor });
   };
 
   const overlay: React.CSSProperties = {
@@ -1654,6 +1710,29 @@ function MonitoramentoConfigModal({ config, onSave, onClose }: {
           <button onClick={addFaixa} style={{ background: theme.gold, border: 'none', borderRadius: 6, color: '#111', padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
             + Adicionar
           </button>
+        </div>
+
+        {/* Add-on: Monitoramento de Imagem */}
+        <div style={{ background: '#43C17B10', border: `1px solid #43C17B44`, borderRadius: 8, padding: 12, marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#43C17B' }}>+ Monitoramento de Imagem</div>
+              <div style={{ fontSize: 11, color: theme.muted, marginTop: 2 }}>
+                Valor somado à mensalidade quando o vendedor ativa o toggle na proposta.
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, color: theme.muted }}>R$</span>
+              <input
+                type="number"
+                min={0}
+                value={addonImagemValor}
+                onChange={(e) => setAddonImagemValor(Math.max(0, Number(e.target.value) || 0))}
+                style={inputSm}
+              />
+              <span style={{ fontSize: 11, color: theme.muted }}>/mês</span>
+            </div>
+          </div>
         </div>
 
         {/* Actions */}

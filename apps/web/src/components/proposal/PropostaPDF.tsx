@@ -24,6 +24,8 @@ type PropostaPDFData = {
   mensalidadeComodato: number;
   prazo: number;
   modalidade: 'venda' | 'comodato' | 'ambos' | 'imagem';
+  /** Add-on "+ Monitoramento de Imagem" — valor mensal extra quando ativo (0 ou omitido = desativado). */
+  addonImagemValor?: number;
   /** Selo de pré-aprovação (opcional) — presente quando o cliente assinou via modal. */
   aprovacao?: {
     id: string;
@@ -92,7 +94,16 @@ export function openPropostaPDF(data: PropostaPDFData) {
 
   let pricingHTML = '';
 
+  const addonImg = data.addonImagemValor ?? 0;
+  const addonRow = addonImg > 0
+    ? `<div style="margin-top:6px;padding:6px 10px;background:#43C17B14;border:1px solid #43C17B33;border-radius:8px;display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:11px;color:#43C17B;font-weight:600">+ Monitoramento de Imagem</span>
+        <span style="font-size:12px;color:#43C17B;font-weight:700">+ R$ ${fmt(addonImg)}/mês</span>
+      </div>`
+    : '';
+
   if (data.modalidade === 'venda' || data.modalidade === 'ambos') {
+    const monitTotalVenda = data.monitoramentoMensal + addonImg;
     pricingHTML += `
       <div style="flex:1;min-width:260px;background:#1a1a1a;border:1px solid #C8A95133;border-radius:16px;padding:20px;position:relative;overflow:hidden">
         <div style="position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle at top right,#C8A95115,transparent 70%);border-radius:0 16px 0 0"></div>
@@ -104,24 +115,44 @@ export function openPropostaPDF(data: PropostaPDFData) {
         ${pricingRow('Investimento Total', `R$ ${fmt(data.totalVenda)}`, true)}
         <div style="margin-top:8px;padding:8px 12px;background:#ffffff08;border-radius:10px">
           ${pricingRow('Monitoramento', `R$ ${fmt(data.monitoramentoMensal)}/mês`, false, true)}
+          ${addonImg > 0 ? `
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+              <span style="font-size:11px;color:#43C17B;font-weight:600">+ Monitoramento de Imagem</span>
+              <span style="font-size:11px;color:#43C17B;font-weight:600">+ R$ ${fmt(addonImg)}/mês</span>
+            </div>
+            <div style="border-top:1px dashed #ffffff1a;margin:4px 0"></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0">
+              <span style="font-size:12px;color:#F2F2F2;font-weight:700">Mensalidade Total</span>
+              <span style="font-size:14px;color:#C8A951;font-weight:700">R$ ${fmt(monitTotalVenda)}/mês</span>
+            </div>
+          ` : ''}
         </div>
       </div>`;
   }
 
   if (data.modalidade === 'comodato' || data.modalidade === 'ambos') {
+    const mensalidadeTotalComodato = data.mensalidadeComodato + addonImg;
     pricingHTML += `
       <div style="flex:1;min-width:260px;background:#1a1a1a;border:1px solid #3a7abd55;border-radius:16px;padding:20px;position:relative;overflow:hidden">
         <div style="position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle at top right,#3a7abd20,transparent 70%);border-radius:0 16px 0 0"></div>
         <div style="font-size:12px;font-weight:700;color:#5B9BD5;margin-bottom:14px;text-transform:uppercase;letter-spacing:1.5px">Comodato · ${data.prazo} meses</div>
+        ${addonImg > 0 ? `
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0">
+            <span style="font-size:12px;color:#999">Mensalidade base</span>
+            <span style="font-size:13px;color:#ccc;font-weight:500">R$ ${fmt(data.mensalidadeComodato)}/mês</span>
+          </div>
+          ${addonRow}
+          <div style="border-top:1px solid #ffffff15;margin:10px 0"></div>
+        ` : ''}
         <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0">
-          <span style="font-size:14px;color:#F2F2F2;font-weight:700">Mensalidade</span>
-          <span style="font-size:22px;color:#5B9BD5;font-weight:700">R$ ${fmt(data.mensalidadeComodato)}<span style="font-size:12px;font-weight:400">/mês</span></span>
+          <span style="font-size:14px;color:#F2F2F2;font-weight:700">Mensalidade${addonImg > 0 ? ' Total' : ''}</span>
+          <span style="font-size:22px;color:#5B9BD5;font-weight:700">R$ ${fmt(mensalidadeTotalComodato)}<span style="font-size:12px;font-weight:400">/mês</span></span>
         </div>
         <div style="border-top:1px solid #ffffff15;margin:10px 0"></div>
         <div style="padding:8px 12px;background:#C8A95110;border-radius:10px;margin-bottom:8px">
           ${pricingRow('Taxa de Instalação', `R$ ${fmt(data.taxaInstalacao)}`, false)}
         </div>
-        <div style="font-size:10px;color:#888;padding:2px 0 6px;line-height:1.5">Paga na assinatura do contrato · ${data.prazo} mensalidades de R$ ${fmt(data.mensalidadeComodato)} para monitoramento</div>
+        <div style="font-size:10px;color:#888;padding:2px 0 6px;line-height:1.5">Paga na assinatura do contrato · ${data.prazo} mensalidades de R$ ${fmt(mensalidadeTotalComodato)} para monitoramento</div>
       </div>`;
   }
 

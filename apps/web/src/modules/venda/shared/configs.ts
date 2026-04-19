@@ -1,8 +1,15 @@
 /* ---- Monitoramento config ---- */
 export type FaixaMonitoramento = { nome: string; base: number; minimo: number };
-export type MonitoramentoConfig = { faixas: FaixaMonitoramento[]; maoDeObra: Record<string, number> };
+export type MonitoramentoConfig = {
+  faixas: FaixaMonitoramento[];
+  maoDeObra: Record<string, number>;
+  /** Valor mensal do add-on "+ Monitoramento de Imagem" somado à mensalidade quando ativo. */
+  addonImagemValor: number;
+};
 
 export const MONIT_KEY = 'config:monitoramento';
+
+export const DEFAULT_ADDON_IMAGEM_VALOR = 32;
 
 export const DEFAULT_MONIT_CONFIG: MonitoramentoConfig = {
   faixas: [
@@ -16,6 +23,7 @@ export const DEFAULT_MONIT_CONFIG: MonitoramentoConfig = {
     'Residencial': 250, 'Comercial Pequeno': 400, 'Comercial Médio': 600,
     'Comercial Grande': 900, 'Condomínio / Industrial': 1500,
   },
+  addonImagemValor: DEFAULT_ADDON_IMAGEM_VALOR,
 };
 
 /** Map tipoLocal to best-match faixa index */

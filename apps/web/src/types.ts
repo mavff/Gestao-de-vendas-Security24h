@@ -324,6 +324,8 @@ export type VendaLocal = {
   acrescimoInstalacao?: number;
   /** Proposta — valor CREA */
   valorCrea?: number;
+  /** Proposta — add-on "+ Monitoramento de Imagem" somado à mensalidade */
+  addonImagemAtivo?: boolean;
   /** Flag: cliente aprovou a proposta */
   clienteAprovado?: boolean;
   /** Visita 1 concluída (pré-instalação) */
