@@ -1,7 +1,9 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { JwtGuard } from '../auth/jwt.guard';
 import { SdrQuery, SheetsService } from './sheets.service';
 
 @Controller('sheets')
+@UseGuards(JwtGuard)
 export class SheetsController {
   constructor(private readonly sheetsService: SheetsService) {}
 

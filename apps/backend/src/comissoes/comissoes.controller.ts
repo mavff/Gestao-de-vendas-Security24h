@@ -1,7 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { JwtGuard } from '../auth/jwt.guard';
 import { ComissoesRepository } from './comissoes.repository';
 
 @Controller('comissoes')
+@UseGuards(JwtGuard)
 export class ComissoesController {
   constructor(private readonly repo: ComissoesRepository) {}
 

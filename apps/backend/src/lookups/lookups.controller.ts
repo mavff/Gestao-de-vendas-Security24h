@@ -1,7 +1,9 @@
-import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
+import { JwtGuard } from '../auth/jwt.guard';
 import { LookupsRepository } from './lookups.repository';
 
 @Controller('lookups')
+@UseGuards(JwtGuard)
 export class LookupsController {
   constructor(private readonly lookupsRepo: LookupsRepository) {}
 

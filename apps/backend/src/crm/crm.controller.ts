@@ -1,7 +1,9 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { JwtGuard } from '../auth/jwt.guard';
 import { CrmQuery, CrmService } from './crm.service';
 
 @Controller('crm')
+@UseGuards(JwtGuard)
 export class CrmController {
   constructor(private readonly crmService: CrmService) {}
 

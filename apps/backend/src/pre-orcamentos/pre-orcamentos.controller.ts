@@ -1,7 +1,9 @@
-import { Controller, Get, NotFoundException, Param, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
+import { JwtGuard } from '../auth/jwt.guard';
 import { PreOrcamentosRepository } from './pre-orcamentos.repository';
 
 @Controller('pre-orcamentos')
+@UseGuards(JwtGuard)
 export class PreOrcamentosController {
   constructor(private readonly repo: PreOrcamentosRepository) {}
 

@@ -1,9 +1,11 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { JwtGuard } from '../auth/jwt.guard';
 import { DashboardRepository, PeriodKey } from './dashboard.repository';
 
 const VALID_PERIODS: PeriodKey[] = ['7d', '30d', '90d', 'all'];
 
 @Controller('dashboard')
+@UseGuards(JwtGuard)
 export class DashboardController {
   constructor(private readonly dashboardRepo: DashboardRepository) {}
 
