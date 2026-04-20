@@ -29,17 +29,28 @@ export const CATEGORIAS_POR_TIPO_SOLUCAO: Record<TipoSolucao, KitCategoria[]> = 
   alarme_cftv: ['alarme_cftv'],
 };
 
-/** Palavras-chave para inferir tipo de solução a partir do nome de um kit do ERP. */
-const ALARME_KW = [
-  'alarme', 'central', 'amt', 'sensor', 'ivp', 'xas', 'xar', 'xep', 'jfl', 'viaweb',
-  'magnético', 'magnetico', 'infravermelho', 'discadora', 'comunicador', 'pânico', 'panico',
-  'teclado', 'm5', 'active', 'way',
+/**
+ * Palavras-chave para classificar um ITEM individual do kit.
+ * Evitam marcas ambíguas (Hikvision, Hilook, Ezviz, Intelbras fabricam alarme E CFTV).
+ */
+const ALARME_ITEM_KW = [
+  'alarme', 'central alarme', 'central de alarme', 'amt',
+  'ivp', 'xas', 'xar', 'xep', 'xe ',
+  'sirene', 'discadora', 'comunicador', 'gsm',
+  'magnético', 'magnetico', 'teclado',
+  'infravermelho', 'infra ativo', 'infra passivo',
+  'pânico', 'panico', 'viaweb',
 ];
-const CFTV_KW = [
-  'cftv', 'câmera', 'camera', 'cameras', 'câmeras', 'dome', 'bullet', 'dvr', 'nvr',
-  'mhdx', 'hikvision', 'hilook', 'vigilância', 'vigilancia', 'gravador', 'coaxial',
-  'vhd', 'vhl', 'ipc', 'speed dome', 'ptz', 'ezviz',
+const CFTV_ITEM_KW = [
+  'câmera', 'camera', 'cameras', 'câmeras', 'cftv',
+  'dvr', 'nvr', 'mhdx', 'vhd', 'vhl', 'vip', 'ipc', 'hdcvi',
+  'dome', 'bullet', 'ptz', 'speed dome',
+  'poe', 'switch poe', 'cabo lan', 'cabo utp', 'rj45', 'coaxial',
+  'gravador nvr', 'gravador dvr', 'gravador digital',
 ];
+/** Keywords mais fracas — só usados se classificação por itens não der resultado. */
+const ALARME_NAME_FALLBACK = ['alarme', 'central', 'sensor'];
+const CFTV_NAME_FALLBACK = ['cftv', 'câmera', 'camera', 'monitoramento imagem', 'vigilância', 'vigilancia'];
 
 function matchAny(text: string, kws: string[]): boolean {
   const s = text.toLowerCase();
@@ -47,8 +58,12 @@ function matchAny(text: string, kws: string[]): boolean {
 }
 
 /**
- * Dado um kit (vindo do ERP ou criado localmente), infere o tipo de solução que ele atende.
- * Ordem: `kit.categoria` explícita → keyword no nome → itens do kit (presença de central/câmera).
+ * Dado um kit, infere o tipo de solução que ele atende.
+ *
+ * Ordem de prioridade:
+ * 1. `kit.categoria` explícita (escolhida pelo admin em /kits)
+ * 2. Classificação item-a-item (mais confiável — produtos revelam a função real)
+ * 3. Fallback no nome do kit com keywords não-ambíguas
  */
 export function inferKitTipoSolucao(kit: Kit): TipoSolucao | null {
   if (kit.categoria) {
@@ -56,19 +71,26 @@ export function inferKitTipoSolucao(kit: Kit): TipoSolucao | null {
       if (categorias.includes(kit.categoria)) return tipo;
     }
   }
+
+  // Classificação por itens — cada item vota alarme/cftv (ou nada).
+  let countAlarme = 0;
+  let countCftv = 0;
+  for (const item of kit.items) {
+    const nome = item.itemName ?? '';
+    if (matchAny(nome, CFTV_ITEM_KW)) countCftv++;
+    else if (matchAny(nome, ALARME_ITEM_KW)) countAlarme++;
+  }
+  if (countAlarme > 0 && countCftv > 0) return 'alarme_cftv';
+  if (countAlarme > 0) return 'alarme';
+  if (countCftv > 0) return 'cftv';
+
+  // Fallback: olhar o nome do kit.
   const nome = `${kit.name} ${kit.descricao ?? ''}`;
-  const hasAlarme = matchAny(nome, ALARME_KW);
-  const hasCftv = matchAny(nome, CFTV_KW);
+  const hasAlarme = matchAny(nome, ALARME_NAME_FALLBACK);
+  const hasCftv = matchAny(nome, CFTV_NAME_FALLBACK);
   if (hasAlarme && hasCftv) return 'alarme_cftv';
   if (hasAlarme) return 'alarme';
   if (hasCftv) return 'cftv';
-  // Fallback: olhar nomes dos itens
-  const itemNomes = kit.items.map((i) => i.itemName ?? '').join(' ');
-  const itemAlarme = matchAny(itemNomes, ALARME_KW);
-  const itemCftv = matchAny(itemNomes, CFTV_KW);
-  if (itemAlarme && itemCftv) return 'alarme_cftv';
-  if (itemAlarme) return 'alarme';
-  if (itemCftv) return 'cftv';
   return null;
 }
 

@@ -69,7 +69,9 @@ export function VendaPage() {
   useEffect(() => { logsRef.current = logs; }, [logs]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [equipmentsCustom, setEquipmentsCustom] = useState<Equipment[]>([]);
-  const [kits, setKits] = useState<Kit[]>([]);
+  const [erpKits, setErpKits] = useState<Kit[]>([]);
+  const [kitsCustom, setKitsCustom] = useState<Kit[]>([]);
+  const kits = useMemo(() => [...erpKits, ...kitsCustom], [erpKits, kitsCustom]);
   const [activeStep, setActiveStep] = useState<StepName>('Cliente');
   const [solDraft, setSolDraft] = useState<SolucaoTecnica | null>(null);
   const [wizStep, setWizStep] = useState(0);
@@ -124,24 +126,27 @@ export function VendaPage() {
     loadState<ComissaoConfig>('config:comissoes', DEFAULT_COMISSAO_CONFIG).then(setComissaoConfig);
     loadState<InstalacaoConfig>(INSTALACAO_KEY, DEFAULT_INSTALACAO_CONFIG).then(setInstalacaoConfig);
     loadState<Equipment[]>('equipments_custom', []).then(setEquipmentsCustom);
+    loadState<Kit[]>('kits_custom', []).then(setKitsCustom);
 
     setAprovacao(null);
     loadRefDataFromBackend();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendaId]);
 
-  // Refetch de kits/equipments/modelos do ERP (preços podem ter mudado).
+  // Refetch de kits/equipments/modelos do ERP (preços podem ter mudado) + kits_custom do AppKv.
   const loadRefDataFromBackend = useCallback(async () => {
     const ds = createDataSource();
-    const [eqRes, kitsRes, modelosRes] = await Promise.allSettled([
+    const [eqRes, kitsRes, modelosRes, customKitsRes] = await Promise.allSettled([
       ds.equipment.list({ pageSize: 500 }),
       ds.kits.list({ pageSize: 200 }),
       ds.preOrcamentos.list({ pageSize: 200 }),
+      loadState<Kit[]>('kits_custom', []),
     ]);
     if (eqRes.status === 'fulfilled') setEquipments(eqRes.value.data);
     const dbKits = kitsRes.status === 'fulfilled' ? kitsRes.value.data : [];
     const modeloKits = modelosRes.status === 'fulfilled' ? modelosRes.value.data.map(preOrcToKit) : [];
-    setKits([...modeloKits, ...dbKits]);
+    setErpKits([...modeloKits, ...dbKits]);
+    if (customKitsRes.status === 'fulfilled') setKitsCustom(customKitsRes.value);
   }, []);
 
   useRefreshOnFocus(() => { loadRefDataFromBackend(); });
