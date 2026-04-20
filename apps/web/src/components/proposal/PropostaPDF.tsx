@@ -37,6 +37,21 @@ type PropostaPDFData = {
   };
 };
 
+function esc(v: string | number | null | undefined): string {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function safeDataUrl(v: string | undefined): string {
+  if (!v) return '';
+  return /^data:image\/(png|jpe?g|gif|webp|svg\+xml);/i.test(v) ? v : '';
+}
+
 export function openPropostaPDF(data: PropostaPDFData) {
   const w = window.open('', '_blank');
   if (!w) return;
@@ -74,10 +89,10 @@ export function openPropostaPDF(data: PropostaPDFData) {
   // ── Equipment rows ──
   let equipRows = '';
   for (const [bloco, items] of Object.entries(groups)) {
-    equipRows += `<tr><td colspan="4" style="padding:10px 16px 6px;font-size:11px;font-weight:700;color:#C8A951;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #C8A95133">${blocoLabels[bloco] || bloco}</td></tr>`;
+    equipRows += `<tr><td colspan="4" style="padding:10px 16px 6px;font-size:11px;font-weight:700;color:#C8A951;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #C8A95133">${esc(blocoLabels[bloco] || bloco)}</td></tr>`;
     for (const item of items) {
       equipRows += `<tr>
-        <td style="padding:8px 16px;font-size:12px;color:#E8E8E8;border-bottom:1px solid #ffffff0a">${item.nome}</td>
+        <td style="padding:8px 16px;font-size:12px;color:#E8E8E8;border-bottom:1px solid #ffffff0a">${esc(item.nome)}</td>
         <td style="padding:8px 16px;font-size:12px;color:#aaa;text-align:center;border-bottom:1px solid #ffffff0a">${item.quantidade}</td>
         <td style="padding:8px 16px;font-size:12px;color:#aaa;text-align:right;border-bottom:1px solid #ffffff0a">R$ ${fmt(item.precoUnitario)}</td>
         <td style="padding:8px 16px;font-size:12px;color:#F2F2F2;text-align:right;font-weight:600;border-bottom:1px solid #ffffff0a">R$ ${fmt(item.precoUnitario * item.quantidade)}</td>
@@ -173,7 +188,7 @@ export function openPropostaPDF(data: PropostaPDFData) {
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Proposta Security24h — ${data.clienteNome}</title>
+  <title>Proposta Security24h — ${esc(data.clienteNome)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', -apple-system, sans-serif; color: #F2F2F2; background: #0B0B0B; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -241,12 +256,12 @@ export function openPropostaPDF(data: PropostaPDFData) {
       <!-- Client card -->
       <div class="glass-card" style="border-left:3px solid #C8A951">
         <div class="section-label">Cliente</div>
-        <div style="font-size:20px;font-weight:700;color:#F2F2F2;margin-bottom:6px">${data.clienteNome}</div>
-        ${data.clienteTel ? `<div style="font-size:13px;color:#999;margin-bottom:2px">${data.clienteTel}</div>` : ''}
-        ${data.clienteEndereco ? `<div style="font-size:13px;color:#999;margin-bottom:2px">${data.clienteEndereco}</div>` : ''}
+        <div style="font-size:20px;font-weight:700;color:#F2F2F2;margin-bottom:6px">${esc(data.clienteNome)}</div>
+        ${data.clienteTel ? `<div style="font-size:13px;color:#999;margin-bottom:2px">${esc(data.clienteTel)}</div>` : ''}
+        ${data.clienteEndereco ? `<div style="font-size:13px;color:#999;margin-bottom:2px">${esc(data.clienteEndereco)}</div>` : ''}
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-          <span class="badge" style="background:#C8A95115;color:#C8A951;border:1px solid #C8A95133">${data.tipoLocal}</span>
-          <span class="badge" style="background:#5B9BD515;color:#5B9BD5;border:1px solid #5B9BD533">${data.marca}</span>
+          <span class="badge" style="background:#C8A95115;color:#C8A951;border:1px solid #C8A95133">${esc(data.tipoLocal)}</span>
+          <span class="badge" style="background:#5B9BD515;color:#5B9BD5;border:1px solid #5B9BD533">${esc(data.marca)}</span>
           <span class="badge" style="background:#ffffff0a;color:#999;border:1px solid #ffffff15">${totalItens} equipamentos</span>
         </div>
       </div>
@@ -288,7 +303,7 @@ export function openPropostaPDF(data: PropostaPDFData) {
       ${data.observacoes ? `
       <div class="glass-card">
         <div class="section-label">Observações</div>
-        <div style="font-size:12px;color:#999;white-space:pre-wrap;line-height:1.6">${data.observacoes}</div>
+        <div style="font-size:12px;color:#999;white-space:pre-wrap;line-height:1.6">${esc(data.observacoes)}</div>
       </div>` : ''}
 
       ${data.aprovacao ? (() => {
@@ -307,16 +322,16 @@ export function openPropostaPDF(data: PropostaPDFData) {
               <span style="width:8px;height:8px;border-radius:50%;background:#43C17B;display:inline-block"></span>
               <span style="font-size:10px;font-weight:700;color:#43C17B;text-transform:uppercase;letter-spacing:1px">Assinatura registrada</span>
             </div>
-            <div style="font-size:14px;color:#F2F2F2;font-weight:700;margin-bottom:4px">${ap.clienteNome}</div>
-            ${cpfFmt ? `<div style="font-size:11px;color:#999">CPF: ${cpfFmt}</div>` : ''}
-            <div style="font-size:11px;color:#999;margin-top:4px">Assinado em ${dtFmt}</div>
+            <div style="font-size:14px;color:#F2F2F2;font-weight:700;margin-bottom:4px">${esc(ap.clienteNome)}</div>
+            ${cpfFmt ? `<div style="font-size:11px;color:#999">CPF: ${esc(cpfFmt)}</div>` : ''}
+            <div style="font-size:11px;color:#999;margin-top:4px">Assinado em ${esc(dtFmt)}</div>
             <div style="margin-top:10px;padding:6px 10px;background:#0B0B0B;border:1px dashed #43C17B44;border-radius:8px;display:inline-block">
               <span style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:1px">Código de verificação</span>
-              <div style="font-family:'Courier New',monospace;font-size:13px;color:#43C17B;font-weight:700;letter-spacing:2px">${codigoCurto}</div>
+              <div style="font-family:'Courier New',monospace;font-size:13px;color:#43C17B;font-weight:700;letter-spacing:2px">${esc(codigoCurto)}</div>
             </div>
           </div>
           <div style="flex:0 0 auto;background:#FFFFFF;padding:8px;border-radius:10px;border:1px solid #43C17B33">
-            <img src="${ap.assinaturaBase64}" alt="Assinatura" style="display:block;max-width:220px;max-height:100px;height:auto;width:auto" />
+            <img src="${safeDataUrl(ap.assinaturaBase64)}" alt="Assinatura" style="display:block;max-width:220px;max-height:100px;height:auto;width:auto" />
           </div>
         </div>
         <div style="font-size:10px;color:#666;margin-top:12px;line-height:1.5;padding-top:10px;border-top:1px solid #ffffff10">
@@ -333,7 +348,7 @@ export function openPropostaPDF(data: PropostaPDFData) {
     <div class="footer-section">
       <div style="font-size:16px;font-weight:700;color:#C8A951;letter-spacing:2px;margin-bottom:6px">SECURITY 24H</div>
       <div style="font-size:11px;color:#666;letter-spacing:1px">Segurança Eletrônica</div>
-      ${data.vendedorNome ? `<div style="margin-top:10px;font-size:12px;color:#888">Vendedor: <span style="color:#ccc">${data.vendedorNome}</span></div>` : ''}
+      ${data.vendedorNome ? `<div style="margin-top:10px;font-size:12px;color:#888">Vendedor: <span style="color:#ccc">${esc(data.vendedorNome)}</span></div>` : ''}
       <div style="margin-top:12px;padding:8px 20px;display:inline-block;background:#C8A95110;border-radius:20px;border:1px solid #C8A95122">
         <span style="font-size:10px;color:#C8A951;font-weight:600;letter-spacing:0.5px">Proposta válida por 15 dias a partir de ${dataFmt}</span>
       </div>

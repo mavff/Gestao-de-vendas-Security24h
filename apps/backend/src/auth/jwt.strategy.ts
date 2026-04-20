@@ -10,7 +10,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new Error('JWT_ACCESS_SECRET is not set. Refusing to start with insecure default.');
     }
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Aceita token no header OU na query (?token=...) — necessário para <img src> em /photos/:id.
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        ExtractJwt.fromUrlQueryParameter('token'),
+      ]),
       secretOrKey: secret,
     });
   }

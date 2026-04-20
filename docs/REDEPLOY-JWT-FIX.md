@@ -23,6 +23,29 @@ Endpoints de dados de negócio antes públicos, agora exigem JWT:
 
 **Impacto no frontend:** nenhum. Todas as chamadas já usam `apiClient` (verificado — nenhum `fetch` direto a esses endpoints). Login continua público (`/auth/login`, `/auth/refresh`) e `/health` também.
 
+### 3. `/photos/:id` agora exige JWT
+- `jwt.strategy.ts` aceita token via header **OU** `?token=` (query param — necessário para `<img src>`)
+- `photos.controller.ts`: `GET /photos/:id` ganhou `@UseGuards(JwtGuard)`
+- `photoService.ts` (`photoSrc`) anexa `?token=<jwt>` ao montar a URL
+
+**Impacto:** nenhum no UX. Imagens continuam carregando normalmente (frontend passa o token).
+
+### 4. Rate limit dedicado para `/auth/login`
+`rate-limit.middleware.ts` agora tem bucket separado para brute-force no login:
+- Default: **5 tentativas / 60s por IP** (configurável via `RATE_LIMIT_LOGIN_LIMIT` e `RATE_LIMIT_LOGIN_TTL`)
+- Resto da API mantém 100/60s (como antes)
+
+**Atenção:** se o EasyPanel estiver atrás de proxy reverso (Traefik/Cloudflare), confira que `req.ip` está resolvendo o IP real do cliente e não o IP do proxy. Se estiver agrupando tudo num IP só, um usuário legítimo pode travar outro. Solução: habilitar `app.set('trust proxy', 1)` no `main.ts` (não incluído neste PR).
+
+### 5. XSS no PDF da proposta
+`PropostaPDF.tsx` agora escapa HTML em todos os campos controláveis pelo vendedor (`clienteNome`, `clienteTel`, `clienteEndereco`, `tipoLocal`, `marca`, `observacoes`, `vendedorNome`, nomes de itens, CPF, assinatura). Assinatura valida que é `data:image/...` antes de ir pro `<img src>`.
+
+## Envs adicionais (opcionais)
+```
+RATE_LIMIT_LOGIN_LIMIT=5     # default
+RATE_LIMIT_LOGIN_TTL=60      # default (segundos)
+```
+
 ## ⚠️ ANTES DE FAZER O REDEPLOY
 
 Verifique no **EasyPanel → serviço backend → Environment** que estas variáveis existem e têm valor forte:

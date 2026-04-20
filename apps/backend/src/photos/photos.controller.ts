@@ -62,6 +62,7 @@ export class PhotosController {
   }
 
   @Get(':id')
+  @UseGuards(JwtGuard)
   async stream(@Param('id') id: string, @Res() res: Response) {
     const photo = await this.photos.findById(id);
     res.setHeader('Content-Type', photo.mimeType);

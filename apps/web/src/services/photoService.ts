@@ -17,14 +17,22 @@ export interface PhotoUploadMeta {
 /** Resolve a stored photo token to a renderable <img src>.
  *  Accepts:
  *   - "data:image/..."      → returns as-is (legacy base64)
- *   - "photo:<uuid>"        → returns GET /photos/<uuid>
- *   - "<uuid>"              → returns GET /photos/<uuid>
+ *   - "photo:<uuid>"        → returns GET /photos/<uuid>?token=<jwt>
+ *   - "<uuid>"              → returns GET /photos/<uuid>?token=<jwt>
  *   - anything else         → returns as-is
+ *
+ *  O token JWT é anexado via query param porque <img> não envia headers.
+ *  Backend aceita `?token=` em adição ao Authorization header.
  */
 export function photoSrc(token: string): string {
   if (!token) return token;
   if (token.startsWith('data:')) return token;
-  if (token.startsWith('photo:')) return `${resolveBaseUrl()}/photos/${token.slice(6)}`;
+  if (token.startsWith('photo:')) {
+    const id = token.slice(6);
+    const jwt = typeof window !== 'undefined' ? localStorage.getItem('sec24h_token') : null;
+    const q = jwt ? `?token=${encodeURIComponent(jwt)}` : '';
+    return `${resolveBaseUrl()}/photos/${id}${q}`;
+  }
   return token;
 }
 
