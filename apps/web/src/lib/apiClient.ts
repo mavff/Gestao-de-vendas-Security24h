@@ -45,7 +45,7 @@ export class ApiClientError extends Error {
 }
 
 const DEFAULT_API_BASE_URL = 'http://localhost:3001';
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 15000;
 
 // Evento disparado quando o refresh falha — AuthContext escuta pra forçar logout.
 export const AUTH_EXPIRED_EVENT = 'sec24h:auth-expired';

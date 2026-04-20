@@ -33,6 +33,12 @@ export function faixaIdxFromTipoLocal(tipoLocal: string, faixas: FaixaMonitorame
     'Comercial': 'Comercial Pequeno',
     'Condomínio': 'Condomínio / Industrial',
     'Industrial': 'Condomínio / Industrial',
+    'Galpão': 'Condomínio / Industrial',
+    'Escola/Creche': 'Comercial Grande',
+    'Clínica': 'Comercial Pequeno',
+    'Posto': 'Comercial Médio',
+    'Rural/Fazenda': 'Condomínio / Industrial',
+    'Outro': 'Comercial Pequeno',
   };
   const target = map[tipoLocal] ?? 'Residencial';
   const idx = faixas.findIndex((f) => f.nome === target);

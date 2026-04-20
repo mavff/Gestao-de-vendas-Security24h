@@ -26,6 +26,7 @@ import {
   marcas, BRAND_KEYWORDS_KIT, MARCA_CODE, inferKitMarca, preOrcToKit,
   allBlocos, blocoLabels, wizardSteps, STEP_LABELS, emptyBlocos,
   fmtCurrency, fmtDate, fmtDateTime,
+  TIPOS_LOCAL, TIPOS_SOLUCAO, inferKitTipoSolucao,
 } from './shared/constants';
 import type { StepName, WizardStep } from './shared/constants';
 import {
@@ -952,18 +953,19 @@ function StepCliente({ venda, onSave, canEdit, onNext }: {
       <input value={endereco} onChange={(e) => setEndereco(e.target.value)} disabled={!canEdit} style={inputStyle} placeholder="Rua, número, bairro, cidade" autoComplete="street-address" />
 
       <label style={labelStyle}>Tipo de local</label>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        {(['Residencial', 'Comercial', 'Condomínio', 'Industrial'] as const).map((tipo) => (
-          <button key={tipo} onClick={() => { if (canEdit) setTipoLocal(tipo); }}
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', marginBottom: 16 }}>
+        {TIPOS_LOCAL.map(({ value, icon, label }) => (
+          <button key={value} onClick={() => { if (canEdit) setTipoLocal(value); }}
             style={{
-              padding: '10px 18px', borderRadius: 10, cursor: canEdit ? 'pointer' : 'default', fontSize: 14, fontWeight: 600,
-              background: tipoLocal === tipo ? theme.gold + '22' : theme.soft,
-              border: `2px solid ${tipoLocal === tipo ? theme.gold : theme.border}`,
-              color: tipoLocal === tipo ? theme.gold : theme.text,
-              flex: '1 1 auto', minWidth: 120,
+              padding: '10px 12px', borderRadius: 10, cursor: canEdit ? 'pointer' : 'default', fontSize: 13, fontWeight: 600,
+              background: tipoLocal === value ? theme.gold + '22' : theme.soft,
+              border: `2px solid ${tipoLocal === value ? theme.gold : theme.border}`,
+              color: tipoLocal === value ? theme.gold : theme.text,
+              minHeight: 56, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
             }}
           >
-            {tipo}
+            <span style={{ fontSize: 20, lineHeight: 1 }}>{icon}</span>
+            <span>{label}</span>
           </button>
         ))}
       </div>
@@ -1041,10 +1043,20 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
   const [kitMode, setKitMode] = useState(true);
   const [selectedKitId, setSelectedKitId] = useState<string | null>(null);
 
-  const kitsForMarca = useMemo(() => kits.filter((k) => k.marca === draft.marca), [kits, draft.marca]);
-  const kitsOutras = useMemo(() => kits.filter((k) => k.marca !== draft.marca), [kits, draft.marca]);
+  const tipoSolucao = draft.tipoSolucao;
 
-  useEffect(() => { setSelectedKitId(null); }, [draft.marca]);
+  /** Filtro duplo: tipo de solução (se escolhido) + marca. Kits sem tipo inferível passam sem filtro de tipo. */
+  const kitsFiltered = useMemo(() => {
+    if (!tipoSolucao) return kits;
+    return kits.filter((k) => {
+      const inferido = inferKitTipoSolucao(k);
+      return inferido === null || inferido === tipoSolucao;
+    });
+  }, [kits, tipoSolucao]);
+  const kitsForMarca = useMemo(() => kitsFiltered.filter((k) => k.marca === draft.marca), [kitsFiltered, draft.marca]);
+  const kitsOutras = useMemo(() => kitsFiltered.filter((k) => k.marca !== draft.marca), [kitsFiltered, draft.marca]);
+
+  useEffect(() => { setSelectedKitId(null); }, [draft.marca, tipoSolucao]);
 
   const flatItems = useMemo(() => {
     const result: Array<{ equipmentId: string; nome: string; preco: number; quantidade: number; subtotal: number; blocoLabel: string }> = [];
@@ -1171,6 +1183,29 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
       </div>
       <div style={{ fontSize: 13, color: theme.muted, marginBottom: 10 }}>Cliente: <strong style={{ color: theme.text }}>{draft.clienteNome}</strong></div>
 
+      <label style={labelStyle}>Tipo de Solução</label>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', marginBottom: 16 }}>
+        {TIPOS_SOLUCAO.map(({ value, icon, label, hint }) => {
+          const selected = tipoSolucao === value;
+          return (
+            <button key={value}
+              onClick={() => { if (canEditProp) setDraft({ ...draft, tipoSolucao: selected ? undefined : value }); }}
+              style={{
+                padding: '12px 10px', borderRadius: 10, cursor: canEditProp ? 'pointer' : 'default',
+                background: selected ? theme.gold + '22' : theme.soft,
+                border: `2px solid ${selected ? theme.gold : theme.border}`,
+                color: selected ? theme.gold : theme.text,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minHeight: 76,
+              }}
+            >
+              <span style={{ fontSize: 24, lineHeight: 1 }}>{icon}</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span>
+              <span style={{ fontSize: 10, color: theme.muted }}>{hint}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <label style={labelStyle}>Marca Principal</label>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
         {marcas.map((m) => (
@@ -1186,7 +1221,7 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
         ))}
       </div>
 
-      {kits.length > 0 ? (
+      {kitsFiltered.length > 0 ? (
         <>
           {kitsForMarca.length > 0 && (
             <>
@@ -1205,7 +1240,9 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
         </>
       ) : (
         <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 24, textAlign: 'center', color: theme.muted, fontSize: 13, marginBottom: 16 }}>
-          Nenhum kit disponível.
+          {tipoSolucao
+            ? 'Nenhum kit cadastrado para esse tipo de solução. Peça ao admin para criar um em /kits ou use o modo avançado.'
+            : 'Nenhum kit disponível.'}
           <br /><button onClick={() => { setKitMode(false); setStep(0); }} style={{ ...btnGold, marginTop: 10, fontSize: 12 }}>Usar modo avançado</button>
         </div>
       )}

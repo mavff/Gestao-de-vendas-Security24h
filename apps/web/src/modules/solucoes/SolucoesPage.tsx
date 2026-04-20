@@ -18,7 +18,7 @@ import { INSTALACAO_KEY, DEFAULT_INSTALACAO_CONFIG, calcTaxaInstalacao } from '.
 import type { InstalacaoConfig } from '../venda/shared/configs';
 import {
   BlocoCategoria, Equipment, Kit, Lead, Marca, OrdemDeServico,
-  SolucaoTecnica, User,
+  SolucaoTecnica, TipoLocal, User,
 } from '../../types';
 import { openPropostaPDF } from '../../components/proposal/PropostaPDF';
 import { AprovarComAssinaturaModal, AprovacaoResponse } from '../../components/proposal/AprovarComAssinaturaModal';
@@ -86,7 +86,7 @@ type PropostaLocal = {
   clienteNome: string;
   clienteTel: string;
   clienteEndereco: string;
-  tipoLocal: 'Residencial' | 'Comercial' | 'Condomínio' | 'Industrial';
+  tipoLocal: TipoLocal;
   marca: Marca;
   itens: PropostaItem[];
   observacoes: string;
@@ -288,7 +288,7 @@ export function SolucoesPage() {
       clienteNome,
       clienteTel: searchParams.get('tel') ?? '',
       clienteEndereco: searchParams.get('endereco') ?? '',
-      tipoLocal: tipoLocal && ['Residencial', 'Comercial', 'Condomínio', 'Industrial'].includes(tipoLocal) ? tipoLocal : 'Residencial',
+      tipoLocal: (tipoLocal as PropostaLocal['tipoLocal']) ?? 'Residencial',
       criadoPor: users.find((u) => u.role === role)?.id ?? 'U1',
       createdAt: now, updatedAt: now,
     });

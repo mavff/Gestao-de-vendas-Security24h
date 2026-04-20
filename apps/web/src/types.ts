@@ -21,7 +21,7 @@ export type Lead = {
   contato?: string;
   email?: string;
   endereco?: string;
-  tipoLocal?: 'Residencial' | 'Comercial' | 'Condomínio' | 'Industrial';
+  tipoLocal?: TipoLocal;
   vendaStep?: VendaStep;
   probabilidade?: number;
 };
@@ -264,11 +264,27 @@ export type BlocoTecnico = {
 
 export type SolucaoStatus = 'rascunho' | 'enviada' | 'aprovada';
 
+export type TipoSolucao = 'alarme' | 'cftv' | 'alarme_cftv';
+
+export type TipoLocal =
+  | 'Residencial'
+  | 'Comercial'
+  | 'Condomínio'
+  | 'Industrial'
+  | 'Galpão'
+  | 'Escola/Creche'
+  | 'Clínica'
+  | 'Posto'
+  | 'Rural/Fazenda'
+  | 'Outro';
+
 export type SolucaoTecnica = {
   id: string;
   leadId: string;
   clienteNome: string;
   marca: Marca;
+  /** Pré-diagnóstico: Alarme, CFTV ou Alarme+CFTV — filtra os kits exibidos ao vendedor. */
+  tipoSolucao?: TipoSolucao;
   blocos: BlocoTecnico[];
   servicos: PropostaServico[];
   observacaoGeral: string;
@@ -300,7 +316,7 @@ export type VendaLocal = {
   clienteEmail: string;
   clienteEndereco: string;
   clienteEmpresa: string;
-  tipoLocal: 'Residencial' | 'Comercial' | 'Condomínio' | 'Industrial';
+  tipoLocal: TipoLocal;
   observacoes: string;
   status: VendaLocalStatus;
   solucaoId: string;
