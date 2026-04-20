@@ -117,6 +117,10 @@ export type Kit = {
   marca?: Marca;
   categoria?: KitCategoria;
   descricao?: string;
+  /** Username de quem criou (undefined = legado/ERP → tratar como público) */
+  criadoPor?: string;
+  /** 'public' = visível a todos; 'private' = só pro criador. Undefined = público (legado). */
+  visibility?: 'public' | 'private';
 };
 
 // --- Proposta ---

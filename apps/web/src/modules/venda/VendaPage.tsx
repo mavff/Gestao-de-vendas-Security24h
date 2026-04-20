@@ -71,7 +71,15 @@ export function VendaPage() {
   const [equipmentsCustom, setEquipmentsCustom] = useState<Equipment[]>([]);
   const [erpKits, setErpKits] = useState<Kit[]>([]);
   const [kitsCustom, setKitsCustom] = useState<Kit[]>([]);
-  const kits = useMemo(() => [...erpKits, ...kitsCustom], [erpKits, kitsCustom]);
+  // Filtro de visibilidade: ADMIN vê tudo; demais só veem públicos + próprios privados.
+  // Legado sem campo `visibility` é tratado como público.
+  const kits = useMemo(() => {
+    const isAdmin = role === 'ADMIN';
+    const visibleCustom = isAdmin
+      ? kitsCustom
+      : kitsCustom.filter((k) => k.visibility !== 'private' || k.criadoPor === username);
+    return [...erpKits, ...visibleCustom];
+  }, [erpKits, kitsCustom, role, username]);
   const [activeStep, setActiveStep] = useState<StepName>('Cliente');
   const [solDraft, setSolDraft] = useState<SolucaoTecnica | null>(null);
   const [wizStep, setWizStep] = useState(0);
@@ -1050,12 +1058,19 @@ function TabSolucao({ draft, setDraft, step, setStep, equipments, kits, solucaoE
 
   const tipoSolucao = draft.tipoSolucao;
 
-  /** Filtro duplo: tipo de solução (se escolhido) + marca. Kits sem tipo inferível passam sem filtro de tipo. */
+  /**
+   * Filtro por tipo de solução:
+   * - alarme        → só kits inferidos como 'alarme' (+ kits sem inferência)
+   * - cftv          → só kits inferidos como 'cftv'   (+ kits sem inferência)
+   * - alarme_cftv   → união: alarme, cftv E alarme_cftv (+ kits sem inferência)
+   */
   const kitsFiltered = useMemo(() => {
     if (!tipoSolucao) return kits;
     return kits.filter((k) => {
       const inferido = inferKitTipoSolucao(k);
-      return inferido === null || inferido === tipoSolucao;
+      if (inferido === null) return true;
+      if (tipoSolucao === 'alarme_cftv') return true; // união de alarme + cftv + alarme_cftv
+      return inferido === tipoSolucao;
     });
   }, [kits, tipoSolucao]);
   const kitsForMarca = useMemo(() => kitsFiltered.filter((k) => k.marca === draft.marca), [kitsFiltered, draft.marca]);

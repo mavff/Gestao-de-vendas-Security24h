@@ -40,9 +40,23 @@ type Tab = 'modelos' | 'kits' | 'custos';
 
 export function KitsPage() {
   const { showToast } = useToast();
-  const { role } = useAuth();
-  const canWrite = role === 'ADMIN';
+  const { role, user } = useAuth();
+  const username = user?.username ?? '';
+  const canCreate = role === 'ADMIN' || role === 'VENDEDOR';
   const canEditCost = role === 'ADMIN' || role === 'GESTOR';
+  const isAdmin = role === 'ADMIN';
+
+  // Pode editar/excluir esse kit específico?
+  // - Kits ERP: ninguém edita aqui (trava separada em handleSaveKit/handleDeleteKit).
+  // - Kits custom públicos (admin): só ADMIN.
+  // - Kits custom privados (vendedor): só o criador (ou ADMIN como fallback de gestão).
+  function canEditKit(kit: Kit): boolean {
+    if (!kit.id.startsWith('K')) return false;
+    if (kit.visibility === 'private') {
+      return isAdmin || kit.criadoPor === username;
+    }
+    return isAdmin;
+  }
 
   const [tab, setTab] = useState<Tab>('modelos');
   const [precosCusto, setPrecosCusto] = useState<Record<string, number>>({});
@@ -144,13 +158,24 @@ export function KitsPage() {
       showToast('Kits do ERP não podem ser editados aqui. Ajuste direto no ERP.', 'warning');
       return;
     }
+    const existing = editId ? kitsCustom.find((k) => k.id === editId) : null;
+    // Em edição: se não tem permissão sobre o kit existente, bloqueia.
+    if (existing && !canEditKit(existing)) {
+      showToast('Você não pode editar este kit.', 'warning');
+      return;
+    }
+    // Em criação: vendedor → private; admin → public. Em edição: preserva os metadados originais.
+    const kitComMeta: Kit = existing
+      ? { ...kit, criadoPor: existing.criadoPor, visibility: existing.visibility }
+      : { ...kit, criadoPor: username || undefined, visibility: isAdmin ? 'public' : 'private' };
+
     let next: Kit[];
     if (editId) {
-      next = kitsCustom.map((k) => k.id === editId ? kit : k);
+      next = kitsCustom.map((k) => k.id === editId ? kitComMeta : k);
       showToast('Kit atualizado.', 'success');
     } else {
-      next = [...kitsCustom, kit];
-      showToast('Kit criado.', 'success');
+      next = [...kitsCustom, kitComMeta];
+      showToast(isAdmin ? 'Kit público criado.' : 'Kit privado criado (visível só pra você).', 'success');
     }
     setKitsCustom(next);
     await saveState('kits_custom', next);
@@ -161,6 +186,11 @@ export function KitsPage() {
   async function handleDeleteKit(id: string) {
     if (!isCustomKitId(id)) {
       showToast('Kits do ERP não podem ser excluídos daqui.', 'warning');
+      return;
+    }
+    const target = kitsCustom.find((k) => k.id === id);
+    if (target && !canEditKit(target)) {
+      showToast('Você não pode excluir este kit.', 'warning');
       return;
     }
     const next = kitsCustom.filter((k) => k.id !== id);
@@ -176,10 +206,15 @@ export function KitsPage() {
 
   const filteredKits = useMemo(() => {
     let list = kits;
+    // Visibilidade: ADMIN vê tudo; demais veem públicos + os próprios privados.
+    // Legado (sem campo visibility) trata como público.
+    if (!isAdmin) {
+      list = list.filter((k) => k.visibility !== 'private' || k.criadoPor === username);
+    }
     if (filterMarca !== 'todas') list = list.filter((k) => k.marca === filterMarca);
     if (kitSearch) list = list.filter((k) => k.name.toLowerCase().includes(kitSearch.toLowerCase()));
     return list;
-  }, [kits, filterMarca, kitSearch]);
+  }, [kits, filterMarca, kitSearch, isAdmin, username]);
 
   /* ---- Cost helpers ---- */
   // All unique equipments used across kits and modelos
@@ -409,7 +444,7 @@ export function KitsPage() {
               <button key={m} onClick={() => setFilterMarca(m)} style={{ ...filterBtnStyle, ...(filterMarca === m ? { background: marcaColors[m] + '22', borderColor: marcaColors[m], color: marcaColors[m], fontWeight: 700 } : {}) }}>{m}</button>
             ))}
             <div style={{ flex: 1 }} />
-            {canWrite && (
+            {canCreate && (
               <button onClick={() => { setEditId(null); setModalOpen(true); }} style={btnGold}>+ Novo Kit</button>
             )}
           </div>
@@ -418,7 +453,7 @@ export function KitsPage() {
 
           {!kitsLoading && filteredKits.length === 0 && (
             <div style={{ border: `1px dashed ${theme.border}`, borderRadius: 12, padding: 32, textAlign: 'center', color: theme.muted }}>
-              {canWrite
+              {canCreate
                 ? 'Nenhum kit criado ainda. Clique em "+ Novo Kit" para começar.'
                 : 'Nenhum kit cadastrado.'}
             </div>
@@ -446,6 +481,12 @@ export function KitsPage() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <strong style={{ fontSize: 15 }}>{kit.name}</strong>
                       {kit.marca && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: mColor + '22', color: mColor, border: `1px solid ${mColor}44` }}>{kit.marca}</span>}
+                      {kit.visibility === 'private' && (
+                        <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 999, background: '#5B9BD522', color: '#5B9BD5', border: '1px solid #5B9BD544' }} title={`Privado — visível só pra ${kit.criadoPor ?? 'o criador'}`}>🔒 Privado</span>
+                      )}
+                      {isAdmin && kit.visibility === 'public' && kit.id.startsWith('K') && (
+                        <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 999, background: '#43C17B22', color: '#43C17B', border: '1px solid #43C17B44' }}>🌐 Público</span>
+                      )}
                       {canEditCost && margemK > 0 && <span style={{ marginLeft: 6, fontSize: 11, padding: '2px 7px', borderRadius: 999, background: (margemK >= 30 ? '#43C17B' : margemK >= 15 ? theme.gold : '#E55B5B') + '22', color: margemK >= 30 ? '#43C17B' : margemK >= 15 ? theme.gold : '#E55B5B', border: `1px solid ${(margemK >= 30 ? '#43C17B' : margemK >= 15 ? theme.gold : '#E55B5B')}44` }}>{margemK.toFixed(0)}%</span>}
                     </div>
                     <span style={{ fontSize: 16, fontWeight: 700, color: theme.gold, whiteSpace: 'nowrap', marginLeft: 8 }}>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
@@ -473,7 +514,7 @@ export function KitsPage() {
                   )}
                   <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
                     <span style={{ flex: 1, fontSize: 11, color: theme.muted }}>Clique para simular quantidades</span>
-                    {canWrite && (
+                    {canEditKit(kit) && (
                       <>
                         <button onClick={(e) => { e.stopPropagation(); setEditId(kit.id); setModalOpen(true); }} style={btnSmall}>Editar</button>
                         <button onClick={(e) => { e.stopPropagation(); handleDeleteKit(kit.id); }} style={{ ...btnSmall, borderColor: theme.danger, color: theme.danger }}>Excluir</button>
